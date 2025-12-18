@@ -789,9 +789,20 @@ function getPageFromURL() {
 }
 
 /**
- * Show/hide loading indicator
+ * Show/hide loading indicator with page transition overlay
  */
-function showLoading(show) {}
+function showLoading(show) {
+  const pageTransition = document.getElementById('page-transition');
+  if (!pageTransition) return;
+  
+  if (show) {
+    pageTransition.classList.remove('transition-hidden');
+    pageTransition.setAttribute('aria-hidden', 'false');
+  } else {
+    pageTransition.classList.add('transition-hidden');
+    pageTransition.setAttribute('aria-hidden', 'true');
+  }
+}
 
 /**
  * Setup notification button (placeholder - actual functionality in setupNotificationDropdown)
