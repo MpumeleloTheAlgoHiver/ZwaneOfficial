@@ -1,7 +1,7 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/+esm';
 
-const supabaseUrl = "https://brydisceqijgqloxjqel.supabase.co";
-const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJyeWRpc2NlcWlqZ3Fsb3hqcWVsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg1NTU4MzIsImV4cCI6MjA3NDEzMTgzMn0.YilQpHU3tjxEjV3OZKKRepQBXbxy6QVNtMfB3npmTU0";
+const supabaseUrl = import.meta?.env?.VITE_SUPABASE_URL || "https://jmnjkxfxenrudpvjprcu.supabase.co";
+const supabaseAnonKey = import.meta?.env?.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptbmpreGZ4ZW5ydWRwdmpwcmN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUxODkzNzUsImV4cCI6MjA4MDc2NTM3NX0.X4ZdxzHF0b9GnHklObpIHqnhWvtKjdZnLoah0EVTvHs";
 
 // --- Sanity Check ---
 // This check ensures the variables are filled.

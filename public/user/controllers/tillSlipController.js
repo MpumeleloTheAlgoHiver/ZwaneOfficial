@@ -128,8 +128,8 @@ const uploadTillSlip = async (req, res) => {
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.replace('Bearer ', '');
       const { createClient } = require('@supabase/supabase-js');
-      const supabaseUrl = "https://brydisceqijgqloxjqel.supabase.co";
-      const supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJyeWRpc2NlcWlqZ3Fsb3hqcWVsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg1NTU4MzIsImV4cCI6MjA3NDEzMTgzMn0.YilQpHU3tjxEjV3OZKKRepQBXbxy6QVNtMfB3npmTU0";
+      const supabaseUrl = process.env.SUPABASE_URL;
+      const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
       uploadClient = createClient(supabaseUrl, supabaseAnonKey, {
         global: { headers: { Authorization: `Bearer ${token}` } }
       });
