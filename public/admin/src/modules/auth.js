@@ -1,8 +1,9 @@
 // src/modules/auth.js
 import { supabase } from '../services/supabaseClient.js';
+import { ensureThemeLoaded } from '../../shared/theme-runtime.js';
 
 const authContainer = document.getElementById('auth-container');
-let isLogin = false; // Default to signup
+let isLogin = false; // Default to signup..
 
 async function checkSession() {
     const { data: { session } } = await supabase.auth.getSession();
@@ -192,6 +193,8 @@ async function handleAuth(e) {
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // Ensure theme is loaded before rendering auth form
+    await ensureThemeLoaded();
     checkSession();
 });
