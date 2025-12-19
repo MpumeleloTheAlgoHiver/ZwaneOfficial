@@ -102,10 +102,13 @@ function render() {
                 <div id="auth-error" class="text-sm text-center font-medium text-red-500"></div>
                 
                 <div>
-                    <button type="submit" class="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-bold rounded-md text-white disabled:opacity-50 transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-black"
-                        style="--color-primary: rgb(234, 88, 12); --color-primary-hover: rgb(194, 65, 12); background-color: var(--color-primary);"
-                        onmouseenter="this.style.backgroundColor = 'rgb(194, 65, 12)'"
-                        onmouseleave="this.style.backgroundColor = 'var(--color-primary)'">
+                    <button type="submit" 
+                        style="background: var(--color-primary);"
+                        class="w-full flex justify-center py-3 px-4 border border-transparent rounded shadow-sm text-sm font-bold text-white 
+                               hover:opacity-90 lg:bg-gray-900 lg:hover:bg-gray-800 
+                               focus:outline-none focus:ring-2 focus:ring-offset-2 lg:focus:ring-gray-900 transition-all"
+                        onmouseover="this.style.background='var(--color-primary-hover)'" 
+                        onmouseout="this.style.background='var(--color-primary)'">
                         <span id="auth-button-content">
                             ${isLogin ? 'Sign In' : 'Sign Up'}
                         </span>
