@@ -312,12 +312,12 @@ function render() {
                         </div>
                         ` : ''}
 
-                        <button type="submit" 
+                           <button type="submit" 
                             class="w-full flex justify-center py-3 px-4 border border-transparent rounded shadow-sm text-sm font-bold text-white 
-                                   transition-all focus:outline-none focus:ring-2 focus:ring-offset-2"
-                            style="--color-primary: rgb(234, 88, 12); --color-primary-hover: rgb(194, 65, 12); background-color: var(--color-primary);"
-                            onmouseenter="this.style.backgroundColor = 'rgb(194, 65, 12)'"
-                            onmouseleave="this.style.backgroundColor = 'var(--color-primary)'">
+                                transition-all focus:outline-none focus:ring-2 focus:ring-offset-2"
+                            style="background-color: var(--color-primary, #E7762E);"
+                            onmouseenter="this.style.backgroundColor = 'var(--color-primary-hover, #cf5f20)'"
+                            onmouseleave="this.style.backgroundColor = 'var(--color-primary, #E7762E)'">
                             <span id="auth-button-content">
                                 ${buttonText}
                             </span>
@@ -399,7 +399,7 @@ async function handleAuth(e) {
     const submitButton = e.target.querySelector('button[type="submit"]');
     
     submitButton.disabled = true;
-    buttonContent.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2" style="color: var(--color-secondary);"></i> Processing...`;
+    buttonContent.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2" style="color: var(--color-secondary, #F97316);"></i> Processing...`;
     formMessage = { type: '', text: '' }; 
 
     try {
