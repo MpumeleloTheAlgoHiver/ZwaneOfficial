@@ -547,7 +547,22 @@ function initializeCharts() {
                 rotation: -90
             }
         });
+        updateLoanBreakdownChart(dashboardData.totalRepaid, dashboardData.currentBalance);
     }
+}
+
+function updateLoanBreakdownChart(totalRepaid = 0, outstanding = 0) {
+    dashboardData.totalRepaid = totalRepaid;
+    dashboardData.currentBalance = outstanding;
+    if (!loanBreakdownChart) {
+        return;
+    }
+    const dataset = loanBreakdownChart.data?.datasets?.[0];
+    if (!dataset) {
+        return;
+    }
+    dataset.data = [Math.max(totalRepaid, 0), Math.max(outstanding, 0)];
+    loanBreakdownChart.update();
 }
 
 // Update chart period
@@ -615,21 +630,22 @@ async function loadDashboardData() {
         } else if (loans && loans.length > 0) {
             console.log('✅ Found loans:', loans);
             
-            // Calculate total borrowed (sum of all principal amounts)
-            const totalBorrowed = loans.reduce((sum, loan) => sum + (Number(loan.principal_amount) || 0), 0);
-            dashboardData.totalBorrowed = totalBorrowed;
-            
-            // Update the total borrowed display
-            document.getElementById('totalBorrowed').textContent = formatCurrency(totalBorrowed);
-
             const enrichedLoans = loans.map((loan) => {
                 const principal = Number(loan.principal_amount) || 0;
                 const termMonths = Number(loan.term_months) || 0;
                 const rawRate = Number(loan.interest_rate) || 0;
                 const normalizedRate = rawRate > 1 ? rawRate / 100 : rawRate; // handle stored percentages
                 const monthlyPayment = calculateMonthlyPayment(principal, normalizedRate, termMonths);
-                const dueDateObj = loan.next_payment_date ? new Date(loan.next_payment_date) : null;
-                const outstandingBalance = Number(loan.outstanding_balance) || principal;
+                const rawNextPayment = loan.next_payment_date || loan.first_payment_date || loan.repayment_start_date;
+                let dueDateObj = null;
+                if (rawNextPayment) {
+                    const candidate = new Date(rawNextPayment);
+                    if (!Number.isNaN(candidate.getTime())) {
+                        candidate.setUTCHours(0, 0, 0, 0);
+                        dueDateObj = candidate;
+                    }
+                }
+                const outstandingBalance = Number(loan.outstanding_balance ?? loan.principal_amount) || principal;
                 return {
                     ...loan,
                     principal,
@@ -640,6 +656,23 @@ async function loadDashboardData() {
                     outstandingBalance
                 };
             });
+
+            const loanTotals = enrichedLoans.reduce((acc, loan) => {
+                acc.borrowed += loan.principal;
+                acc.outstanding += loan.outstandingBalance;
+                const repaid = Math.max(loan.principal - loan.outstandingBalance, 0);
+                acc.repaid += repaid;
+                return acc;
+            }, { borrowed: 0, outstanding: 0, repaid: 0 });
+
+            dashboardData.totalBorrowed = loanTotals.borrowed;
+            dashboardData.currentBalance = loanTotals.outstanding;
+            dashboardData.totalRepaid = loanTotals.repaid;
+
+            document.getElementById('totalBorrowed').textContent = formatCurrency(loanTotals.borrowed);
+            document.getElementById('currentBalance').textContent = formatCurrency(loanTotals.outstanding);
+            document.getElementById('totalRepaid').textContent = formatCurrency(loanTotals.repaid);
+            updateLoanBreakdownChart(loanTotals.repaid, loanTotals.outstanding);
 
             const upcomingPayment = enrichedLoans.reduce((best, loan) => {
                 if (!loan.monthlyPayment) {
@@ -688,7 +721,12 @@ async function loadDashboardData() {
         } else {
             console.log('No active loans found');
             dashboardData.totalBorrowed = 0;
+            dashboardData.currentBalance = 0;
+            dashboardData.totalRepaid = 0;
             document.getElementById('totalBorrowed').textContent = formatCurrency(0);
+            document.getElementById('currentBalance').textContent = formatCurrency(0);
+            document.getElementById('totalRepaid').textContent = formatCurrency(0);
+            updateLoanBreakdownChart(0, 0);
             updateNextPaymentDisplay(0, null);
         }
         
