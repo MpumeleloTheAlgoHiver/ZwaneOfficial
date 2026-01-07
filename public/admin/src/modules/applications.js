@@ -69,6 +69,8 @@ let latestCreditZipData = null;
 
 // --- Toast Notification Helper ---
 function showToast(message, type = 'success') {
+
+    
     let container = document.getElementById('toast-container');
     if (!container) {
         container = document.createElement('div');
@@ -666,20 +668,21 @@ function updateWizardButtons() {
 }
 
 // ==========================================
-//   STEP 1: USER SELECTION
+//   STEP 1: USER SELECTION (GREEN THEME + RESUME LOGIC)
 // ==========================================
 
 async function renderUserSelection(container) {
     const allowedRoles = ['admin', 'super_admin', 'base_admin'];
-    const canCreateWalkIn = allowedRoles.includes(userRole);
+    const canCreateWalkIn = allowedRoles.includes(userRole); //
     
     container.innerHTML = `
         <div class="max-w-2xl mx-auto bg-white p-8 rounded-lg border border-gray-200 shadow-sm mt-4">
             <div class="flex border-b border-gray-200 mb-6">
-                <button id="tab-search" class="flex-1 py-2 text-sm font-medium text-orange-600 border-b-2 border-orange-600">
+                <button id="tab-search" class="flex-1 py-2 text-sm font-medium text-green-600 border-b-2 border-green-600">
                     <i class="fa-solid fa-magnifying-glass mr-2"></i>Search Existing
                 </button>
-                ${canCreateWalkIn ? `<button id="tab-create" class="flex-1 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors">
+                ${canCreateWalkIn ? `
+                <button id="tab-create" class="flex-1 py-2 text-sm font-medium text-gray-500 hover:text-green-700 transition-colors">
                     <i class="fa-solid fa-user-plus mr-2"></i>New Walk-in Client
                 </button>` : ''}
             </div>
@@ -688,29 +691,54 @@ async function renderUserSelection(container) {
                 <h3 class="text-xl font-bold text-gray-800 mb-2">Find Client</h3>
                 <p class="text-sm text-gray-500 mb-6">Search by name, email, or ID number.</p>
                 <div class="relative mb-6">
-                    <input type="text" id="user-search" class="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-orange-500 transition-all shadow-sm" placeholder="Start typing name or ID...">
+                    <input type="text" id="user-search" class="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 transition-all shadow-sm" placeholder="Start typing name or ID...">
                     <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                    <div id="search-spinner" class="hidden absolute right-3 top-1/2 -translate-y-1/2 text-green-500">
+                        <i class="fa-solid fa-circle-notch fa-spin"></i>
+                    </div>
                 </div>
                 <div id="user-results" class="hidden absolute z-10 w-full max-w-[36rem] bg-white border border-gray-200 rounded-lg shadow-xl mt-[-20px] max-h-60 overflow-y-auto"></div>
             </div>
             
             ${canCreateWalkIn ? `
             <div id="view-create" class="hidden animate-fade-in">
-                <div class="space-y-5">
-                    <div><label class="block text-xs font-bold text-gray-700 uppercase mb-1">Full Name *</label><input type="text" id="new-fullname" class="w-full border border-gray-300 rounded-md px-3 py-2"></div>
-                    <div><label class="block text-xs font-bold text-gray-700 uppercase mb-1">ID Number *</label><input type="text" id="new-idnumber" maxlength="13" class="w-full border border-gray-300 rounded-md px-3 py-2"></div>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div><label class="block text-xs font-bold text-gray-700 uppercase mb-1">Phone</label><input type="tel" id="new-phone" class="w-full border border-gray-300 rounded-md px-3 py-2"></div>
-                        <div><label class="block text-xs font-bold text-gray-700 uppercase mb-1">Email</label><input type="email" id="new-email" class="w-full border border-gray-300 rounded-md px-3 py-2"></div>
+                <div class="bg-green-50 border-l-4 border-green-500 p-4 mb-6">
+                    <div class="flex">
+                        <div class="flex-shrink-0"><i class="fa-solid fa-store text-green-600"></i></div>
+                        <div class="ml-3">
+                            <p class="text-sm text-green-700">You are registering a <strong>Walk-in Client</strong>. No email required.</p>
+                        </div>
                     </div>
-                    <button id="btn-create-client" class="w-full py-3 bg-gray-900 text-white font-bold rounded-lg hover:bg-black transition-all">Create & Select Client</button>
+                </div>
+                <div class="space-y-5">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Full Name <span class="text-red-500">*</span></label>
+                        <input type="text" id="new-fullname" class="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="e.g. John Doe">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 uppercase mb-1">ID Number <span class="text-red-500">*</span></label>
+                        <input type="text" id="new-idnumber" maxlength="13" class="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="13-digit SA ID">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Phone</label>
+                            <input type="tel" id="new-phone" class="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="082...">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Email (Optional)</label>
+                            <input type="email" id="new-email" class="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="Leave empty if none">
+                        </div>
+                    </div>
+                    <button id="btn-create-client" class="w-full py-3 bg-gray-900 text-white font-bold rounded-lg hover:bg-black transition-all shadow-md mt-2 flex justify-center items-center gap-2">
+                        <i class="fa-solid fa-user-plus"></i> Create & Select Client
+                    </button>
                 </div>
             </div>` : ''}
             
             <div id="selected-user-card" class="${inBranchState.targetUser ? '' : 'hidden'} mt-6 space-y-4 animate-fade-in">
                 <div class="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center justify-between">
                     <div class="flex items-center gap-4">
-                        <div class="w-12 h-12 rounded-full bg-green-200 flex items-center justify-center text-green-700 font-bold text-xl">
+                        <div class="w-12 h-12 rounded-full bg-green-200 flex items-center justify-center text-green-700 font-bold text-xl shadow-sm">
                             ${inBranchState.targetUser?.full_name?.charAt(0) || 'U'}
                         </div>
                         <div>
@@ -718,99 +746,189 @@ async function renderUserSelection(container) {
                             <p class="text-xs text-gray-600 font-mono">ID: ${inBranchState.targetUser?.identity_number || 'N/A'}</p>
                         </div>
                     </div>
-                    <button id="clear-user-btn" class="text-gray-400 hover:text-red-500"><i class="fa-solid fa-times text-xl"></i></button>
+                    <button id="clear-user-btn" class="text-gray-400 hover:text-red-500 transition-colors"><i class="fa-solid fa-times text-xl"></i></button>
                 </div>
 
-                <div id="action-new-loan" class="bg-white border-2 border-brand-accent border-dashed rounded-2xl p-6 shadow-md hover:bg-orange-50 cursor-pointer transition-all group">
+                <div id="action-new-loan" class="bg-white border-2 border-green-600 border-dashed rounded-2xl p-6 shadow-md hover:bg-green-50 cursor-pointer transition-all group">
                     <div class="flex justify-between items-center">
                         <div class="flex items-center gap-4">
-                            <div class="w-10 h-10 bg-brand-accent text-white rounded-full flex items-center justify-center shadow-lg"><i class="fa-solid fa-plus"></i></div>
+                            <div class="w-10 h-10 bg-green-600 text-white rounded-full flex items-center justify-center shadow-lg"><i class="fa-solid fa-plus"></i></div>
                             <div>
                                 <h5 class="font-black text-gray-900 uppercase">Start New Loan Application</h5>
                                 <div id="outstanding-balance-warning">
-                                    <p class="text-[10px] text-gray-500 font-bold uppercase">Fresh credit check & financials</p>
+                                    <p class="text-[10px] text-gray-500 font-bold uppercase tracking-tight">Fresh credit check & financials</p>
                                 </div>
                             </div>
                         </div>
-                        <i class="fa-solid fa-chevron-right text-brand-accent"></i>
+                        <i class="fa-solid fa-chevron-right text-green-600"></i>
                     </div>
                 </div>
 
                 <div id="existing-loans-container" class="space-y-2">
                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-2">Resume / Update Existing</p>
                     <div id="user-loan-history-list" class="space-y-2">
-                        <div class="text-center py-4 bg-gray-50 rounded-xl border border-dashed border-gray-300"><i class="fa-solid fa-spinner fa-spin text-gray-400"></i></div>
+                        <div class="text-center py-4 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+                            <i class="fa-solid fa-spinner fa-spin text-gray-400"></i>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     `;
 
-    // Search & Tab Listeners
-    const input = document.getElementById('user-search');
+    // --- DOM Elements ---
+    const tabSearch = document.getElementById('tab-search'); 
+    const tabCreate = document.getElementById('tab-create');
+    const viewSearch = document.getElementById('view-search'); 
+    const viewCreate = document.getElementById('view-create');
+    const input = document.getElementById('user-search'); 
     const results = document.getElementById('user-results');
-    
-    if(input) {
-        input.addEventListener('input', (e) => {
-            const val = e.target.value.trim();
-            if(val.length < 2) { results.classList.add('hidden'); return; }
-            setTimeout(async () => {
-                const { data: matches } = await supabase.from('profiles').select('*').or(`full_name.ilike.%${val}%,identity_number.ilike.%${val}%`).limit(5);
-                if(matches?.length > 0) {
-                    results.innerHTML = matches.map(u => `<div class="p-3 hover:bg-gray-50 cursor-pointer border-b last:border-0 user-option" data-id="${u.id}"><div class="font-bold text-gray-800">${u.full_name}</div><div class="text-xs text-gray-500 font-mono">ID: ${u.identity_number || 'N/A'}</div></div>`).join('');
-                    results.classList.remove('hidden');
-                    document.querySelectorAll('.user-option').forEach(el => el.onclick = () => { inBranchState.targetUser = matches.find(u => u.id === el.dataset.id); renderUserSelection(container); });
-                }
-            }, 400);
-        });
-    }
+    const spinner = document.getElementById('search-spinner');
 
-    if (inBranchState.targetUser) {
-        // FETCH DEBT: Query the loans table for active balance
-        supabase.from('loans').select('principal_amount').eq('user_id', inBranchState.targetUser.id).eq('status', 'active')
-            .then(({ data: activeLoans }) => {
-                const totalOwed = activeLoans?.reduce((sum, l) => sum + Number(l.principal_amount), 0) || 0;
-                const warningDiv = document.getElementById('outstanding-balance-warning');
-                if (totalOwed > 0 && warningDiv) {
-                    warningDiv.innerHTML = `<p class="text-[10px] text-red-600 font-bold uppercase"><i class="fa-solid fa-warning mr-1"></i> Outstanding Balance: ${formatCurrency(totalOwed)}</p>`;
-                }
-            });
+    // --- 1. Tab Switching Listeners (Green Theme) ---
+    if (canCreateWalkIn && tabCreate) {
+        tabSearch.onclick = () => { 
+            viewSearch.classList.remove('hidden'); 
+            viewCreate.classList.add('hidden'); 
+            tabSearch.className = "flex-1 py-2 text-sm font-medium text-green-600 border-b-2 border-green-600";
+            tabCreate.className = "flex-1 py-2 text-sm font-medium text-gray-500 hover:text-green-700 transition-colors";
+        };
 
-        // FETCH HISTORY: Show existing applications to resume
-        supabase.from('loan_applications').select('*').eq('user_id', inBranchState.targetUser.id).order('created_at', { ascending: false })
-            .then(({ data: apps }) => {
-                const list = document.getElementById('user-loan-history-list');
-                if (!list || !apps || apps.length === 0) { list.innerHTML = '<p class="text-xs text-center text-gray-400">No applications found.</p>'; return; }
-                list.innerHTML = apps.map(app => `
-                    <div class="bg-gray-50 border border-gray-200 rounded-xl p-3 flex justify-between items-center hover:border-brand-accent cursor-pointer transition-all existing-app-row" data-id="${app.id}">
-                        <div class="flex items-center gap-3">
-                            <span class="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-gray-200">${app.status}</span>
-                            <div><p class="text-xs font-bold text-gray-800">${formatCurrency(app.amount)}</p></div>
-                        </div>
-                        <i class="fa-solid fa-pencil text-gray-300 text-xs"></i>
-                    </div>
-                `).join('');
-
-                document.querySelectorAll('.existing-app-row').forEach(row => {
-                    row.onclick = () => {
-                        const app = apps.find(a => String(a.id) === row.dataset.id);
-                        inBranchState.creditCheck.applicationId = app.id;
-                        inBranchState.loanConfig.amount = app.amount;
-                        inBranchState.loanConfig.period = app.term_months;
-                        handleNextStep(); 
-                    };
-                });
-            });
-
-        document.getElementById('action-new-loan').onclick = () => {
-            inBranchState.creditCheck.applicationId = null; // KEY: null forces a new row in DB
-            handleNextStep();
+        tabCreate.onclick = () => { 
+            viewSearch.classList.add('hidden'); 
+            viewCreate.classList.remove('hidden'); 
+            tabCreate.className = "flex-1 py-2 text-sm font-medium text-green-600 border-b-2 border-green-600";
+            tabSearch.className = "flex-1 py-2 text-sm font-medium text-gray-500 hover:text-green-700 transition-colors";
         };
     }
 
-    const clearBtn = document.getElementById('clear-user-btn');
-    if (clearBtn) { clearBtn.onclick = () => { inBranchState.targetUser = null; renderUserSelection(container); updateWizardButtons(); }; }
+    // --- 2. Existing Client Search (Debounced) ---
+    if(input) {
+        let timer;
+        input.oninput = (e) => {
+            clearTimeout(timer);
+            const val = e.target.value.trim(); 
+            if(val.length < 2) { results.classList.add('hidden'); return; }
+            spinner.classList.remove('hidden');
+            timer = setTimeout(async () => {
+                const { data: matches } = await supabase.from('profiles')
+                    .select('*')
+                    .or(`full_name.ilike.%${val}%,identity_number.ilike.%${val}%`)
+                    .limit(5);
+                
+                spinner.classList.add('hidden');
+                if(matches?.length > 0) {
+                    results.innerHTML = matches.map(u => `
+                        <div class="p-3 hover:bg-gray-50 cursor-pointer border-b last:border-0 user-option" data-id="${u.id}">
+                            <div class="font-bold text-gray-800">${u.full_name}</div>
+                            <div class="text-xs text-gray-500 font-mono">ID: ${u.identity_number || 'N/A'}</div>
+                        </div>`).join('');
+                    results.classList.remove('hidden');
+                    document.querySelectorAll('.user-option').forEach(el => el.onclick = () => { 
+                        inBranchState.targetUser = matches.find(u => u.id === el.dataset.id); 
+                        renderUserSelection(container); 
+                        updateWizardButtons(); 
+                    });
+                } else { 
+                    results.innerHTML = `<div class="p-4 text-sm text-gray-500">No clients found.</div>`; 
+                    results.classList.remove('hidden'); 
+                }
+            }, 400);
+        };
+    }
+
+    // --- 3. Walk-in Creation Handler ---
+    document.getElementById('btn-create-client')?.addEventListener('click', async (e) => {
+        const fullName = document.getElementById('new-fullname').value.trim(); 
+        const idNumber = document.getElementById('new-idnumber').value.trim();
+        const phone = document.getElementById('new-phone').value.trim(); 
+        const email = document.getElementById('new-email').value.trim();
+
+        if(!fullName || !idNumber) return showToast("Name and ID Number are required.", 'warning');
+
+        e.target.disabled = true;
+        e.target.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creating...';
+
+        try {
+            const { data, error } = await createWalkInClient({ fullName, idNumber, phone, email: email || null });
+            if(error) throw error;
+            inBranchState.targetUser = data; // Automatically select
+            renderUserSelection(container);
+            updateWizardButtons(); 
+        } catch (err) {
+            showToast(err.message, 'error');
+            e.target.disabled = false;
+            e.target.innerHTML = '<i class="fa-solid fa-user-plus"></i> Create & Select Client';
+        }
+    });
+
+    // --- 4. Selection Management (Active Verification & Resume) ---
+    if (inBranchState.targetUser) {
+        const listContainer = document.getElementById('user-loan-history-list');
+        const warningContainer = document.getElementById('outstanding-balance-warning');
+        const actionNewBtn = document.getElementById('action-new-loan');
+
+        supabase.from('loan_applications')
+            .select('*')
+            .eq('user_id', inBranchState.targetUser.id)
+            .order('created_at', { ascending: false })
+            .then(({ data: apps, error }) => {
+                if (error) return listContainer.innerHTML = `<p class="text-xs text-red-500 p-4">Error loading history</p>`;
+
+                // Verify for Active Loans
+                const activeLoan = apps?.find(a => !['REPAID', 'DECLINED', 'ERROR', 'DISBURSED'].includes(a.status));
+
+                if (activeLoan) {
+                    warningContainer.innerHTML = `
+                        <p class="text-[10px] text-red-600 font-bold uppercase flex items-center gap-1">
+                            <i class="fa-solid fa-triangle-exclamation"></i> Active Application: ${activeLoan.status}
+                        </p>`;
+                    actionNewBtn.classList.add('opacity-50', 'bg-gray-50', 'cursor-not-allowed');
+                    actionNewBtn.onclick = () => showToast(`Cannot start new. Application active in status: ${activeLoan.status}`, "warning");
+                } else {
+                    warningContainer.innerHTML = `<p class="text-[10px] text-green-600 font-bold uppercase">Ready for new application</p>`;
+                    actionNewBtn.onclick = () => handleNextStep(); // Step 2 (Bureau)
+                }
+
+                // Render History with Resume Logic
+                if (!apps || apps.length === 0) {
+                    listContainer.innerHTML = `<p class="text-xs text-gray-400 p-4 text-center italic">No previous applications found.</p>`;
+                } else {
+                    listContainer.innerHTML = apps.map(app => {
+                        const canResume = !['REPAID', 'DECLINED', 'ERROR', 'DISBURSED'].includes(app.status);
+                        return `
+                            <div class="bg-white border border-gray-200 rounded-lg p-3 flex justify-between items-center text-sm shadow-sm">
+                                <div>
+                                    <span class="font-bold text-gray-700">${formatCurrency(app.amount)}</span>
+                                    <span class="text-[10px] ml-2 text-gray-400 font-mono">${formatDate(app.created_at)}</span>
+                                    <div class="mt-1"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${getBadgeColor(app.status)}">${app.status}</span></div>
+                                </div>
+                                ${canResume ? `<button class="resume-app-btn px-3 py-1 bg-green-600 text-white text-xs font-bold rounded-md hover:bg-green-700 transition" data-id="${app.id}">Resume</button>` : ''}
+                            </div>`;
+                    }).join('');
+
+                    document.querySelectorAll('.resume-app-btn').forEach(btn => {
+                        btn.onclick = (e) => {
+                            const appId = e.target.dataset.id;
+                            const appData = apps.find(a => a.id == appId);
+                            // Load existing data into global state
+                            inBranchState.creditCheck.applicationId = appId;
+                            inBranchState.loanConfig = { ...inBranchState.loanConfig, amount: appData.amount, period: appData.term_months, reason: appData.purpose };
+                            showToast(`Resuming Application #${appId.slice(0,8)}...`);
+                            handleNextStep(); 
+                        };
+                    });
+                }
+            });
+    }
+
+    document.getElementById('clear-user-btn')?.addEventListener('click', () => { 
+        inBranchState.targetUser = null; 
+        renderUserSelection(container); 
+        updateWizardButtons(); 
+    });
 }
+
 // ==========================================
 //   STEP 2: BUREAU (MERGED DESIGN & LOGIC)
 // ==========================================
@@ -1880,6 +1998,7 @@ function attachEventListeners() {
     });
 }
 
+// --- Initialization ---
 document.addEventListener('DOMContentLoaded', async () => { 
     const auth = await initLayout(); 
     if(auth) { 
@@ -1889,26 +2008,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     } 
 });
 
+// --- Final Application Submission ---
 async function handleFinalSubmit() {
     const nextBtn = document.getElementById('wizard-next-btn');
+    if (!nextBtn) return; // Guard clause to ensure button exists
+
     nextBtn.disabled = true;
     nextBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
 
     try {
-        const { amount, period } = inBranchState.loanConfig;
+        const { amount, period, startDate } = inBranchState.loanConfig;
+        const history = inBranchState.loanHistoryCount || 0;
+        
+        // Generate the full fee breakdown based on current state
+        const calc = calculateLoanDetails(amount, period, startDate, history);
+        
         let bankId = document.getElementById('bank-select').value;
 
-        // IF ADMIN ENTERED NEW BANK DETAILS
+        // Handle bank account selection or new creation
         if (bankId === 'new') {
-            console.log("Creating new bank account for user:", inBranchState.targetUser.id);
-            
             const newBank = {
                 user_id: inBranchState.targetUser.id,
                 bank_name: document.getElementById('new-bank-name').value,
-                account_holder: document.getElementById('new-account-holder').value,
+                account_holder: inBranchState.targetUser.full_name,
                 account_number: document.getElementById('new-account-number').value,
                 branch_code: document.getElementById('new-branch-code').value,
-                account_type: document.getElementById('new-account-type').value.toLowerCase(), // Force lowercase for DB
+                account_type: document.getElementById('new-account-type').value.toLowerCase(),
                 is_verified: true,
                 created_by_admin: (await supabase.auth.getUser()).data.user.id
             };
@@ -1925,14 +2050,34 @@ async function handleFinalSubmit() {
 
         if (!bankId) throw new Error("Please select or add a bank account.");
 
-        // LINK TO APPLICATION
-        const { error: appError } = await supabase.from('loan_applications').update({
-            status: 'AFFORD_OK',
+        // Prepare application update payload
+        const updatePayload = {
+            status: 'AFFORD_OK', 
             amount: amount,
             term_months: period,
             bank_account_id: bankId,
-            updated_at: new Date().toISOString()
-        }).eq('id', inBranchState.creditCheck.applicationId);
+            updated_at: new Date().toISOString(),
+            offer_principal: amount,
+            offer_interest_rate: calc.totalRate,
+            offer_total_interest: calc.totalInterest,
+            offer_total_initiation_fees: calc.totalInitiationFees,
+            offer_monthly_repayment: calc.monthlyPayment,
+            offer_total_repayment: calc.totalRepayment,
+            offer_total_admin_fees: calc.totalMonthlyFees,
+            offer_details: {
+                first_repayment_date: startDate,
+                interest_portion: calc.interestPortion,
+                initiation_rate: calc.initiationRate,
+                source: "In-Branch Admin Terminal"
+            },
+            notes: `In-branch application for ${inBranchState.targetUser.full_name}. Verified by Admin.`
+        };
+
+        // Update the application record in Supabase
+        const { error: appError } = await supabase
+            .from('loan_applications')
+            .update(updatePayload)
+            .eq('id', inBranchState.creditCheck.applicationId);
 
         if (appError) throw appError;
 
