@@ -189,8 +189,8 @@ function buildDocuSealSubmission(applicationData = {}, profileData = {}) {
                         ? new Date(applicationData.created_at).toLocaleDateString('en-ZA')
                         : '',
                     contract_date: new Date().toLocaleDateString('en-ZA'),
-                    first_payment_date: applicationData.start_date
-                        ? new Date(applicationData.start_date).toLocaleDateString('en-ZA')
+                    first_payment_date: applicationData.repayment_start_date
+                        ? new Date(applicationData.repayment_start_date).toLocaleDateString('en-ZA')
                         : ''
                 },
                 metadata: {

@@ -48,6 +48,18 @@ function loadSavedAccounts() {
   return savedAccounts || [];
 }
 
+function normalizeDateForStorage(dateValue) {
+  if (!dateValue) {
+    return null;
+  }
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  date.setUTCHours(0, 0, 0, 0);
+  return date.toISOString();
+}
+
 async function loadSavedAccountsFromDB(supabase, userId) {
   try {
     const { data, error } = await supabase
@@ -383,6 +395,7 @@ async function handleBankFormSubmit() {
     }
 
     const summary = ensureLoanSummary(pendingLoanConfig);
+    const firstPaymentDateIso = normalizeDateForStorage(pendingLoanConfig.startDate);
     
     // Step 1: Save or retrieve bank account from database
     let bankAccountId = null;
@@ -465,12 +478,13 @@ async function handleBankFormSubmit() {
             purpose: 'Personal Loan',
             status: 'STARTED',
             bank_account_id: bankAccountId,
+            repayment_start_date: firstPaymentDateIso,
             offer_details: {
               interest_rate: pendingLoanConfig.interestRate,
               total_interest: summary?.totalInterest,
               total_repayment: summary?.totalRepayment,
               monthly_payment: summary?.monthlyPayment,
-              first_payment_date: pendingLoanConfig.startDate,
+              first_payment_date: firstPaymentDateIso,
               signature_data: pendingLoanConfig.signature
             }
           })
@@ -502,12 +516,13 @@ async function handleBankFormSubmit() {
         purpose: 'Personal Loan',
         status: 'STARTED',
         bank_account_id: bankAccountId,
+        repayment_start_date: firstPaymentDateIso,
         offer_details: {
           interest_rate: pendingLoanConfig.interestRate,
           total_interest: summary?.totalInterest,
           total_repayment: summary?.totalRepayment,
           monthly_payment: summary?.monthlyPayment,
-          first_payment_date: pendingLoanConfig.startDate,
+          first_payment_date: firstPaymentDateIso,
           signature_data: pendingLoanConfig.signature
         }
       };
