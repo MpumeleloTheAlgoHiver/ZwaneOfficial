@@ -1870,10 +1870,33 @@ document.addEventListener('click', (e) => {
     if(e.target.id === 'wizard-prev-btn' && inBranchState.step > 1) { 
         inBranchState.step--; 
         renderWizard(); 
-    } 
-    if(e.target.id === 'back-to-list-btn' && confirm('Exit in-branch mode? Unsaved progress will be lost.')) { 
-        document.getElementById('in-branch-view').classList.add('hidden'); 
-        document.getElementById('applications-list-view').classList.remove('hidden'); 
+      
+    const cancelBtn = e.target.closest('#back-to-list-btn');
+    if (cancelBtn) {
+        if (!cancelBtn.dataset.confirming) {
+            // First click: Change the button state and show a toast
+            cancelBtn.dataset.confirming = "true";
+            cancelBtn.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Click again to Confirm';
+            cancelBtn.classList.add('text-red-600', 'font-bold');
+            
+            showToast('Unsaved progress will be lost. Click again to exit.', 'warning');
+
+            // Reset the button back to normal if they don't click again within 3 seconds
+            setTimeout(() => {
+                cancelBtn.dataset.confirming = "";
+                cancelBtn.innerHTML = '<i class="fa-solid fa-arrow-left"></i> Cancel';
+                cancelBtn.classList.remove('text-red-600', 'font-bold');
+            }, 3000);
+        } else {
+            // Second click: The admin has confirmed, so exit now
+            document.getElementById('in-branch-view').classList.add('hidden'); 
+            document.getElementById('applications-list-view').classList.remove('hidden'); 
+            
+            // Cleanup button state for next time
+            cancelBtn.dataset.confirming = "";
+            cancelBtn.innerHTML = '<i class="fa-solid fa-arrow-left"></i> Cancel';
+            cancelBtn.classList.remove('text-red-600', 'font-bold');
+        }
     }
 
     // Localhost Logout Fix
