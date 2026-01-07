@@ -1870,6 +1870,7 @@ document.addEventListener('click', (e) => {
     if(e.target.id === 'wizard-prev-btn' && inBranchState.step > 1) { 
         inBranchState.step--; 
         renderWizard(); 
+    }
       
     const cancelBtn = e.target.closest('#back-to-list-btn');
     if (cancelBtn) {
