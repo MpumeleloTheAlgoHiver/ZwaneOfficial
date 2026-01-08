@@ -279,57 +279,55 @@ function render() {
                         <p class="text-gray-200 lg:text-gray-500 text-sm">${subHeading}</p>
                     </div>
                     
-                    <form id="auth-form" class="space-y-4">
-                        ${messageBanner}
+                                        <form id="auth-form" class="space-y-4">
+                                                ${messageBanner}
 
-                           ${viewState === 'signup' ? `
-                           <div>
-                            <label for="full-name" class="block text-xs font-bold text-gray-200 lg:text-gray-700 uppercase mb-1">Full Name</label>
-                            <input id="full-name" name="fullName" type="text" required 
-                                class="w-full px-4 py-3 rounded border border-white/30 bg-white/10 text-white placeholder-gray-300 focus:bg-white/20 focus:ring-1 focus:ring-orange-500 focus:border-orange-500 focus:outline-none transition-all
-                                    lg:border-gray-300 lg:bg-white lg:text-gray-900 lg:placeholder-gray-400" 
-                                placeholder="eg. John Francisco">
-                           </div>
-                           ` : ''}
+                                                ${viewState === 'signup' ? `
+                                                <div>
+                                                    <label for="full-name" class="block text-xs font-bold text-gray-200 lg:text-gray-700 uppercase mb-1">Full Name</label>
+                                                    <input id="full-name" name="fullName" type="text" required 
+                                                        class="w-full px-4 py-3 rounded border border-white/30 bg-white/10 text-white placeholder-gray-300 focus:bg-white/20 focus:ring-1 focus:ring-orange-500 focus:border-orange-500 focus:outline-none transition-all
+                                                                     lg:border-gray-300 lg:bg-white lg:text-gray-900 lg:placeholder-gray-400" 
+                                                        placeholder="eg. John Francisco">
+                                                </div>
+                                                ` : ''}
 
-                           <div>
-                            <label for="email-address" class="block text-xs font-bold text-gray-200 lg:text-gray-700 uppercase mb-1">Email Address</label>
-                            <input id="email-address" name="email" type="email" autocomplete="email" required 
-                                class="w-full px-4 py-3 rounded border border-white/30 bg-white/10 text-white placeholder-gray-300 focus:bg-white/20 focus:ring-1 focus:ring-orange-500 focus:border-orange-500 focus:outline-none transition-all
-                                    lg:border-gray-300 lg:bg-white lg:text-gray-900 lg:placeholder-gray-400" 
-                                placeholder="info@example.com">
-                           </div>
+                                                <div>
+                                                    <label for="email-address" class="block text-xs font-bold text-gray-200 lg:text-gray-700 uppercase mb-1">Email Address</label>
+                                                    <input id="email-address" name="email" type="email" autocomplete="email" required 
+                                                        class="w-full px-4 py-3 rounded border border-white/30 bg-white/10 text-white placeholder-gray-300 focus:bg-white/20 focus:ring-1 focus:ring-orange-500 focus:border-orange-500 focus:outline-none transition-all
+                                                                     lg:border-gray-300 lg:bg-white lg:text-gray-900 lg:placeholder-gray-400" 
+                                                        placeholder="info@example.com">
+                                                </div>
 
-                        ${viewState !== 'forgot' ? `
-                        <div>
-                            <label for="password" class="block text-xs font-bold text-gray-200 lg:text-gray-700 uppercase mb-1">Password</label>
-                            <div class="relative">
-                                <input id="password" name="password" type="password" autocomplete="current-password" required 
-                                    class="w-full px-4 py-3 rounded border border-white/30 bg-white/10 text-white placeholder-gray-300 focus:bg-white/20 focus:ring-1 focus:ring-orange-500 focus:border-orange-500 focus:outline-none transition-all
-                                           lg:border-gray-300 lg:bg-white lg:text-gray-900 lg:placeholder-gray-400" 
-                                    placeholder="********">
-                            </div>
-                            ${viewState === 'signup' ? `<p class="mt-1 text-xs text-gray-300 lg:text-gray-500">Must be at least 6 characters.</p>` : ''}
-                        </div>
-                        ` : ''}
+                                                ${viewState !== 'forgot' ? `
+                                                <div>
+                                                    <label for="password" class="block text-xs font-bold text-gray-200 lg:text-gray-700 uppercase mb-1">Password</label>
+                                                    <div class="relative">
+                                                        <input id="password" name="password" type="password" autocomplete="current-password" required 
+                                                            class="w-full px-4 py-3 rounded border border-white/30 bg-white/10 text-white placeholder-gray-300 focus:bg-white/20 focus:ring-1 focus:ring-orange-500 focus:border-orange-500 focus:outline-none transition-all
+                                                                         lg:border-gray-300 lg:bg-white lg:text-gray-900 lg:placeholder-gray-400" 
+                                                            placeholder="********">
+                                                    </div>
+                                                    ${viewState === 'signup' ? `<p class="mt-1 text-xs text-gray-300 lg:text-gray-500">Must be at least 6 characters.</p>` : ''}
+                                                </div>
+                                                ` : ''}
 
-                        ${viewState === 'login' ? `
-                        <div class="flex justify-end text-sm">
-                            <button type="button" id="btn-to-forgot" class="text-gray-200 hover:text-white lg:text-gray-500 lg:hover:text-orange-600 transition-colors font-medium">Forgot Password?</button>
-                        </div>
-                        ` : ''}
+                                                ${viewState === 'login' ? `
+                                                <div class="flex justify-end text-sm">
+                                                    <button type="button" id="btn-to-forgot" class="text-gray-200 hover:text-white lg:text-gray-500 lg:hover:text-orange-600 transition-colors font-medium">Forgot Password?</button>
+                                                </div>
+                                                ` : ''}
 
-                           <button type="submit" 
-                            class="w-full flex justify-center py-3 px-4 border border-transparent rounded shadow-sm text-sm font-bold text-white 
-                                transition-all focus:outline-none focus:ring-2 focus:ring-offset-2"
-                            style="background-color: var(--color-primary, #E7762E);"
-                            onmouseenter="this.style.backgroundColor = 'var(--color-primary-hover, #cf5f20)'"
-                            onmouseleave="this.style.backgroundColor = 'var(--color-primary, #E7762E)'">
-                            <span id="auth-button-content">
-                                ${buttonText}
-                            </span>
-                        </button>
-                    </form>
+                                                <button type="submit" 
+                                                    class="w-full flex justify-center py-3 px-4 border border-transparent rounded shadow-sm text-sm font-bold text-white 
+                                                                 transition-all focus:outline-none focus:ring-2 focus:ring-offset-2"
+                                                    style="background-color: var(--color-primary, #E7762E);"
+                                                    onmouseenter="this.style.backgroundColor = 'var(--color-primary-hover, #cf5f20)'"
+                                                    onmouseleave="this.style.backgroundColor = 'var(--color-primary, #E7762E)'">
+                                                    <span id="auth-button-content">${buttonText}</span>
+                                                </button>
+                                        </form>
 
                     <div class="relative my-6">
                         <div class="absolute inset-0 flex items-center">
