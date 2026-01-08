@@ -1,5 +1,5 @@
 import { supabase } from '../Services/supabaseClient.js';
-import { ensureThemeLoaded, getCachedTheme, DEFAULT_SYSTEM_SETTINGS } from '../shared/theme-runtime.js';
+import { ensureThemeLoaded, getCachedTheme, DEFAULT_SYSTEM_SETTINGS, getCompanyName } from '../shared/theme-runtime.js';
 
 const authContainer = document.getElementById('auth-container');
 
@@ -8,7 +8,7 @@ let viewState = 'login'; // Options: 'login', 'signup', 'forgot'
 let formMessage = { type: '', text: '' }; 
 let brandingTheme = null;
 
-const DEFAULT_BRAND_LOGO = 'https://www.zwanefin.co.za/assets/img/zwanefin-logo.png';
+const DEFAULT_BRAND_LOGO = 'https://placehold.co/240x80?text=Your+Logo';
 const DEFAULT_AUTH_WALLPAPER = 'https://static.wixstatic.com/media/f82622_a05fcfc8600d48818feb2feeef4796fa~mv2.png';
 const DEFAULT_AUTH_OVERLAY_COLOR = DEFAULT_SYSTEM_SETTINGS.auth_overlay_color || '#EA580C';
 const DEFAULT_AUTH_OVERLAY_ENABLED = DEFAULT_SYSTEM_SETTINGS.auth_overlay_enabled !== false;
@@ -26,6 +26,13 @@ const escapeAttr = (value = '') => {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
 };
+
+const escapeHtml = (value = '') => `${value}`
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+const getActiveCompanyName = () => getCompanyName(brandingTheme || getCachedTheme() || DEFAULT_SYSTEM_SETTINGS);
 
 const sanitizeCarouselSlides = (slides) => {
     const fallback = DEFAULT_CAROUSEL_SLIDES;
@@ -179,6 +186,7 @@ function render() {
     const brandLogoAttr = escapeAttr(brandLogo);
     const wallpaperAttr = escapeAttr(wallpaper);
     const overlayColorAttr = escapeAttr(overlayColor);
+    const companyName = escapeHtml(getActiveCompanyName());
 
     let mainHeading, subHeading, buttonText;
     
@@ -246,7 +254,6 @@ function render() {
             <div class="pointer-events-auto">
                 <img src="${brandLogoAttr}" alt="Company logo" class="h-16 w-auto object-contain">
             </div>
-
             <div class="mb-12 max-w-lg pointer-events-auto">
                 <h1 id="carousel-title" class="text-white text-5xl font-bold mb-6 leading-tight transition-opacity duration-300 whitespace-pre-line"></h1>
                 <p id="carousel-text" class="text-white text-lg font-light leading-relaxed mb-8 transition-opacity duration-300"></p>
@@ -285,9 +292,9 @@ function render() {
                         </div>
                         ` : ''}
 
-                        <div>
+                                            ${companyName} is an authorised financial services provider (FSP 53423) and registered credit provider (NCRCP13510).
                             <label for="email-address" class="block text-xs font-bold text-gray-200 lg:text-gray-700 uppercase mb-1">Email Address</label>
-                            <input id="email-address" name="email" type="email" autocomplete="email" required 
+                                            Copyright © 2025 by ${companyName}. All Right Reserved.
                                 class="w-full px-4 py-3 rounded border border-white/30 bg-white/10 text-white placeholder-gray-300 focus:bg-white/20 focus:ring-1 focus:ring-orange-500 focus:border-orange-500 focus:outline-none transition-all
                                        lg:border-gray-300 lg:bg-white lg:text-gray-900 lg:placeholder-gray-400" 
                                 placeholder="info@example.com">
@@ -342,9 +349,9 @@ function render() {
 
                 <div class="mt-8 pt-4 text-center border-t border-white/10 lg:border-gray-100 lg:mt-auto">
                     <p class="text-[10px] text-gray-300 lg:text-sm lg:text-gray-500 leading-tight opacity-70 hover:opacity-100 transition-opacity">
-                        Zwane Financial Services is an authorised financial services provider (FSP 53423) and registered credit provider (NCRCP13510).
+                        ${companyName} is an authorised financial services provider (FSP 53423) and registered credit provider (NCRCP13510).
                         <br class="mb-1">
-                        Copyright © 2025 by Zwane Financial Services. All Right Reserved.
+                        Copyright © 2025 by ${companyName}. All Right Reserved.
                     </p>
                 </div>
 

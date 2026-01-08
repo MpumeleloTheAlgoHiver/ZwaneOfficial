@@ -40,6 +40,7 @@ const docuSealHeaders = {
 };
 
 const DEFAULT_AUTH_OVERLAY_COLOR = '#EA580C';
+const DEFAULT_COMPANY_NAME = 'Your Company';
 
 const DEFAULT_CAROUSEL_SLIDES = [
     {
@@ -58,6 +59,7 @@ const DEFAULT_CAROUSEL_SLIDES = [
 
 const DEFAULT_SYSTEM_SETTINGS = {
     id: 'global',
+    company_name: DEFAULT_COMPANY_NAME,
     primary_color: '#E7762E',
     secondary_color: '#F97316',
     tertiary_color: '#FACC15',
@@ -96,6 +98,11 @@ const normalizeHexColor = (value, fallback) => {
     return `#${hex.toUpperCase()}`;
 };
 
+const normalizeCompanyName = (value) => {
+    const name = typeof value === 'string' ? value.trim() : '';
+    return name || DEFAULT_SYSTEM_SETTINGS.company_name;
+};
+
 const sanitizeSlide = (slide = {}, fallback = {}) => {
     const safeTitle = typeof slide.title === 'string' ? slide.title.trim() : '';
     const safeText = typeof slide.text === 'string' ? slide.text.trim() : '';
@@ -113,6 +120,7 @@ const normalizeCarouselSlides = (slides) => {
 const hydrateSystemSettings = (settings = {}) => ({
     ...DEFAULT_SYSTEM_SETTINGS,
     ...settings,
+    company_name: normalizeCompanyName(settings?.company_name),
     auth_background_flip: normalizeBoolean(settings?.auth_background_flip, DEFAULT_SYSTEM_SETTINGS.auth_background_flip),
     auth_overlay_color: normalizeHexColor(settings?.auth_overlay_color, DEFAULT_SYSTEM_SETTINGS.auth_overlay_color),
     auth_overlay_enabled: normalizeBoolean(settings?.auth_overlay_enabled, DEFAULT_SYSTEM_SETTINGS.auth_overlay_enabled),
@@ -154,7 +162,7 @@ async function loadSystemSettings(forceRefresh = false) {
 
 async function docuSealRequest(method, endpoint, data) {
     if (!isDocuSealReady()) {
-        throw new Error('DocuSeal configuration missing');
+        throw new Error('DocuSeal configuration missing');               
     }
 
     return axios({
@@ -822,7 +830,8 @@ app.get('/admin/settings', (req, res) => {
 
 // --- 8. Start Server ---
 app.listen(PORT, () => {
-    console.log(`🚀 Zwane Finance server running on http://localhost:${PORT}`);
+    const companyNameForLog = cachedSystemSettings?.data?.company_name || DEFAULT_SYSTEM_SETTINGS.company_name;
+    console.log(`🚀 ${companyNameForLog} server running on http://localhost:${PORT}`);
     console.log(`📁 Serving admin files from: ${adminDistPath}`);
     console.log(`📁 Serving public files from: ${path.join(__dirname, 'public')}`);
     

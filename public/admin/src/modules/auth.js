@@ -1,9 +1,11 @@
 // src/modules/auth.js
 import { supabase } from '../services/supabaseClient.js';
-import { ensureThemeLoaded } from '../../shared/theme-runtime.js';
+import { ensureThemeLoaded, getCachedTheme, DEFAULT_SYSTEM_SETTINGS, getCompanyName } from '../../shared/theme-runtime.js';
 
 const authContainer = document.getElementById('auth-container');
 let isLogin = false; // Default to signup..
+
+const getBrandName = () => getCompanyName(getCachedTheme()) || DEFAULT_SYSTEM_SETTINGS.company_name;
 
 async function checkSession() {
     const { data: { session } } = await supabase.auth.getSession();
@@ -22,6 +24,8 @@ async function checkSession() {
 
 function render() {
     if (!authContainer) return;
+
+    const companyName = getBrandName();
 
     const mainHeading = isLogin ? 'Welcome Back' : 'Create Your Account'; 
 
@@ -47,7 +51,7 @@ function render() {
                     clip-path: url(#rect-clip);">
             
             <div class="relative z-10 text-center p-4 max-w-sm mx-auto" style="transform: translateY(123px);">
-                <h2 class="text-base font-bold mb-2">Zwane Finance</h2>
+            <h2 class="text-base font-bold mb-2">${companyName}</h2>
                 <h3 class="text-2xl font-normal mb-4">Get Started</h3>
                 
                 <p class="text-xs sm:text-sm text-gray-200">
