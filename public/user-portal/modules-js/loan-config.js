@@ -370,7 +370,10 @@ function initializeDatePicker() {
 }
 
 function getLoanSummary() {
-  const { amount, period, interestRate } = loanConfig;
+  // Normalize core inputs to avoid zero/NaN edge cases before math
+  const amount = Math.max(0, Number(loanConfig.amount) || 0);
+  const period = Math.max(1, Number(loanConfig.period) || 1);
+  const interestRate = Number(loanConfig.interestRate) || 0;
   const MONTHLY_FEE = 60; // R60 admin fee per 30-day period
   const INITIATION_FEE_RATE = 0.15; // 15% of loan amount per month
   const CREDIT_LIFE_RATE = 0.0045; // 0.45% of initial loan amount
@@ -422,8 +425,9 @@ function getLoanSummary() {
   
   // Combined total fees
   const totalFees = totalMonthlyFees + totalInitiationFees;
-  const creditLifeMonthly = period > 0 ? (amount * CREDIT_LIFE_RATE) / period : 0;
-  const totalCreditLife = creditLifeMonthly * period;
+  // Credit life is 0.45% of principal, spread evenly across the term
+  const totalCreditLife = Number((amount * CREDIT_LIFE_RATE).toFixed(2));
+  const creditLifeMonthly = Number((totalCreditLife / period).toFixed(2));
   const combinedFees = totalFees + totalCreditLife;
   
   // Total repayment = principal + total interest + all fees (incl. credit life)
@@ -538,9 +542,9 @@ function initializeSignatureCanvas() {
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
 
-  // Drawing settings for dark theme
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 2;
+  // Drawing settings: dark ink so it is visible on white canvas
+  ctx.strokeStyle = '#111827';
+  ctx.lineWidth = 2.5;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
