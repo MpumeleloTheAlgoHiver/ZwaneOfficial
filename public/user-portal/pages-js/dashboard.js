@@ -24,6 +24,7 @@ const dashboardData = {
     creditScore: 0,
     totalBorrowed: 0,
     totalRepaid: 0,
+    repaymentSeries: null,
     loans: [
         // Active loans will be fetched from Supabase
         // Example structure:
@@ -399,6 +400,16 @@ loadDashboardData();
 // Initialize charts
 let repaymentChart, loanBreakdownChart;
 
+function applyRepaymentChart(labels = [], data = []) {
+    if (!repaymentChart) {
+        dashboardData.repaymentSeries = { labels, data };
+        return;
+    }
+    repaymentChart.data.labels = labels;
+    repaymentChart.data.datasets[0].data = data;
+    repaymentChart.update();
+}
+
 function initializeCharts() {
     const palette = getThemePalette();
     // Repayment Trends Chart
@@ -412,10 +423,10 @@ function initializeCharts() {
         repaymentChart = new Chart(repaymentCtx, {
             type: 'line',
             data: {
-                labels: ['Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov'],
+                labels: dashboardData.repaymentSeries?.labels || ['Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov'],
                 datasets: [{
                     label: 'Payments Made',
-                    data: [0, 0, 0, 0, 0, 0], // Will be populated from Supabase
+                    data: dashboardData.repaymentSeries?.data || [0, 0, 0, 0, 0, 0],
                     borderColor: palette.primarySoft,
                     backgroundColor: lineGradient,
                     borderWidth: 3,
@@ -485,6 +496,9 @@ function initializeCharts() {
                 }
             }
         });
+        if (dashboardData.repaymentSeries) {
+            applyRepaymentChart(dashboardData.repaymentSeries.labels, dashboardData.repaymentSeries.data);
+        }
     }
 
     // Loan Breakdown Chart (Doughnut)
@@ -620,7 +634,7 @@ async function loadDashboardData() {
         // Fetch payments for this user (to compute remaining balances)
         const { data: payments, error: paymentsError } = await supabase
             .from('payments')
-            .select('loan_id, amount')
+            .select('loan_id, amount, payment_date')
             .eq('user_id', session.user.id);
 
         if (paymentsError) {
@@ -635,6 +649,30 @@ async function loadDashboardData() {
         }, {});
 
         const totalRepaidAllLoans = (payments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+        // Build repayment trend for the past 6 months including current
+        const monthFormatter = new Intl.DateTimeFormat('en-US', { month: 'short' });
+        const now = new Date();
+        const months = Array.from({ length: 6 }, (_, i) => {
+            const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (5 - i), 1));
+            const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+            return { key, label: monthFormatter.format(d), year: d.getUTCFullYear(), month: d.getUTCMonth() };
+        });
+
+        const repaymentBuckets = months.reduce((acc, m) => ({ ...acc, [m.key]: 0 }), {});
+        (payments || []).forEach((p) => {
+            if (!p.payment_date) return;
+            const dt = new Date(p.payment_date);
+            if (Number.isNaN(dt.getTime())) return;
+            const key = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`;
+            if (key in repaymentBuckets) {
+                repaymentBuckets[key] += Number(p.amount) || 0;
+            }
+        });
+
+        const repaymentLabels = months.map(m => m.label);
+        const repaymentData = months.map(m => repaymentBuckets[m.key]);
+        dashboardData.repaymentSeries = { labels: repaymentLabels, data: repaymentData };
 
         // Fetch active loans from loans table
         const { data: loans, error: loansError } = await supabase
@@ -696,8 +734,8 @@ async function loadDashboardData() {
 
             document.getElementById('totalBorrowed').textContent = formatCurrency(loanTotals.borrowed);
             document.getElementById('currentBalance').textContent = formatCurrency(loanTotals.outstanding);
-            document.getElementById('totalRepaid').textContent = formatCurrency(loanTotals.repaid);
-            updateLoanBreakdownChart(loanTotals.repaid, loanTotals.outstanding);
+            document.getElementById('totalRepaid').textContent = formatCurrency(loanTotals.repaid || totalRepaidAllLoans);
+            updateLoanBreakdownChart(loanTotals.repaid || totalRepaidAllLoans, loanTotals.outstanding);
 
             const upcomingPayment = enrichedLoans.reduce((best, loan) => {
                 if (!loan.monthlyPayment) {
@@ -721,6 +759,10 @@ async function loadDashboardData() {
             } else {
                 dashboardData.nextPayment = { amount: 0, date: null };
                 updateNextPaymentDisplay(0, null);
+            }
+
+            if (dashboardData.repaymentSeries) {
+                applyRepaymentChart(dashboardData.repaymentSeries.labels, dashboardData.repaymentSeries.data);
             }
 
             // Transform loans to dashboard format (show top 3)
@@ -748,12 +790,15 @@ async function loadDashboardData() {
             console.log('No active loans found');
             dashboardData.totalBorrowed = 0;
             dashboardData.currentBalance = 0;
-            dashboardData.totalRepaid = 0;
+            dashboardData.totalRepaid = totalRepaidAllLoans;
             document.getElementById('totalBorrowed').textContent = formatCurrency(0);
             document.getElementById('currentBalance').textContent = formatCurrency(0);
-            document.getElementById('totalRepaid').textContent = formatCurrency(0);
-            updateLoanBreakdownChart(0, 0);
+            document.getElementById('totalRepaid').textContent = formatCurrency(totalRepaidAllLoans);
+            updateLoanBreakdownChart(totalRepaidAllLoans, 0);
             updateNextPaymentDisplay(0, null);
+            if (dashboardData.repaymentSeries) {
+                applyRepaymentChart(dashboardData.repaymentSeries.labels, dashboardData.repaymentSeries.data);
+            }
         }
         
         // Fetch recent applications (exclude OFFERED and DISBURSED since they're now in loans table)
