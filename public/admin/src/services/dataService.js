@@ -25,6 +25,97 @@ function normalizeToIsoMidnight(date) {
   return clone.toISOString();
 }
 
+async function ensureLoanFromApplication(application) {
+  if (!application?.id) return { data: null, error: new Error('Invalid application payload') };
+
+  const applicationId = application.id;
+
+  const { data: existingLoan } = await supabase
+    .from('loans')
+    .select('*')
+    .eq('application_id', applicationId)
+    .maybeSingle();
+
+  const offerDetails = application.offer_details || {};
+  const principal = Number(application.offer_principal ?? application.amount ?? 0) || 0;
+  const termMonths = Number(application.term_months || offerDetails.term_months || 0) || 1;
+  const rateFromOfferDetails = typeof offerDetails.interest_rate === 'number' ? offerDetails.interest_rate : null;
+  const rate = rateFromOfferDetails ?? (Number(application.offer_interest_rate) ? Number(application.offer_interest_rate) / 100 : 0.025);
+
+  const monthlyFromOffer = Number(application.offer_monthly_repayment ?? offerDetails.monthly_payment ?? 0);
+  let monthlyPayment = monthlyFromOffer;
+
+  if (!monthlyPayment) {
+    const factor = Math.pow(1 + rate, termMonths);
+    monthlyPayment = rate === 0 ? principal / termMonths : principal * (rate * factor) / (factor - 1);
+  }
+
+  const totalRepayment = Number(
+    application.offer_total_repayment
+    ?? offerDetails.total_repayment
+    ?? (monthlyPayment && termMonths ? monthlyPayment * termMonths : 0)
+  );
+
+  const firstPaymentDate = resolveFirstPaymentDate(application);
+  const normalizedFirstPayment = normalizeToIsoMidnight(firstPaymentDate);
+  const nextPaymentDate = firstPaymentDate ? new Date(firstPaymentDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  nextPaymentDate.setUTCHours(0, 0, 0, 0);
+
+  const baseLoan = {
+    application_id: applicationId,
+    user_id: application.user_id,
+    principal_amount: principal,
+    interest_rate: rate,
+    term_months: termMonths,
+    monthly_payment: monthlyPayment,
+    status: 'active',
+    start_date: new Date().toISOString(),
+    next_payment_date: nextPaymentDate.toISOString(),
+    outstanding_balance: principal
+  };
+
+  if (normalizedFirstPayment) {
+    baseLoan.first_payment_date = normalizedFirstPayment;
+  }
+  if (!Number.isNaN(totalRepayment) && totalRepayment > 0) {
+    baseLoan.total_repayment = totalRepayment;
+  }
+
+  if (existingLoan?.id) {
+    const updatePayload = {
+      monthly_payment: monthlyPayment,
+      next_payment_date: baseLoan.next_payment_date,
+      interest_rate: rate,
+      term_months: termMonths,
+      principal_amount: principal
+    };
+
+    if (baseLoan.total_repayment) {
+      updatePayload.total_repayment = baseLoan.total_repayment;
+    }
+    if (baseLoan.first_payment_date) {
+      updatePayload.first_payment_date = baseLoan.first_payment_date;
+    }
+
+    const { data, error } = await supabase
+      .from('loans')
+      .update(updatePayload)
+      .eq('id', existingLoan.id)
+      .select()
+      .single();
+
+    return { data, error };
+  }
+
+  const { data, error } = await supabase
+    .from('loans')
+    .insert([baseLoan])
+    .select()
+    .single();
+
+  return { data, error };
+}
+
 // =================================================================
 // == HELPER UTILS (SYSTEM SETTINGS)
 // =================================================================
@@ -251,7 +342,22 @@ export async function fetchApplicationDetail(applicationId) {
 }
 
 export async function updateApplicationStatus(applicationId, newStatus) {
-  return supabase.from('loan_applications').update({ status: newStatus }).eq('id', applicationId).select();
+  const { data: updatedApp, error } = await supabase
+    .from('loan_applications')
+    .update({ status: newStatus })
+    .eq('id', applicationId)
+    .select()
+    .single();
+
+  if (error) {
+    return { data: null, error };
+  }
+
+  if (updatedApp && ['OFFERED', 'READY_TO_DISBURSE', 'DISBURSED', 'ACTIVE'].includes(newStatus)) {
+    await ensureLoanFromApplication(updatedApp);
+  }
+
+  return { data: updatedApp, error: null };
 }
 
 export async function updateApplicationNotes(applicationId, notes) {

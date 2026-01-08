@@ -635,7 +635,8 @@ async function loadDashboardData() {
                 const termMonths = Number(loan.term_months) || 0;
                 const rawRate = Number(loan.interest_rate) || 0;
                 const normalizedRate = rawRate > 1 ? rawRate / 100 : rawRate; // handle stored percentages
-                const monthlyPayment = calculateMonthlyPayment(principal, normalizedRate, termMonths);
+                const storedMonthly = Number(loan.monthly_payment) || 0;
+                const monthlyPayment = storedMonthly || calculateMonthlyPayment(principal, normalizedRate, termMonths);
                 const rawNextPayment = loan.next_payment_date || loan.first_payment_date || loan.repayment_start_date;
                 let dueDateObj = null;
                 if (rawNextPayment) {
@@ -645,7 +646,12 @@ async function loadDashboardData() {
                         dueDateObj = candidate;
                     }
                 }
-                const outstandingBalance = Number(loan.outstanding_balance ?? loan.principal_amount) || principal;
+                const totalRepayment = Number(loan.total_repayment || 0);
+                const outstandingBalance = Number(
+                    (loan.total_repayment ?? null) !== null
+                        ? loan.total_repayment
+                        : (loan.outstanding_balance ?? principal)
+                ) || principal;
                 return {
                     ...loan,
                     principal,
@@ -653,14 +659,15 @@ async function loadDashboardData() {
                     normalizedRate,
                     monthlyPayment,
                     dueDateObj,
-                    outstandingBalance
+                    outstandingBalance,
+                    totalRepayment: totalRepayment || monthlyPayment * (termMonths || 1)
                 };
             });
 
             const loanTotals = enrichedLoans.reduce((acc, loan) => {
                 acc.borrowed += loan.principal;
                 acc.outstanding += loan.outstandingBalance;
-                const repaid = Math.max(loan.principal - loan.outstandingBalance, 0);
+                const repaid = Math.max((loan.totalRepayment || loan.principal) - loan.outstandingBalance, 0);
                 acc.repaid += repaid;
                 return acc;
             }, { borrowed: 0, outstanding: 0, repaid: 0 });
@@ -704,16 +711,16 @@ async function loadDashboardData() {
                     ? `${loan.status.charAt(0).toUpperCase()}${loan.status.slice(1).toLowerCase()}`
                     : 'Active';
                 return {
-                id: `LOAN-${loan.id}`,
-                amount: formatCurrency(loan.principal),
-                remaining: formatCurrency(loan.outstandingBalance),
-                nextPayment: formatCurrency(loan.monthlyPayment),
-                dueDate: loan.dueDateObj 
-                    ? loan.dueDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                    : 'TBD',
-                interestRate: `${(loan.normalizedRate * 100).toFixed(2)}%`,
-                status: readableStatus
-            };
+                    id: `LOAN-${loan.id}`,
+                    amount: formatCurrency(loan.totalRepayment || loan.principal),
+                    remaining: formatCurrency(loan.outstandingBalance || loan.totalRepayment || loan.principal),
+                    nextPayment: formatCurrency(loan.monthlyPayment),
+                    dueDate: loan.dueDateObj 
+                        ? loan.dueDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                        : 'TBD',
+                    interestRate: `${(loan.normalizedRate * 100).toFixed(2)}%`,
+                    status: readableStatus
+                };
             });
             
             // Update the active loans section
