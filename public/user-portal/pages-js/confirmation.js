@@ -457,6 +457,17 @@ async function handleBankFormSubmit() {
     // Step 2: Update existing loan application or create new one
     let applicationId = sessionStorage.getItem('currentApplicationId');
     let newApplication;
+
+    const offerFields = {
+      offer_principal: Number(pendingLoanConfig?.amount) || 0,
+      offer_interest_rate: Number((pendingLoanConfig?.interestRate || 0) * 100).toFixed(2),
+      offer_total_interest: Number(summary?.totalInterest) || 0,
+      offer_total_admin_fees: Number(summary?.totalMonthlyFees) || 0,
+      offer_total_initiation_fees: Number(summary?.totalInitiationFees) || 0,
+      offer_monthly_repayment: Number(summary?.monthlyPayment) || 0,
+      offer_total_repayment: Number(summary?.totalRepayment) || 0,
+      offer_credit_life_monthly: Number(summary?.creditLifeMonthly) || 0
+    };
     
     if (applicationId) {
       // Check if application is already submitted
@@ -479,6 +490,7 @@ async function handleBankFormSubmit() {
             status: 'STARTED',
             bank_account_id: bankAccountId,
             repayment_start_date: firstPaymentDateIso,
+            ...offerFields,
             offer_details: {
               interest_rate: pendingLoanConfig.interestRate,
               total_interest: summary?.totalInterest,
@@ -517,6 +529,7 @@ async function handleBankFormSubmit() {
         status: 'STARTED',
         bank_account_id: bankAccountId,
         repayment_start_date: firstPaymentDateIso,
+        ...offerFields,
         offer_details: {
           interest_rate: pendingLoanConfig.interestRate,
           total_interest: summary?.totalInterest,
