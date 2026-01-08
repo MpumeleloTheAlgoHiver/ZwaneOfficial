@@ -84,14 +84,17 @@ const getThemePalette = () => {
     const styles = getComputedStyle(document.documentElement);
     const read = (name, fallback) => (styles.getPropertyValue(name).trim() || fallback);
     const primaryRgb = read('--color-primary-rgb', '231 118 46');
+    const secondaryRgb = read('--color-secondary-rgb', '14 165 233');
     return {
         primary: read('--color-primary', '#E7762E'),
         primarySoft: read('--color-primary-soft', '#ff9f5a'),
+        secondary: read('--color-secondary', '#0ea5e9'),
         secondarySoft: read('--color-secondary-soft', '#ffb26b'),
         surfaceCard: read('--color-surface-card', '#ffffff'),
         text: read('--color-text', '#0f172a'),
         textMuted: read('--color-text-muted', '#475569'),
-        primaryAlpha: (alpha) => `rgb(${primaryRgb} / ${alpha})`
+        primaryAlpha: (alpha) => `rgb(${primaryRgb} / ${alpha})`,
+        secondaryAlpha: (alpha) => `rgb(${secondaryRgb} / ${alpha})`
     };
 };
 
@@ -419,7 +422,7 @@ function initializeCharts() {
         const lineCtx = repaymentCtx.getContext('2d');
         const lineGradient = lineCtx.createLinearGradient(0, 0, 0, repaymentCtx.height);
         lineGradient.addColorStop(0, palette.primaryAlpha(0.35));
-        lineGradient.addColorStop(1, palette.primaryAlpha(0.05));
+        lineGradient.addColorStop(1, palette.secondaryAlpha(0.08));
 
         repaymentChart = new Chart(repaymentCtx, {
             type: 'line',
@@ -509,8 +512,8 @@ function initializeCharts() {
         const donutCtx = breakdownCtx.getContext('2d');
         const brightOrange = donutCtx.createLinearGradient(0, 0, breakdownCtx.width, breakdownCtx.height);
         brightOrange.addColorStop(0, palette.primaryAlpha(0.95));
-        brightOrange.addColorStop(1, palette.primaryAlpha(0.9));
-        const mutedOrange = palette.primaryAlpha(0.15);
+        brightOrange.addColorStop(1, palette.secondaryAlpha(0.85));
+        const mutedOrange = palette.secondaryAlpha(0.2);
 
         loanBreakdownChart = new Chart(breakdownCtx, {
             type: 'doughnut',
@@ -518,9 +521,9 @@ function initializeCharts() {
                 labels: ['Repaid', 'Outstanding'],
                 datasets: [{
                     data: [0, 0], // Will be populated from Supabase (dashboardData.totalRepaid, dashboardData.currentBalance)
-                    backgroundColor: [brightOrange, palette.primaryAlpha(0.2)],
-                    borderColor: [palette.primary, palette.primaryAlpha(0.3)],
-                    hoverBorderColor: [palette.primary, palette.primary],
+                    backgroundColor: [brightOrange, mutedOrange],
+                    borderColor: [palette.primary, palette.secondaryAlpha(0.5)],
+                    hoverBorderColor: [palette.primary, palette.secondary],
                     borderWidth: 2,
                     hoverOffset: 8,
                     offset: 4
@@ -608,22 +611,37 @@ window.updateChartPeriod = function(period) {
     }
 };
 
-// Initialize charts when page loads
+// Initialize charts when page loads with capped retries to avoid console spam
+let chartInitAttempts = 0;
+const CHART_INIT_MAX_RETRIES = 15;
+
 function tryInitCharts() {
     const hasChartJs = typeof Chart !== 'undefined';
-    const hasCanvas = document.getElementById('repaymentChart') && document.getElementById('loanBreakdownChart');
-    
+    const repaymentCanvas = document.getElementById('repaymentChart');
+    const breakdownCanvas = document.getElementById('loanBreakdownChart');
+    const hasCanvas = repaymentCanvas && breakdownCanvas;
+
     if (hasChartJs && hasCanvas) {
         console.log('📊 Initializing charts with Chart.js');
         initializeCharts();
-    } else {
-        console.log('⏳ Waiting for Chart.js and canvas elements...');
-        setTimeout(tryInitCharts, 200);
+        return;
     }
+
+    chartInitAttempts += 1;
+    if (chartInitAttempts === 1 || chartInitAttempts === Math.ceil(CHART_INIT_MAX_RETRIES / 2)) {
+        console.log('⏳ Waiting for Chart.js or chart canvas elements...');
+    }
+
+    if (chartInitAttempts >= CHART_INIT_MAX_RETRIES) {
+        console.warn('⚠️ Charts not initialized after waiting: verify Chart.js is loaded and canvases are on the page.');
+        return;
+    }
+
+    setTimeout(tryInitCharts, 300);
 }
 
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', tryInitCharts);
+    document.addEventListener('DOMContentLoaded', tryInitCharts, { once: true });
 } else {
     tryInitCharts();
 }
