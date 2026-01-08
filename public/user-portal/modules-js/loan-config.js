@@ -456,6 +456,7 @@ function getLoanSummary() {
 
 // Calculate Interest and Update Summary
 function calculateAndUpdateSummary() {
+  const configuredStartDate = getConfiguredStartDate();
   const summary = getLoanSummary();
 
   document.getElementById('summaryAmount').textContent = `R ${formatCurrency(loanConfig.amount)}`;
@@ -666,6 +667,14 @@ window.prepareLoanApplication = function() {
     interestRate: loanConfig.interestRate,
     signature: loanConfig.signature,
     summary,
+    offer_principal: Number(loanConfig.amount) || 0,
+    offer_interest_rate: Number((loanConfig.interestRate || 0) * 100).toFixed(2),
+    offer_total_interest: Number(summary.totalInterest) || 0,
+    offer_total_admin_fees: Number(summary.totalMonthlyFees) || 0,
+    offer_total_initiation_fees: Number(summary.totalInitiationFees) || 0,
+    offer_monthly_repayment: Number(summary.monthlyPayment) || 0,
+    offer_total_repayment: Number(summary.totalRepayment) || 0,
+    offer_credit_life_monthly: Number(summary.creditLifeMonthly) || 0,
     stagedAt: new Date().toISOString()
   };
 
