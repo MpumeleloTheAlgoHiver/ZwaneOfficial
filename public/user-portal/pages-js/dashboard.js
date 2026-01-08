@@ -617,6 +617,25 @@ async function loadDashboardData() {
 
         await hydrateCreditScore(supabase, session.user.id);
         
+        // Fetch payments for this user (to compute remaining balances)
+        const { data: payments, error: paymentsError } = await supabase
+            .from('payments')
+            .select('loan_id, amount')
+            .eq('user_id', session.user.id);
+
+        if (paymentsError) {
+            console.error('Error fetching payments:', paymentsError);
+        }
+
+        const paymentsByLoan = (payments || []).reduce((acc, payment) => {
+            const loanId = payment.loan_id;
+            const amt = Number(payment.amount) || 0;
+            acc[loanId] = (acc[loanId] || 0) + amt;
+            return acc;
+        }, {});
+
+        const totalRepaidAllLoans = (payments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
         // Fetch active loans from loans table
         const { data: loans, error: loansError } = await supabase
             .from('loans')
@@ -647,11 +666,9 @@ async function loadDashboardData() {
                     }
                 }
                 const totalRepayment = Number(loan.total_repayment || 0);
-                const outstandingBalance = Number(
-                    (loan.total_repayment ?? null) !== null
-                        ? loan.total_repayment
-                        : (loan.outstanding_balance ?? principal)
-                ) || principal;
+                const paidToDate = paymentsByLoan[loan.id] || 0;
+                const totalDue = totalRepayment || principal;
+                const outstandingBalance = Math.max(totalDue - paidToDate, 0);
                 return {
                     ...loan,
                     principal,
@@ -660,21 +677,22 @@ async function loadDashboardData() {
                     monthlyPayment,
                     dueDateObj,
                     outstandingBalance,
-                    totalRepayment: totalRepayment || monthlyPayment * (termMonths || 1)
+                    totalRepayment: totalRepayment || monthlyPayment * (termMonths || 1),
+                    paidToDate
                 };
             });
 
             const loanTotals = enrichedLoans.reduce((acc, loan) => {
-                acc.borrowed += loan.principal;
+                const totalDue = loan.totalRepayment || loan.principal;
+                acc.borrowed += totalDue;
                 acc.outstanding += loan.outstandingBalance;
-                const repaid = Math.max((loan.totalRepayment || loan.principal) - loan.outstandingBalance, 0);
-                acc.repaid += repaid;
+                acc.repaid += loan.paidToDate || 0;
                 return acc;
             }, { borrowed: 0, outstanding: 0, repaid: 0 });
 
             dashboardData.totalBorrowed = loanTotals.borrowed;
             dashboardData.currentBalance = loanTotals.outstanding;
-            dashboardData.totalRepaid = loanTotals.repaid;
+            dashboardData.totalRepaid = loanTotals.repaid || totalRepaidAllLoans;
 
             document.getElementById('totalBorrowed').textContent = formatCurrency(loanTotals.borrowed);
             document.getElementById('currentBalance').textContent = formatCurrency(loanTotals.outstanding);
@@ -719,7 +737,8 @@ async function loadDashboardData() {
                         ? loan.dueDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                         : 'TBD',
                     interestRate: `${(loan.normalizedRate * 100).toFixed(2)}%`,
-                    status: readableStatus
+                    status: readableStatus,
+                    totalAmount: loan.totalRepayment || loan.principal
                 };
             });
             
