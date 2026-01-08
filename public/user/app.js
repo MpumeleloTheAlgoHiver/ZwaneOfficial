@@ -17,7 +17,7 @@ const PORT = process.env.PORT || 5001;
 // Serve static files from public
 app.use(express.static(path.join(__dirname, 'public')));
 
-// API routes
+// API routes.
 
 // Document upload routes
 app.use('/api/tillslip', tillSlipRoute);
