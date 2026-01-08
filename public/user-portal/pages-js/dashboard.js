@@ -787,8 +787,153 @@ async function loadDashboardData() {
 }
 
 // Module functions - Will open as popups later
+// --- Active Loans Modal ---
+const LOANS_MODAL_ID = 'active-loans-modal';
+
+function ensureLoansModalStyles() {
+        if (document.getElementById('loans-modal-style')) return;
+        const style = document.createElement('style');
+        style.id = 'loans-modal-style';
+        style.textContent = `
+            #${LOANS_MODAL_ID} { position: fixed; inset: 0; background: rgba(15,23,42,0.35); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 24px; }
+            #${LOANS_MODAL_ID}.open { display: flex; }
+            #${LOANS_MODAL_ID} .modal-panel { width: min(1100px, 95vw); max-height: min(85vh, 900px); background: #ffffff; color: #0f172a; border-radius: 18px; overflow: hidden; box-shadow: 0 30px 70px rgba(15,23,42,0.25); border: 1px solid #e2e8f0; display: flex; flex-direction: column; }
+            #${LOANS_MODAL_ID} .modal-header { padding: 18px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: linear-gradient(135deg, var(--color-primary, #0ea5e9), #f8fafc); border-bottom: 1px solid #e2e8f0; }
+            #${LOANS_MODAL_ID} .modal-title { font-size: 18px; font-weight: 800; letter-spacing: 0.2px; color: #0f172a; }
+            #${LOANS_MODAL_ID} .modal-actions { display: flex; align-items: center; gap: 10px; }
+            #${LOANS_MODAL_ID} .pill { padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; background: #eef2ff; color: #312e81; border: 1px solid #c7d2fe; }
+            #${LOANS_MODAL_ID} .close-btn { background: #f8fafc; border: 1px solid #e2e8f0; color: #0f172a; width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; font-weight: 900; cursor: pointer; transition: all 0.2s ease; }
+            #${LOANS_MODAL_ID} .close-btn:hover { background: #e2e8f0; transform: translateY(-1px); }
+            #${LOANS_MODAL_ID} .modal-body { padding: 20px 24px 24px; overflow: hidden; display: flex; flex-direction: column; gap: 16px; }
+            #${LOANS_MODAL_ID} .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+            #${LOANS_MODAL_ID} .stat-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px; }
+            #${LOANS_MODAL_ID} .stat-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; font-weight: 700; }
+            #${LOANS_MODAL_ID} .stat-value { margin-top: 6px; font-size: 22px; font-weight: 800; color: #0f172a; }
+            #${LOANS_MODAL_ID} .loans-scroll { max-height: 520px; overflow-y: auto; padding-right: 6px; }
+            #${LOANS_MODAL_ID} .loan-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(15,23,42,0.05); }
+            #${LOANS_MODAL_ID} .loan-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+            #${LOANS_MODAL_ID} .loan-id { font-weight: 800; letter-spacing: 0.2px; color: #0f172a; }
+            #${LOANS_MODAL_ID} .loan-status { padding: 6px 10px; border-radius: 10px; font-size: 12px; font-weight: 700; border: 1px solid #cbd5e1; background: #f8fafc; color: #0f172a; }
+            #${LOANS_MODAL_ID} .loan-main { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+            #${LOANS_MODAL_ID} .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: #475569; font-weight: 700; }
+            #${LOANS_MODAL_ID} .value { font-size: 15px; font-weight: 700; color: #0f172a; margin-top: 4px; }
+            #${LOANS_MODAL_ID} .progress { margin-top: 12px; }
+            #${LOANS_MODAL_ID} .progress-top { display: flex; justify-content: space-between; font-size: 12px; color: #475569; font-weight: 700; margin-bottom: 6px; }
+            #${LOANS_MODAL_ID} .progress-bar { width: 100%; height: 8px; border-radius: 999px; background: #e2e8f0; overflow: hidden; }
+            #${LOANS_MODAL_ID} .progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--color-primary, #0ea5e9), #0284c7); transition: width 0.3s ease; }
+            #${LOANS_MODAL_ID} .empty-state { text-align: center; padding: 40px 10px; color: #475569; font-weight: 700; }
+        `;
+        document.head.appendChild(style);
+}
+
+function ensureLoansModalRoot() {
+        ensureLoansModalStyles();
+        let root = document.getElementById(LOANS_MODAL_ID);
+        if (!root) {
+                root = document.createElement('div');
+                root.id = LOANS_MODAL_ID;
+                root.innerHTML = `
+                    <div class="modal-panel" role="dialog" aria-modal="true">
+                        <div class="modal-header">
+                            <div class="modal-title">Active Loans</div>
+                            <div class="modal-actions">
+                                <span class="pill" id="loans-count-pill">0 Loans</span>
+                                <button class="close-btn" id="close-loans-modal" aria-label="Close">×</button>
+                            </div>
+                        </div>
+                        <div class="modal-body">
+                            <div class="stats-grid" id="loans-stats"></div>
+                            <div class="loans-scroll" id="loans-scroll"></div>
+                        </div>
+                    </div>`;
+                document.body.appendChild(root);
+                root.addEventListener('click', (e) => { if (e.target === root) closeLoansModal(); });
+                root.querySelector('#close-loans-modal').addEventListener('click', closeLoansModal);
+        }
+        return root;
+}
+
+function formatCurrencySafe(val) {
+        const num = Number(val);
+        if (Number.isNaN(num)) return 'R 0.00';
+        return 'R ' + num.toLocaleString('en-ZA', { minimumFractionDigits: 2 });
+}
+
+function parseRandToNumber(val) {
+        if (!val) return 0;
+        return Number(String(val).replace(/[^0-9.-]/g, '')) || 0;
+}
+
+function buildLoansModalContent(loans) {
+        const activeLoans = loans.filter(l => l.status === 'Active' || l.status === 'Offered');
+        const count = activeLoans.length;
+        const totalPrincipal = activeLoans.reduce((sum, l) => sum + parseRandToNumber(l.amount), 0);
+        const totalRemaining = activeLoans.reduce((sum, l) => sum + (parseRandToNumber(l.remaining || l.amount)), 0);
+
+        const statsHtml = `
+            <div class="stat-card"><div class="stat-label">Active / Offered</div><div class="stat-value">${count}</div></div>
+            <div class="stat-card"><div class="stat-label">Total Principal</div><div class="stat-value">${formatCurrencySafe(totalPrincipal)}</div></div>
+            <div class="stat-card"><div class="stat-label">Total Outstanding</div><div class="stat-value">${formatCurrencySafe(totalRemaining)}</div></div>
+        `;
+
+        const listHtml = count === 0 ? '<div class="empty-state">No active loans right now.</div>' : activeLoans.map(loan => {
+                const principal = parseRandToNumber(loan.amount);
+                const remaining = parseRandToNumber(loan.remaining || loan.amount);
+                const progressRaw = principal ? ((principal - remaining) / principal) * 100 : 0;
+                const progress = Math.max(0, Math.min(100, Math.round(progressRaw)));
+                return `
+                    <div class="loan-card">
+                        <div class="loan-head">
+                            <span class="loan-id">${loan.id}</span>
+                            <span class="loan-status">${loan.status}</span>
+                        </div>
+                        <div class="loan-main">
+                            <div>
+                                <div class="label">Amount</div>
+                                <div class="value">${loan.amount}</div>
+                            </div>
+                            <div>
+                                <div class="label">Remaining</div>
+                                <div class="value">${loan.remaining || loan.amount}</div>
+                            </div>
+                            <div>
+                                <div class="label">Next Payment</div>
+                                <div class="value">${loan.nextPayment || 'TBD'}</div>
+                            </div>
+                            <div>
+                                <div class="label">Due Date</div>
+                                <div class="value">${loan.dueDate || 'TBD'}</div>
+                            </div>
+                            <div>
+                                <div class="label">Interest Rate</div>
+                                <div class="value">${loan.interestRate || 'TBD'}</div>
+                            </div>
+                        </div>
+                        <div class="progress">
+                            <div class="progress-top">
+                                <span>Repayment Progress</span>
+                                <span>${progress}%</span>
+                            </div>
+                            <div class="progress-bar"><div class="progress-fill" style="width:${progress}%"></div></div>
+                        </div>
+                    </div>`;
+        }).join('');
+
+        const root = ensureLoansModalRoot();
+        root.querySelector('#loans-count-pill').textContent = `${count} Loan${count === 1 ? '' : 's'}`;
+        root.querySelector('#loans-stats').innerHTML = statsHtml;
+        root.querySelector('#loans-scroll').innerHTML = listHtml;
+        root.classList.add('open');
+}
+
+function closeLoansModal() {
+        const root = document.getElementById(LOANS_MODAL_ID);
+        if (root) root.classList.remove('open');
+}
+
 window.openLoansModule = function() {
-    alert('Active Loans Module - Coming Soon!\nThis will show your loan portfolio in a popup.');
+        ensureLoansModalRoot();
+        buildLoansModalContent(dashboardData.loans);
 };
 
 window.openChartsModule = function() {
