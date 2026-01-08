@@ -1,6 +1,23 @@
 import { initLayout } from '../shared/layout.js';
 import { formatCurrency } from '../shared/utils.js';
-import { fetchAnalyticsData } from '../services/dataService.js';
+import { fetchAnalyticsData, DEFAULT_SYSTEM_SETTINGS } from '../services/dataService.js';
+import { getCachedTheme, getCompanyName } from '../shared/theme.js';
+
+const escapeHtml = (value = '') => `${value}`
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+const getBrandName = () => getCompanyName(getCachedTheme()) || DEFAULT_SYSTEM_SETTINGS.company_name;
+
+const getBrandSlug = () => {
+    const slug = (getBrandName() || 'Company')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .substring(0, 60);
+    return slug || 'company';
+};
 
 /**
  * HARDCODED EXCEL ENGINE (No External Dependencies)
@@ -70,10 +87,12 @@ function exportAnalyticsToExcel() {
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Analytics");
-    XLSX.writeFile(wb, `Zwane_Analytics_${appState.exportPeriod}.xlsx`);
+    XLSX.writeFile(wb, `${getBrandSlug()}_Analytics_${appState.exportPeriod}.xlsx`);
 }
 
 // --- HTML TEMPLATE ---
+const companyNameHtml = escapeHtml(getBrandName());
+
 const pageTemplate = `
     <div class="flex flex-col space-y-6">
         <style>
@@ -96,7 +115,7 @@ const pageTemplate = `
 
         <div class="hidden print:flex justify-between items-center border-b-2 border-gray-800 pb-4 mb-4">
             <div>
-                <h1 class="text-2xl font-bold text-gray-900">Zwane Financial Services</h1>
+                <h1 class="text-2xl font-bold text-gray-900">${companyNameHtml}</h1>
                 <p class="text-sm text-gray-500 uppercase font-semibold">Revenue Analytics Report</p>
             </div>
             <div class="text-right">

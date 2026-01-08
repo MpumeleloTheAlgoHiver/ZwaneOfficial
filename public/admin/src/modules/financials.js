@@ -1,6 +1,23 @@
 import { initLayout } from '../shared/layout.js';
 import { formatCurrency } from '../shared/utils.js';
-import { fetchFinancialsData } from '../services/dataService.js';
+import { fetchFinancialsData, DEFAULT_SYSTEM_SETTINGS } from '../services/dataService.js';
+import { getCachedTheme, getCompanyName } from '../shared/theme.js';
+
+const escapeHtml = (value = '') => `${value}`
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+const getBrandName = () => getCompanyName(getCachedTheme()) || DEFAULT_SYSTEM_SETTINGS.company_name;
+
+const getBrandSlug = () => {
+    const slug = (getBrandName() || 'Company')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .substring(0, 60);
+    return slug || 'company';
+};
 
 /**
  * HARDCODED EXCEL ENGINE (No External Dependencies)
@@ -44,6 +61,8 @@ window.XLSX = {
 let currentRange = 'YTD'; 
 
 // --- HTML TEMPLATE ---
+const companyNameHtml = escapeHtml(getBrandName());
+
 const pageTemplate = `
     <div class="flex flex-col space-y-8 max-w-5xl mx-auto">
         <style>
@@ -76,7 +95,7 @@ const pageTemplate = `
 
         <div class="hidden print:flex justify-between items-center border-b-2 border-gray-800 pb-4 mb-4">
             <div>
-                <h1 class="text-2xl font-bold text-gray-900">Zwane Financial Services</h1>
+                <h1 class="text-2xl font-bold text-gray-900">${companyNameHtml}</h1>
                 <p class="text-sm text-gray-500 uppercase font-semibold">Financial Performance Statement</p>
             </div>
             <div class="text-right">
@@ -87,7 +106,7 @@ const pageTemplate = `
 
         <div class="flex flex-col md:flex-row justify-between items-end border-b border-gray-200 pb-6 gap-4 print:hidden">
             <div>
-                <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">Zwane Financial Services</h1>
+                <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">${companyNameHtml}</h1>
                 <p class="text-sm text-gray-500 mt-2">Financial Reports & Performance Metrics</p>
             </div>
             
@@ -148,7 +167,7 @@ function exportFinancialsToExcel() {
     const ws = XLSX.utils.json_to_sheet(combinedData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Financials");
-    XLSX.writeFile(wb, `Zwane_Financial_Report_${currentRange}.xlsx`);
+    XLSX.writeFile(wb, `${getBrandSlug()}_Financial_Report_${currentRange}.xlsx`);
 }
 
 const renderRow = (label, value, isBold = false, isTotal = false, customColorClass = "") => {

@@ -69,9 +69,15 @@ const normalizeBoolean = (value, fallback = false) => {
   return fallback;
 };
 
+const normalizeCompanyName = (value) => {
+  const name = typeof value === 'string' ? value.trim() : '';
+  return name || DEFAULT_SYSTEM_SETTINGS.company_name;
+};
+
 const hydrateSystemSettings = (settings = {}) => ({
   ...DEFAULT_SYSTEM_SETTINGS,
   ...settings,
+  company_name: normalizeCompanyName(settings?.company_name),
   auth_overlay_color: normalizeHexColor(settings?.auth_overlay_color, DEFAULT_SYSTEM_SETTINGS.auth_overlay_color),
   auth_overlay_enabled: normalizeBoolean(settings?.auth_overlay_enabled, DEFAULT_SYSTEM_SETTINGS.auth_overlay_enabled),
   auth_background_flip: normalizeBoolean(settings?.auth_background_flip, DEFAULT_SYSTEM_SETTINGS.auth_background_flip),
@@ -512,6 +518,7 @@ export async function updateSystemSettings(settings) {
     const carouselSlides = normalizeCarouselSlides(settings.carousel_slides);
     const payload = {
       id: 'global',
+      company_name: normalizeCompanyName(settings.company_name),
       primary_color: settings.primary_color,
       secondary_color: settings.secondary_color,
       tertiary_color: settings.tertiary_color,
