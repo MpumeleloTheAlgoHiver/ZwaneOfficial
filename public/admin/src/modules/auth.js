@@ -471,7 +471,7 @@ async function handleAuth(e) {
 
 // ============================================
 // INITIALIZE
-// ============================================
+// ===========================================
 document.addEventListener('DOMContentLoaded', () => {
     checkSession();
 });
