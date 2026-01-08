@@ -404,7 +404,7 @@ async function handleAuth(e) {
     const submitButton = e.target.querySelector('button[type="submit"]');
     
     submitButton.disabled = true;
-    buttonContent.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2" style="color: var(--color-secondary, #F97316);"></i> Processing...`;
+    buttonContent.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-2" style="color: var(--color-secondary, #272727ff);"></i> Processing...`;
     formMessage = { type: '', text: '' }; 
 
     try {
