@@ -415,6 +415,7 @@ function initializeCharts() {
     // Repayment Trends Chart
     const repaymentCtx = document.getElementById('repaymentChart');
     if (repaymentCtx) {
+        console.log('📈 Creating repayment trends chart');
         const lineCtx = repaymentCtx.getContext('2d');
         const lineGradient = lineCtx.createLinearGradient(0, 0, 0, repaymentCtx.height);
         lineGradient.addColorStop(0, palette.primaryAlpha(0.35));
@@ -427,7 +428,7 @@ function initializeCharts() {
                 datasets: [{
                     label: 'Payments Made',
                     data: dashboardData.repaymentSeries?.data || [0, 0, 0, 0, 0, 0],
-                    borderColor: palette.primarySoft,
+                    borderColor: palette.primary,
                     backgroundColor: lineGradient,
                     borderWidth: 3,
                     fill: true,
@@ -435,11 +436,11 @@ function initializeCharts() {
                     pointRadius: 5,
                     pointHoverRadius: 7,
                     pointBackgroundColor: palette.surfaceCard,
-                    pointBorderColor: palette.secondarySoft,
+                    pointBorderColor: palette.primary,
                     pointBorderWidth: 3,
                     pointHoverBorderWidth: 3,
                     segment: {
-                        borderColor: ctx => ctx.p0.skip || ctx.p1.skip ? 'rgba(255,255,255,0.15)' : palette.primarySoft
+                        borderColor: ctx => ctx.p0.skip || ctx.p1.skip ? 'rgba(255,255,255,0.15)' : palette.primary
                     }
                 }]
             },
@@ -504,6 +505,7 @@ function initializeCharts() {
     // Loan Breakdown Chart (Doughnut)
     const breakdownCtx = document.getElementById('loanBreakdownChart');
     if (breakdownCtx) {
+        console.log('🍩 Creating loan breakdown chart');
         const donutCtx = breakdownCtx.getContext('2d');
         const brightOrange = donutCtx.createLinearGradient(0, 0, breakdownCtx.width, breakdownCtx.height);
         brightOrange.addColorStop(0, palette.primaryAlpha(0.95));
@@ -516,10 +518,10 @@ function initializeCharts() {
                 labels: ['Repaid', 'Outstanding'],
                 datasets: [{
                     data: [0, 0], // Will be populated from Supabase (dashboardData.totalRepaid, dashboardData.currentBalance)
-                    backgroundColor: [brightOrange, mutedOrange],
-                    borderColor: ['#fff5eb', '#2f2f2f'],
-                    hoverBorderColor: ['#ffffff', '#3a3a3a'],
-                    borderWidth: 3,
+                    backgroundColor: [brightOrange, palette.primaryAlpha(0.2)],
+                    borderColor: [palette.primary, palette.primaryAlpha(0.3)],
+                    hoverBorderColor: [palette.primary, palette.primary],
+                    borderWidth: 2,
                     hoverOffset: 8,
                     offset: 4
                 }]
@@ -607,11 +609,23 @@ window.updateChartPeriod = function(period) {
 };
 
 // Initialize charts when page loads
-if (typeof Chart !== 'undefined') {
-    initializeCharts();
+function tryInitCharts() {
+    const hasChartJs = typeof Chart !== 'undefined';
+    const hasCanvas = document.getElementById('repaymentChart') && document.getElementById('loanBreakdownChart');
+    
+    if (hasChartJs && hasCanvas) {
+        console.log('📊 Initializing charts with Chart.js');
+        initializeCharts();
+    } else {
+        console.log('⏳ Waiting for Chart.js and canvas elements...');
+        setTimeout(tryInitCharts, 200);
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', tryInitCharts);
 } else {
-    // Wait for Chart.js to load
-    window.addEventListener('load', initializeCharts);
+    tryInitCharts();
 }
 
 // ==========================================
