@@ -408,6 +408,34 @@ function computeRepaymentSuggestedMax(data = []) {
     return Math.max(maxVal, floor) * 1.1;
 }
 
+function buildMonthlySeries(monthCount, payments = []) {
+    const monthFormatter = new Intl.DateTimeFormat('en-US', { month: 'short' });
+    const now = new Date();
+    const months = Array.from({ length: monthCount }, (_, i) => {
+        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (monthCount - 1 - i), 1));
+        return {
+            key: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`,
+            label: monthFormatter.format(d)
+        };
+    });
+
+    const buckets = months.reduce((acc, m) => ({ ...acc, [m.key]: 0 }), {});
+    (payments || []).forEach((p) => {
+        if (!p.payment_date) return;
+        const dt = new Date(p.payment_date);
+        if (Number.isNaN(dt.getTime())) return;
+        const key = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`;
+        if (key in buckets) {
+            buckets[key] += Number(p.amount) || 0;
+        }
+    });
+
+    return {
+        labels: months.map(m => m.label),
+        data: months.map(m => buckets[m.key])
+    };
+}
+
 function applyRepaymentChart(labels = [], data = []) {
     if (!repaymentChart) {
         dashboardData.repaymentSeries = { labels, data };
@@ -595,30 +623,37 @@ function updateLoanBreakdownChart(totalRepaid = 0, outstanding = 0) {
     loanBreakdownChart.update();
 }
 
+function getRepaymentSeriesForPeriod(period = '6m') {
+    const fallback6m = buildMonthlySeries(6, []);
+    const base6m = dashboardData.repaymentSeries6 || dashboardData.repaymentSeries || fallback6m;
+
+    if (period === '1y') {
+        return dashboardData.repaymentSeries12 || base6m || buildMonthlySeries(12, []);
+    }
+
+    if (period === '3m' && base6m?.labels?.length) {
+        return {
+            labels: base6m.labels.slice(-3),
+            data: base6m.data.slice(-3)
+        };
+    }
+
+    return base6m;
+}
+
 // Update chart period
 window.updateChartPeriod = function(period) {
     // Update active button
     document.querySelectorAll('.period-btn').forEach(btn => btn.classList.remove('active'));
-    event.target.classList.add('active');
-    
-    // Update chart data based on period
-    // This will use real data from Supabase when integrated
-    let labels, data;
-    if (period === '6m') {
-        labels = ['Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov'];
-        data = [0, 0, 0, 0, 0, 0]; // Will be calculated from transaction history
-    } else if (period === '1y') {
-        labels = ['Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov'];
-        data = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; // Will be calculated from transaction history
-    } else {
-        labels = ['Aug', 'Sep', 'Oct', 'Nov'];
-        data = [0, 0, 0, 0]; // Will be calculated from transaction history
+    if (typeof event !== 'undefined' && event?.target) {
+        event.target.classList.add('active');
     }
-    
-    if (repaymentChart) {
-        repaymentChart.data.labels = labels;
-        repaymentChart.data.datasets[0].data = data;
-        repaymentChart.options.scales.y.suggestedMax = computeRepaymentSuggestedMax(data);
+
+    const series = getRepaymentSeriesForPeriod(period);
+    if (repaymentChart && series) {
+        repaymentChart.data.labels = series.labels || [];
+        repaymentChart.data.datasets[0].data = series.data || [];
+        repaymentChart.options.scales.y.suggestedMax = computeRepaymentSuggestedMax(series.data || []);
         repaymentChart.update();
     }
 };
@@ -869,29 +904,12 @@ async function loadDashboardData() {
 
         const totalRepaidAllLoans = (payments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-        // Build repayment trend for the past 6 months including current
-        const monthFormatter = new Intl.DateTimeFormat('en-US', { month: 'short' });
-        const now = new Date();
-        const months = Array.from({ length: 6 }, (_, i) => {
-            const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (5 - i), 1));
-            const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-            return { key, label: monthFormatter.format(d), year: d.getUTCFullYear(), month: d.getUTCMonth() };
-        });
-
-        const repaymentBuckets = months.reduce((acc, m) => ({ ...acc, [m.key]: 0 }), {});
-        (payments || []).forEach((p) => {
-            if (!p.payment_date) return;
-            const dt = new Date(p.payment_date);
-            if (Number.isNaN(dt.getTime())) return;
-            const key = `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`;
-            if (key in repaymentBuckets) {
-                repaymentBuckets[key] += Number(p.amount) || 0;
-            }
-        });
-
-        const repaymentLabels = months.map(m => m.label);
-        const repaymentData = months.map(m => repaymentBuckets[m.key]);
-        dashboardData.repaymentSeries = { labels: repaymentLabels, data: repaymentData };
+        // Build repayment trends (6m default, 12m extended)
+        const repaymentSeries6 = buildMonthlySeries(6, payments);
+        const repaymentSeries12 = buildMonthlySeries(12, payments);
+        dashboardData.repaymentSeries6 = repaymentSeries6;
+        dashboardData.repaymentSeries12 = repaymentSeries12;
+        dashboardData.repaymentSeries = repaymentSeries6;
 
         // Fetch active loans from loans table
         const { data: loans, error: loansError } = await supabase
@@ -940,8 +958,7 @@ async function loadDashboardData() {
             });
 
             const loanTotals = enrichedLoans.reduce((acc, loan) => {
-                const totalDue = loan.totalRepayment || loan.principal;
-                acc.borrowed += totalDue;
+                acc.borrowed += loan.principal; // total borrowed should reflect principal only
                 acc.outstanding += loan.outstandingBalance;
                 acc.repaid += loan.paidToDate || 0;
                 return acc;
