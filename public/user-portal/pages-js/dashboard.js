@@ -84,17 +84,14 @@ const getThemePalette = () => {
     const styles = getComputedStyle(document.documentElement);
     const read = (name, fallback) => (styles.getPropertyValue(name).trim() || fallback);
     const primaryRgb = read('--color-primary-rgb', '231 118 46');
-    const secondaryRgb = read('--color-secondary-rgb', '14 165 233');
     return {
         primary: read('--color-primary', '#E7762E'),
         primarySoft: read('--color-primary-soft', '#ff9f5a'),
-        secondary: read('--color-secondary', '#0ea5e9'),
         secondarySoft: read('--color-secondary-soft', '#ffb26b'),
         surfaceCard: read('--color-surface-card', '#ffffff'),
         text: read('--color-text', '#0f172a'),
         textMuted: read('--color-text-muted', '#475569'),
-        primaryAlpha: (alpha) => `rgb(${primaryRgb} / ${alpha})`,
-        secondaryAlpha: (alpha) => `rgb(${secondaryRgb} / ${alpha})`
+        primaryAlpha: (alpha) => `rgb(${primaryRgb} / ${alpha})`
     };
 };
 
@@ -422,7 +419,7 @@ function initializeCharts() {
         const lineCtx = repaymentCtx.getContext('2d');
         const lineGradient = lineCtx.createLinearGradient(0, 0, 0, repaymentCtx.height);
         lineGradient.addColorStop(0, palette.primaryAlpha(0.35));
-        lineGradient.addColorStop(1, palette.secondaryAlpha(0.08));
+        lineGradient.addColorStop(1, palette.primaryAlpha(0.05));
 
         repaymentChart = new Chart(repaymentCtx, {
             type: 'line',
@@ -512,18 +509,18 @@ function initializeCharts() {
         const donutCtx = breakdownCtx.getContext('2d');
         const brightOrange = donutCtx.createLinearGradient(0, 0, breakdownCtx.width, breakdownCtx.height);
         brightOrange.addColorStop(0, palette.primaryAlpha(0.95));
-        brightOrange.addColorStop(1, palette.secondaryAlpha(0.85));
-        const mutedOrange = palette.secondaryAlpha(0.2);
+        brightOrange.addColorStop(1, palette.primaryAlpha(0.9));
+        const mutedOrange = palette.primaryAlpha(0.15);
 
         loanBreakdownChart = new Chart(breakdownCtx, {
             type: 'doughnut',
             data: {
                 labels: ['Repaid', 'Outstanding'],
                 datasets: [{
-                    data: [0, 0], // Will be populated from Supabase (dashboardData.totalRepaid, dashboardData.currentBalance)
-                    backgroundColor: [brightOrange, mutedOrange],
-                    borderColor: [palette.primary, palette.secondaryAlpha(0.5)],
-                    hoverBorderColor: [palette.primary, palette.secondary],
+                    data: [1, 1], // Placeholder so chart renders visually even with no data
+                    backgroundColor: [brightOrange, palette.primaryAlpha(0.2)],
+                    borderColor: [palette.primary, palette.primaryAlpha(0.3)],
+                    hoverBorderColor: [palette.primary, palette.primary],
                     borderWidth: 2,
                     hoverOffset: 8,
                     offset: 4
@@ -580,7 +577,11 @@ function updateLoanBreakdownChart(totalRepaid = 0, outstanding = 0) {
     if (!dataset) {
         return;
     }
-    dataset.data = [Math.max(totalRepaid, 0), Math.max(outstanding, 0)];
+    // If both are 0, show a placeholder so the chart renders visually
+    const repaidVal = Math.max(totalRepaid, 0);
+    const outstandingVal = Math.max(outstanding, 0);
+    const hasData = repaidVal > 0 || outstandingVal > 0;
+    dataset.data = hasData ? [repaidVal, outstandingVal] : [1, 1];
     loanBreakdownChart.update();
 }
 
@@ -611,40 +612,68 @@ window.updateChartPeriod = function(period) {
     }
 };
 
-// Initialize charts when page loads with capped retries to avoid console spam
-let chartInitAttempts = 0;
-const CHART_INIT_MAX_RETRIES = 15;
+// Dynamically load Chart.js if not already available
+async function ensureChartJs() {
+    if (typeof Chart !== 'undefined') {
+        return true;
+    }
+    
+    // Check if script is already being loaded
+    const existingScript = document.querySelector('script[src*="chart.js"]');
+    if (existingScript) {
+        // Wait for existing script to load
+        return new Promise((resolve) => {
+            if (typeof Chart !== 'undefined') {
+                resolve(true);
+                return;
+            }
+            existingScript.onload = () => resolve(true);
+            existingScript.onerror = () => resolve(false);
+            // Timeout fallback
+            setTimeout(() => resolve(typeof Chart !== 'undefined'), 3000);
+        });
+    }
+    
+    // Load Chart.js dynamically
+    return new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js';
+        script.onload = () => {
+            console.log('✅ Chart.js loaded dynamically');
+            resolve(true);
+        };
+        script.onerror = () => {
+            console.error('❌ Failed to load Chart.js');
+            resolve(false);
+        };
+        document.head.appendChild(script);
+    });
+}
 
-function tryInitCharts() {
-    const hasChartJs = typeof Chart !== 'undefined';
+// Initialize charts when page loads
+async function tryInitCharts() {
     const repaymentCanvas = document.getElementById('repaymentChart');
     const breakdownCanvas = document.getElementById('loanBreakdownChart');
-    const hasCanvas = repaymentCanvas && breakdownCanvas;
-
-    if (hasChartJs && hasCanvas) {
-        console.log('📊 Initializing charts with Chart.js');
-        initializeCharts();
+    
+    if (!repaymentCanvas || !breakdownCanvas) {
+        console.log('⏳ Chart canvases not found, waiting...');
+        setTimeout(tryInitCharts, 300);
         return;
     }
-
-    chartInitAttempts += 1;
-    if (chartInitAttempts === 1 || chartInitAttempts === Math.ceil(CHART_INIT_MAX_RETRIES / 2)) {
-        console.log('⏳ Waiting for Chart.js or chart canvas elements...');
-    }
-
-    if (chartInitAttempts >= CHART_INIT_MAX_RETRIES) {
-        console.warn('⚠️ Charts not initialized after waiting: verify Chart.js is loaded and canvases are on the page.');
+    
+    const chartJsLoaded = await ensureChartJs();
+    
+    if (!chartJsLoaded) {
+        console.error('❌ Chart.js could not be loaded. Charts will not render.');
         return;
     }
-
-    setTimeout(tryInitCharts, 300);
+    
+    console.log('📊 Initializing charts with Chart.js');
+    initializeCharts();
 }
 
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', tryInitCharts, { once: true });
-} else {
-    tryInitCharts();
-}
+// Start chart initialization
+tryInitCharts();
 
 // ==========================================
 // SUPABASE INTEGRATION - NOW ACTIVE
