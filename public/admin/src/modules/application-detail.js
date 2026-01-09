@@ -1037,7 +1037,7 @@ const renderDocuments = (docs) => {
   // Standard document types expected from the wizard
   const docTypes = [
       { key: 'idcard', label: 'ID Document' }, 
-      { key: 'till_lip', label: 'Latest Payslip' }, 
+      { key: 'till_slip', label: 'Latest Payslip' }, 
       { key: 'bank_statement', label: 'Bank Statement' }
   ];
   
