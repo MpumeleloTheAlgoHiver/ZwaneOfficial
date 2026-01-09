@@ -404,8 +404,10 @@ let repaymentChart, loanBreakdownChart;
 function computeRepaymentSuggestedMax(data = []) {
     const numericData = Array.isArray(data) ? data.map(v => Number(v) || 0) : [];
     const maxVal = Math.max(...numericData, 0);
-    const floor = 300000; // ensure charts stay readable up to at least R300k
-    return Math.max(maxVal, floor) * 1.1;
+    const minFloor = 10000; // keep small series visible
+    const padded = maxVal * 1.25 + 500;
+    const bigFloor = maxVal > 200000 ? 300000 : 0; // only push to 300k when values are large
+    return Math.max(padded, minFloor, bigFloor);
 }
 
 function buildMonthlySeries(monthCount, payments = []) {
@@ -944,12 +946,14 @@ async function loadDashboardData() {
                 const paidToDate = paymentsByLoan[loan.id] || 0;
                 const totalDue = totalRepayment || principal;
                 const outstandingBalance = Math.max(totalDue - paidToDate, 0);
+                const nextDueAmount = Math.min(monthlyPayment, outstandingBalance || monthlyPayment);
                 return {
                     ...loan,
                     principal,
                     termMonths,
                     normalizedRate,
                     monthlyPayment,
+                    nextDueAmount,
                     dueDateObj,
                     outstandingBalance,
                     totalRepayment: totalRepayment || monthlyPayment * (termMonths || 1),
@@ -988,10 +992,10 @@ async function loadDashboardData() {
 
             if (upcomingPayment) {
                 dashboardData.nextPayment = {
-                    amount: upcomingPayment.monthlyPayment,
+                    amount: upcomingPayment.nextDueAmount,
                     date: upcomingPayment.dueDateObj ? upcomingPayment.dueDateObj.toISOString() : null
                 };
-                updateNextPaymentDisplay(upcomingPayment.monthlyPayment, upcomingPayment.dueDateObj);
+                updateNextPaymentDisplay(upcomingPayment.nextDueAmount, upcomingPayment.dueDateObj);
             } else {
                 dashboardData.nextPayment = { amount: 0, date: null };
                 updateNextPaymentDisplay(0, null);
@@ -1010,7 +1014,7 @@ async function loadDashboardData() {
                     id: `LOAN-${loan.id}`,
                     amount: formatCurrency(loan.totalRepayment || loan.principal),
                     remaining: formatCurrency(loan.outstandingBalance || loan.totalRepayment || loan.principal),
-                    nextPayment: formatCurrency(loan.monthlyPayment),
+                    nextPayment: formatCurrency(loan.nextDueAmount),
                     dueDate: loan.dueDateObj 
                         ? loan.dueDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
                         : 'TBD',
