@@ -401,6 +401,13 @@ loadDashboardData();
 // Initialize charts
 let repaymentChart, loanBreakdownChart;
 
+function computeRepaymentSuggestedMax(data = []) {
+    const numericData = Array.isArray(data) ? data.map(v => Number(v) || 0) : [];
+    const maxVal = Math.max(...numericData, 0);
+    const floor = 300000; // ensure charts stay readable up to at least R300k
+    return Math.max(maxVal, floor) * 1.1;
+}
+
 function applyRepaymentChart(labels = [], data = []) {
     if (!repaymentChart) {
         dashboardData.repaymentSeries = { labels, data };
@@ -408,6 +415,7 @@ function applyRepaymentChart(labels = [], data = []) {
     }
     repaymentChart.data.labels = labels;
     repaymentChart.data.datasets[0].data = data;
+    repaymentChart.options.scales.y.suggestedMax = computeRepaymentSuggestedMax(data);
     repaymentChart.update();
 }
 
@@ -470,6 +478,7 @@ function initializeCharts() {
                 scales: {
                     y: {
                         beginAtZero: true,
+                        suggestedMax: computeRepaymentSuggestedMax(dashboardData.repaymentSeries?.data || [0, 0, 0, 0, 0, 0]),
                         grid: {
                             color: 'rgba(255, 255, 255, 0.05)',
                             drawBorder: false
@@ -609,6 +618,7 @@ window.updateChartPeriod = function(period) {
     if (repaymentChart) {
         repaymentChart.data.labels = labels;
         repaymentChart.data.datasets[0].data = data;
+        repaymentChart.options.scales.y.suggestedMax = computeRepaymentSuggestedMax(data);
         repaymentChart.update();
     }
 };
