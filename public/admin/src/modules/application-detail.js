@@ -1139,28 +1139,36 @@ const attachAdminUploadListeners = () => {
     });
 };
 
-window.handleSmartDownload = async (path) => {
+window.handleSmartDownload = async (inputPath) => {
     try {
-        // 1. Try 'client_docs' bucket first (In-Branch)
+        // 1. Clean the path in case it's still a full URL
+        let cleanPath = inputPath;
+        if (inputPath.includes('/storage/v1/object/')) {
+            // Split after the bucket name to get the relative path
+            const parts = inputPath.split('/');
+            // Usually, the path starts after the 8th segment in Supabase storage URLs
+            cleanPath = parts.slice(8).join('/');
+        }
+
+        // 2. Try 'client_docs' bucket first (In-Branch Admin Folder strategy)
         let { data, error } = await supabase.storage
             .from('client_docs')
-            .createSignedUrl(path, 60);
+            .createSignedUrl(cleanPath, 60);
 
-        // 2. If not found, try 'documents' bucket (Online Apps)
-        if (error) {
+        // 3. Fallback: If not found, try the 'documents' bucket (User-uploaded files)
+        if (error || !data) {
              ({ data, error } = await supabase.storage
                 .from('documents')
-                .createSignedUrl(path, 60));
+                .createSignedUrl(cleanPath, 60));
         }
 
         if (error) throw error;
         
-        // Open the valid link
         window.open(data.signedUrl, '_blank');
 
     } catch (err) {
         console.error("Smart Download Error:", err);
-        alert("Unable to download file. It may have been deleted or moved.");
+        showFeedback("File not found in any bucket. Please check storage manually.", "error");
     }
 };
 
