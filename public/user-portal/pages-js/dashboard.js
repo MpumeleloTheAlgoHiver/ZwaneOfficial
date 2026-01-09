@@ -186,6 +186,7 @@ function populateActiveLoans() {
                 <div class="loan-header">
                     <span class="loan-id">${loan.id}</span>
                     <span class="loan-status">${loan.status}</span>
+
                 </div>
                 <div class="loan-amount">${loan.amount}</div>
                 <div class="loan-details-grid">
@@ -612,8 +613,189 @@ window.updateChartPeriod = function(period) {
     }
 };
 
+// Dynamically load Chart.js with multi-CDN fallback to avoid load failures
+async function ensureChartJs() {
+    if (typeof Chart !== 'undefined') {
+        return true;
+    }
 
-// Chart.js is already loaded via script tag in HTML
+    // If a script tag is already present, wait for it to finish
+    const existingScript = document.querySelector('script[src*="chart.js"]');
+    if (existingScript) {
+        return new Promise((resolve) => {
+            if (typeof Chart !== 'undefined') {
+                resolve(true);
+                return;
+            }
+            existingScript.onload = () => resolve(true);
+            existingScript.onerror = () => resolve(false);
+            setTimeout(() => resolve(typeof Chart !== 'undefined'), 4000);
+        });
+    }
+
+    const cdnCandidates = [
+        'https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js',
+        'https://unpkg.com/chart.js@3.9.1/dist/chart.min.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js'
+    ];
+
+    for (const url of cdnCandidates) {
+        /* eslint-disable no-await-in-loop */
+        const loaded = await new Promise((resolve) => {
+            const script = document.createElement('script');
+            script.src = url;
+            script.onload = () => resolve(true);
+            script.onerror = () => resolve(false);
+            // Add a timeout in case of stalled requests
+            const timeout = setTimeout(() => resolve(typeof Chart !== 'undefined'), 5000);
+            script.onload = () => {
+                clearTimeout(timeout);
+                resolve(true);
+            };
+            script.onerror = () => {
+                clearTimeout(timeout);
+                resolve(false);
+            };
+            document.head.appendChild(script);
+        });
+        if (loaded && typeof Chart !== 'undefined') {
+            console.log(`✅ Chart.js loaded from ${url}`);
+            return true;
+        }
+        console.warn(`⚠️ Failed to load Chart.js from ${url}, trying next CDN...`);
+    }
+
+    console.error('❌ All Chart.js CDN attempts failed');
+    return false;
+}
+
+// Lightweight fallbacks when Chart.js cannot load
+function renderFallbackLineChart(canvas, labels, values) {
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width = canvas.clientWidth || 320;
+    const height = canvas.height = canvas.clientHeight || 200;
+
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '12px sans-serif';
+    ctx.fillText('Repayment Trend', 10, 16);
+
+    // Axes
+    const padding = 32;
+    const chartWidth = width - padding * 2;
+    const chartHeight = height - padding * 2;
+    const originX = padding;
+    const originY = height - padding;
+
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(originX, originY);
+    ctx.lineTo(originX, padding);
+    ctx.moveTo(originX, originY);
+    ctx.lineTo(width - padding + 6, originY);
+    ctx.stroke();
+
+    const maxVal = Math.max(...values, 1);
+    const points = values.map((v, i) => {
+        const x = originX + (i / Math.max(labels.length - 1, 1)) * chartWidth;
+        const y = originY - (v / maxVal) * chartHeight;
+        return { x, y };
+    });
+
+    // Gridlines
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    [0.25, 0.5, 0.75, 1].forEach(r => {
+        const y = originY - r * chartHeight;
+        ctx.beginPath();
+        ctx.moveTo(originX, y);
+        ctx.lineTo(originX + chartWidth, y);
+        ctx.stroke();
+    });
+    ctx.setLineDash([]);
+
+    // Line
+    ctx.strokeStyle = '#2563eb';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    points.forEach((p, i) => {
+        if (i === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+    });
+    if (!points.length) {
+        ctx.moveTo(originX, originY);
+        ctx.lineTo(originX + chartWidth, originY);
+    }
+    ctx.stroke();
+
+    // Points
+    ctx.fillStyle = '#1d4ed8';
+    points.forEach(p => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    // X labels (sparse to avoid clutter)
+    ctx.fillStyle = '#475569';
+    ctx.font = '11px sans-serif';
+    const step = Math.ceil(labels.length / 4) || 1;
+    labels.forEach((label, i) => {
+        if (i % step !== 0 && i !== labels.length - 1) return;
+        const x = originX + (i / Math.max(labels.length - 1, 1)) * chartWidth;
+        ctx.fillText(label, x - 10, originY + 14);
+    });
+}
+
+function renderFallbackDoughnut(canvas, paid, balance) {
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width = canvas.clientWidth || 200;
+    const height = canvas.height = canvas.clientHeight || 200;
+    ctx.clearRect(0, 0, width, height);
+
+    const total = paid + balance;
+    const paidShare = total === 0 ? 0.5 : paid / total;
+    const balanceShare = 1 - paidShare;
+
+    const cx = width / 2;
+    const cy = height / 2;
+    const radius = Math.min(width, height) / 2 - 10;
+    const startAngle = -Math.PI / 2;
+
+    // Paid slice
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.fillStyle = '#16a34a';
+    ctx.arc(cx, cy, radius, startAngle, startAngle + paidShare * Math.PI * 2);
+    ctx.closePath();
+    ctx.fill();
+
+    // Balance slice
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.fillStyle = '#f59e0b';
+    ctx.arc(cx, cy, radius, startAngle + paidShare * Math.PI * 2, startAngle + Math.PI * 2);
+    ctx.closePath();
+    ctx.fill();
+
+    // Inner hole
+    ctx.beginPath();
+    ctx.fillStyle = '#ffffff';
+    ctx.arc(cx, cy, radius * 0.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Labels
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Loan Breakdown', cx, cy - 6);
+    ctx.font = '12px sans-serif';
+    ctx.fillText(`Paid: ${formatCurrency(paid)}`, cx, cy + 12);
+    ctx.fillText(`Balance: ${formatCurrency(balance)}`, cx, cy + 28);
+}
+
 // Initialize charts when page loads
 async function tryInitCharts() {
     const repaymentCanvas = document.getElementById('repaymentChart');
@@ -625,10 +807,12 @@ async function tryInitCharts() {
         return;
     }
     
-    // Chart.js is already loaded via HTML script tag, so just check if it's available
-    if (typeof Chart === 'undefined') {
-        console.log('⏳ Chart.js not loaded yet, waiting...');
-        setTimeout(tryInitCharts, 300);
+    const chartJsLoaded = await ensureChartJs();
+    
+    if (!chartJsLoaded) {
+        console.warn('⚠️ Chart.js could not be loaded. Rendering lightweight fallback charts.');
+        renderFallbackLineChart(repaymentCanvas, dashboardData.repaymentSeries?.labels || ['Jan','Feb','Mar','Apr','May','Jun'], dashboardData.repaymentSeries?.data || [0,0,0,0,0,0]);
+        renderFallbackDoughnut(breakdownCanvas, dashboardData.totalRepaid || 0, dashboardData.currentBalance || 0);
         return;
     }
     
@@ -638,9 +822,6 @@ async function tryInitCharts() {
 
 // Start chart initialization
 tryInitCharts();
-
-// Load dashboard data and update charts
-loadDashboardData();
 
 // ==========================================
 // SUPABASE INTEGRATION - NOW ACTIVE
