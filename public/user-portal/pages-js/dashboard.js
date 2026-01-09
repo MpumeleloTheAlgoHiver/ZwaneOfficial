@@ -612,44 +612,8 @@ window.updateChartPeriod = function(period) {
     }
 };
 
-// Dynamically load Chart.js if not already available
-async function ensureChartJs() {
-    if (typeof Chart !== 'undefined') {
-        return true;
-    }
-    
-    // Check if script is already being loaded
-    const existingScript = document.querySelector('script[src*="chart.js"]');
-    if (existingScript) {
-        // Wait for existing script to load
-        return new Promise((resolve) => {
-            if (typeof Chart !== 'undefined') {
-                resolve(true);
-                return;
-            }
-            existingScript.onload = () => resolve(true);
-            existingScript.onerror = () => resolve(false);
-            // Timeout fallback
-            setTimeout(() => resolve(typeof Chart !== 'undefined'), 3000);
-        });
-    }
-    
-    // Load Chart.js dynamically
-    return new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js';
-        script.onload = () => {
-            console.log('✅ Chart.js loaded dynamically');
-            resolve(true);
-        };
-        script.onerror = () => {
-            console.error('❌ Failed to load Chart.js');
-            resolve(false);
-        };
-        document.head.appendChild(script);
-    });
-}
 
+// Chart.js is already loaded via script tag in HTML
 // Initialize charts when page loads
 async function tryInitCharts() {
     const repaymentCanvas = document.getElementById('repaymentChart');
@@ -661,10 +625,10 @@ async function tryInitCharts() {
         return;
     }
     
-    const chartJsLoaded = await ensureChartJs();
-    
-    if (!chartJsLoaded) {
-        console.error('❌ Chart.js could not be loaded. Charts will not render.');
+    // Chart.js is already loaded via HTML script tag, so just check if it's available
+    if (typeof Chart === 'undefined') {
+        console.log('⏳ Chart.js not loaded yet, waiting...');
+        setTimeout(tryInitCharts, 300);
         return;
     }
     
@@ -674,6 +638,9 @@ async function tryInitCharts() {
 
 // Start chart initialization
 tryInitCharts();
+
+// Load dashboard data and update charts
+loadDashboardData();
 
 // ==========================================
 // SUPABASE INTEGRATION - NOW ACTIVE
