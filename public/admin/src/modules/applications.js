@@ -50,8 +50,8 @@ let inBranchState = {
   },
   documents: {
     idcard: 'pending',
-    tillslip: 'pending',
-    bankstatement: 'pending'
+    till_slip: 'pending',
+    bank_statement: 'pending'
   },
   creditCheck: {
       applicationId: null,
@@ -1617,7 +1617,11 @@ async function renderDocumentCheck(container) {
             <div class="space-y-4" id="docs-list"><div class="p-4 text-center"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</div></div>
         </div>`;
         
-    const docTypes = [{ key: 'idcard', label: 'ID Document' }, { key: 'payslip', label: 'Latest Payslip' }, { key: 'bankstatement', label: 'Bank Statement' }];
+    const docTypes = [
+          { key: 'idcard', label: 'ID Document' }, 
+          { key: 'till_slip', label: 'Latest Payslip' }, 
+          { key: 'bank_statement', label: 'Bank Statement' }
+    ];
     
     const listHtml = await Promise.all(docTypes.map(async (doc) => {
         // Fetch from DB
