@@ -72,6 +72,22 @@ let appState = {
 // --- HELPER FUNCTIONS ---
 const getRowId = (row) => `${row.loan_id}-${row.month}`;
 
+const getMetricValue = (row, keys = []) => {
+    for (const key of keys) {
+        const value = row?.[key];
+        const numeric = Number(value);
+        if (!Number.isNaN(numeric) && value !== null && value !== undefined) {
+            return numeric;
+        }
+    }
+    return 0;
+};
+
+const getPrincipalValue = (row) => getMetricValue(row, ['principal_due_month', 'principal_outstanding']);
+const getInterestValue = (row) => getMetricValue(row, ['interest_due_month', 'interest_receivable']);
+const getFeeValue = (row) => getMetricValue(row, ['fee_due_month', 'fee_receivable']);
+const getArrearsValue = (row) => getMetricValue(row, ['arrears_due_month', 'arrears_amount']);
+
 // --- EXCEL EXPORT ---
 function exportAnalyticsToExcel() {
     if (typeof XLSX === 'undefined') return alert("Excel library not loaded.");
@@ -79,10 +95,10 @@ function exportAnalyticsToExcel() {
         "Loan ID": row.loan_id,
         "Customer": row.customer || 'N/A',
         "Statement Period": row.month,
-        "Principal (ZAR)": parseFloat(row.principal_outstanding || 0),
-        "Interest (ZAR)": parseFloat(row.interest_receivable || 0),
-        "Fees (ZAR)": parseFloat(row.fee_receivable || 0),
-        "Arrears (ZAR)": parseFloat(row.arrears_amount || 0)
+        "Principal (ZAR)": getPrincipalValue(row),
+        "Interest (ZAR)": getInterestValue(row),
+        "Fees (ZAR)": getFeeValue(row),
+        "Arrears (ZAR)": getArrearsValue(row)
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -242,15 +258,15 @@ function processData(searchTerm = '') {
     }
 
     if (appState.filterArrears) {
-        data = data.filter(row => parseFloat(row.arrears_amount) > 0);
+        data = data.filter(row => getArrearsValue(row) > 0);
     }
 
     data.sort((a, b) => {
         switch (appState.sortMode) {
             case 'month_desc': return b.month.localeCompare(a.month);
             case 'month_asc':  return a.month.localeCompare(b.month);
-            case 'amount_desc': return parseFloat(b.principal_outstanding) - parseFloat(a.principal_outstanding);
-            case 'amount_asc':  return parseFloat(a.principal_outstanding) - parseFloat(b.principal_outstanding);
+            case 'amount_desc': return getPrincipalValue(b) - getPrincipalValue(a);
+            case 'amount_asc':  return getPrincipalValue(a) - getPrincipalValue(b);
             default: return 0;
         }
     });
@@ -284,10 +300,10 @@ function renderTable() {
     }
 
     const totals = visibleData.reduce((acc, row) => {
-        acc.p += parseFloat(row.principal_outstanding || 0);
-        acc.i += parseFloat(row.interest_receivable || 0);
-        acc.f += parseFloat(row.fee_receivable || 0);
-        acc.a += parseFloat(row.arrears_amount || 0);
+        acc.p += getPrincipalValue(row);
+        acc.i += getInterestValue(row);
+        acc.f += getFeeValue(row);
+        acc.a += getArrearsValue(row);
         return acc;
     }, { p: 0, i: 0, f: 0, a: 0, count: visibleData.length });
 
@@ -314,7 +330,8 @@ const renderRow = (row) => {
     const rowId = getRowId(row);
     const isHidden = appState.hiddenRows.has(rowId);
     const isFlagged = appState.flaggedRows.has(rowId);
-    const arrearsClass = parseFloat(row.arrears_amount) > 0 ? 'text-red-600 font-bold' : 'text-gray-400';
+    const arrearsValue = getArrearsValue(row);
+    const arrearsClass = arrearsValue > 0 ? 'text-red-600 font-bold' : 'text-gray-400';
 
     let rowClasses = 'border-b border-gray-50 transition-colors group';
     if (isHidden) rowClasses += ' bg-gray-50 opacity-40 grayscale';
@@ -326,10 +343,10 @@ const renderRow = (row) => {
             <td class="pl-6 py-4 font-medium text-gray-900">${row.loan_id}</td>
             <td class="px-4 py-4 text-gray-700 font-medium">${row.customer || 'N/A'}</td>
             <td class="px-4 py-4 text-gray-500 font-mono text-xs">${row.month}</td>
-            <td class="px-4 py-4 text-right text-gray-700">${formatCurrency(row.principal_outstanding)}</td>
-            <td class="px-4 py-4 text-right text-gray-600">${formatCurrency(row.interest_receivable)}</td>
-            <td class="px-4 py-4 text-right text-blue-600 font-medium">${formatCurrency(row.fee_receivable)}</td>
-            <td class="px-4 py-4 text-right ${arrearsClass}">${formatCurrency(row.arrears_amount)}</td>
+            <td class="px-4 py-4 text-right text-gray-700">${formatCurrency(getPrincipalValue(row))}</td>
+            <td class="px-4 py-4 text-right text-gray-600">${formatCurrency(getInterestValue(row))}</td>
+            <td class="px-4 py-4 text-right text-blue-600 font-medium">${formatCurrency(getFeeValue(row))}</td>
+            <td class="px-4 py-4 text-right ${arrearsClass}">${formatCurrency(arrearsValue)}</td>
             <td class="px-4 py-4 text-center print:hidden">
                 <div class="flex items-center justify-center gap-2">
                     <button class="hide-btn p-1.5 hover:bg-gray-200 rounded-md" data-id="${rowId}">
