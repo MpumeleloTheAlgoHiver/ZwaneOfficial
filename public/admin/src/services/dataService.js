@@ -781,9 +781,22 @@ export async function fetchAnalyticsData() {
     // 1. Fetch Loans
     const { data: loans, error: loanError } = await supabase
       .from('loans')
-      .select('id, principal_amount, interest_rate, start_date, status, user_id, term_months')
-      .not('start_date', 'is', null)
-      .order('start_date', { ascending: true });
+      .select(`
+        id,
+        application_id,
+        user_id,
+        principal_amount,
+        interest_rate,
+        term_months,
+        status,
+        start_date,
+        first_payment_date,
+        next_payment_date,
+        created_at,
+        monthly_payment,
+        total_repayment
+      `)
+      .order('created_at', { ascending: true });
     if (loanError) throw loanError;
 
     // 2. Fetch Payments
@@ -794,11 +807,16 @@ export async function fetchAnalyticsData() {
     if (payError) throw payError;
 
     // 3. Fetch Profiles
-    const userIds = [...new Set(loans.map(l => l.user_id))];
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, full_name')
-      .in('id', userIds);
+    const userIds = [...new Set(loans.map(l => l.user_id))].filter(Boolean);
+    let profiles = [];
+    if (userIds.length > 0) {
+      const { data: profileRows, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', userIds);
+      if (profileError) throw profileError;
+      profiles = profileRows || [];
+    }
 
     const nameMap = {};
     profiles?.forEach(p => { nameMap[p.id] = p.full_name });
@@ -814,6 +832,13 @@ export async function fetchAnalyticsData() {
     const currentMonthStr = today.toISOString().slice(0, 7);
     
     // 4. Process Each Loan
+    const resolveStartDate = (loan) => {
+      const candidate = loan.start_date || loan.first_payment_date || loan.created_at || loan.next_payment_date;
+      if (!candidate) return null;
+      const parsed = new Date(candidate);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
     loans.forEach(loan => {
       const loanPayments = paymentsMap[loan.id] || [];
       const monthlyServiceFee = 60;
@@ -823,27 +848,39 @@ export async function fetchAnalyticsData() {
       if (rawRate > 1) rawRate = rawRate / 100; 
       const monthlyRate = rawRate / 12; 
       
-      let principalOutstanding = Number(loan.principal_amount);
+      let principalOutstanding = Math.max(Number(loan.principal_amount) || 0, 0);
       let interestReceivable = 0;
       let feeReceivable = 0;
       let arrearsAmount = 0;
 
-      const startDate = new Date(loan.start_date);
+      const startDate = resolveStartDate(loan);
+      if (!startDate) {
+        return;
+      }
       let currentDate = new Date(startDate);
       currentDate.setDate(1); 
       
+      const normalizedTerm = Number(loan.term_months) > 0 ? Number(loan.term_months) : 1;
+      const storedMonthlyPayment = Number(loan.monthly_payment) || 0;
+
       let loopCount = 0;
       while (currentDate <= today || currentDate.toISOString().slice(0,7) === currentMonthStr) {
-        if (loopCount++ > 120) break;
+        if (loopCount++ > Math.max(normalizedTerm + 2, 120)) break;
 
         const monthStr = currentDate.toISOString().slice(0, 7);
+        const openingPrincipal = principalOutstanding;
+        const rawInstallment = normalizedTerm > 0
+          ? Number(loan.principal_amount) / normalizedTerm
+          : openingPrincipal;
+        const principalInstallment = Number.isFinite(rawInstallment) && rawInstallment > 0 ? rawInstallment : openingPrincipal;
+        let principalDueThisMonth = Math.min(principalInstallment, openingPrincipal);
         
         // A. ACCRUALS
         let interestAccrued = 0;
         let feesAccrued = 0;
 
-        if(principalOutstanding > 0.01) {
-            interestAccrued = principalOutstanding * monthlyRate;
+        if(openingPrincipal > 0.01) {
+            interestAccrued = openingPrincipal * monthlyRate;
             feesAccrued = monthlyServiceFee;
         }
 
@@ -851,8 +888,15 @@ export async function fetchAnalyticsData() {
         interestReceivable += interestAccrued;
         feeReceivable += feesAccrued;
         
-        const principalInstallment = (Number(loan.principal_amount) / loan.term_months);
-        const installmentDue = interestAccrued + feesAccrued + principalInstallment;
+        const baseInstallment = interestAccrued + feesAccrued + principalDueThisMonth;
+        const targetInstallment = storedMonthlyPayment > 0 ? storedMonthlyPayment : baseInstallment;
+        if (targetInstallment > 0) {
+          const principalPortion = Math.max(targetInstallment - (interestAccrued + feesAccrued), 0);
+          if (principalPortion > 0) {
+            principalDueThisMonth = Math.min(principalPortion, openingPrincipal);
+          }
+        }
+        const installmentDue = interestAccrued + feesAccrued + principalDueThisMonth;
         
         // C. PAYMENTS
         const monthsPayments = loanPayments.filter(p => p.payment_date.startsWith(monthStr));
@@ -869,21 +913,22 @@ export async function fetchAnalyticsData() {
         interestReceivable -= interestCollected;
         remainingPayment -= interestCollected;
         
-        const principalPaid = remainingPayment;
-        principalOutstanding -= principalPaid;
-        
-        if (principalOutstanding < 1) principalOutstanding = 0;
+        const principalPaid = Math.min(remainingPayment, principalOutstanding);
+        principalOutstanding = Math.max(principalOutstanding - principalPaid, 0);
+        remainingPayment -= principalPaid;
         
         // D. ARREARS CALCULATION
-        if (currentDate >= startDate && principalOutstanding > 0) {
-          const monthlyArrears = installmentDue - totalPaidThisMonth;
-          if (monthlyArrears > 5) {
-             arrearsAmount += monthlyArrears;
-          } else if (monthlyArrears < 0) {
-             arrearsAmount = Math.max(0, arrearsAmount + monthlyArrears);
+        const paymentGap = installmentDue - totalPaidThisMonth;
+        let arrearsForMonth = 0;
+        if (currentDate >= startDate && openingPrincipal > 0) {
+          if (paymentGap > 5) {
+            arrearsAmount += paymentGap;
+            arrearsForMonth = paymentGap;
+          } else if (paymentGap < -5) {
+            arrearsAmount = Math.max(0, arrearsAmount + paymentGap);
           }
         } else if (principalOutstanding === 0) {
-            arrearsAmount = 0;
+          arrearsAmount = Math.max(0, arrearsAmount + paymentGap);
         }
         
         // E. STORE DATA POINT
@@ -898,6 +943,10 @@ export async function fetchAnalyticsData() {
           interest_receivable: interestReceivable,
           fee_receivable: feeReceivable,
           arrears_amount: arrearsAmount,
+          principal_due_month: principalDueThisMonth,
+          interest_due_month: interestAccrued,
+          fee_due_month: feesAccrued,
+          arrears_due_month: arrearsForMonth,
           
           // Earnings for this specific month
           interest_earned_month: interestAccrued,
