@@ -71,11 +71,16 @@ async function loadActiveLoans(supabase, userId, paymentsByLoan = {}) {
       const rawRate = parseFloat(loan.interest_rate) || 0;
       const normalizedRate = rawRate > 1 ? rawRate / 100 : rawRate; // allow stored percentages
       const storedMonthly = parseFloat(loan.monthly_payment) || 0;
-      const monthlyPayment = storedMonthly || calculateMonthlyPayment(principal, normalizedRate, termMonths);
-      const totalRepayment = parseFloat(loan.total_repayment) || (monthlyPayment * (termMonths || 1)) || principal;
+      const derivedMonthly = calculateMonthlyPayment(principal, normalizedRate, termMonths);
+      const monthlyPayment = Number.isFinite(storedMonthly) && storedMonthly > 0 ? storedMonthly : derivedMonthly;
+      const safeMonthlyPayment = Number.isFinite(monthlyPayment) ? monthlyPayment : 0;
+      const totalRepayment = parseFloat(loan.total_repayment) || (safeMonthlyPayment * (termMonths || 1)) || principal;
       const paidToDate = paymentsByLoan[loan.id] || 0;
-      const outstanding = Math.max(totalRepayment - paidToDate, 0);
-      const nextPaymentDate = loan.next_payment_date || loan.first_payment_date || loan.repayment_start_date;
+      const outstandingBalance = Math.max(totalRepayment - paidToDate, 0);
+      const dueDateObj = normalizeNextPaymentDate(
+        loan.next_payment_date || loan.first_payment_date || loan.repayment_start_date
+      );
+      const nextDueAmount = Math.min(safeMonthlyPayment, outstandingBalance || safeMonthlyPayment);
 
       return {
         id: loan.id,
@@ -83,9 +88,12 @@ async function loadActiveLoans(supabase, userId, paymentsByLoan = {}) {
         principal,
         totalRepayment,
         paidToDate,
-        outstanding,
-        monthlyPayment,
-        nextPaymentDate,
+        outstanding: outstandingBalance,
+        outstandingBalance,
+        monthlyPayment: safeMonthlyPayment,
+        nextPaymentDate: dueDateObj ? dueDateObj.toISOString() : null,
+        dueDateObj,
+        nextDueAmount: Number.isFinite(nextDueAmount) ? nextDueAmount : safeMonthlyPayment,
         interestRate: normalizedRate,
         termMonths,
         status: loan.status,
@@ -178,24 +186,25 @@ async function loadPaymentHistory(supabase, userId) {
 function calculateMetrics() {
   const totalOutstanding = activeLoans.reduce((sum, loan) => sum + loan.outstanding, 0);
   
-  // Find the loan with the earliest payment date (next upcoming payment)
-  const upcomingLoan = activeLoans.reduce((earliest, loan) => {
+  // Mirror dashboard logic to find the next repayment candidate
+  const upcomingLoan = activeLoans.reduce((best, loan) => {
     if (!loan.monthlyPayment || loan.monthlyPayment <= 0) {
-      return earliest;
+      return best;
     }
-    if (!loan.nextPaymentDate && !earliest) {
+
+    if (!loan.dueDateObj) {
+      return best || loan;
+    }
+
+    if (!best || !best.dueDateObj || loan.dueDateObj < best.dueDateObj) {
       return loan;
     }
-    const loanDate = new Date(loan.nextPaymentDate);
-    if (!earliest || !earliest.nextPaymentDate) {
-      return loan;
-    }
-    const earliestDate = new Date(earliest.nextPaymentDate);
-    return loanDate < earliestDate ? loan : earliest;
+
+    return best;
   }, null);
   
-  const nextPayment = upcomingLoan ? upcomingLoan.monthlyPayment : 0;
-  const nextDate = upcomingLoan ? upcomingLoan.nextPaymentDate : null;
+  const nextPayment = upcomingLoan ? (upcomingLoan.nextDueAmount ?? upcomingLoan.monthlyPayment) : 0;
+  const nextDate = upcomingLoan ? (upcomingLoan.dueDateObj || upcomingLoan.nextPaymentDate) : null;
 
   const now = new Date();
   const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -238,7 +247,8 @@ function renderActiveLoans() {
   }
 
   container.innerHTML = activeLoans.map(loan => {
-    const isOverdue = new Date(loan.nextPaymentDate) < new Date();
+    const dueDate = loan.dueDateObj || normalizeNextPaymentDate(loan.nextPaymentDate);
+    const isOverdue = dueDate ? dueDate < new Date() : false;
     const statusClass = isOverdue ? 'overdue' : 'active';
     const statusText = isOverdue ? 'Overdue' : 'Active';
 
@@ -613,7 +623,8 @@ async function populateLoanDetails(loan) {
     maturityDate.setMonth(maturityDate.getMonth() + loan.termMonths);
 
     // Determine status
-    const isOverdue = new Date(loan.nextPaymentDate) < new Date();
+    const dueDate = loan.dueDateObj || normalizeNextPaymentDate(loan.nextPaymentDate);
+    const isOverdue = dueDate ? dueDate < new Date() : false;
     const statusText = isOverdue ? 'overdue' : loan.status;
 
     // Update header
@@ -646,7 +657,7 @@ async function populateLoanDetails(loan) {
 
     // Update next payment
     document.getElementById('nextPaymentDueDate').textContent = formatDate(loan.nextPaymentDate);
-    document.getElementById('nextPaymentDueAmount').textContent = formatCurrency(loan.monthlyPayment);
+    document.getElementById('nextPaymentDueAmount').textContent = formatCurrency(loan.nextDueAmount ?? loan.monthlyPayment);
 
     // Generate payment schedule
     generatePaymentSchedule(loan, startDate, totalInterest);
@@ -733,6 +744,18 @@ function downloadStatement() {
 }
 
 // Utility functions
+function normalizeNextPaymentDate(rawDate) {
+  if (!rawDate) {
+    return null;
+  }
+  const candidate = rawDate instanceof Date ? new Date(rawDate) : new Date(rawDate);
+  if (Number.isNaN(candidate.getTime())) {
+    return null;
+  }
+  candidate.setUTCHours(0, 0, 0, 0);
+  return candidate;
+}
+
 function formatCurrency(value) {
   const number = Number(value) || 0;
   return `R ${number.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
@@ -745,12 +768,25 @@ function formatDate(dateValue) {
   return date.toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-function formatNextPaymentDate(dateValue) {
-  if (!dateValue) {
-    return 'Next payment date pending';
+function calculateMonthlyPayment(principal = 0, annualRate = 0, termMonths = 0) {
+  const amount = Number(principal);
+  const months = Number(termMonths);
+  if (!amount || !months || months <= 0) {
+    return 0;
   }
-  const date = new Date(dateValue);
-  if (isNaN(date.getTime())) {
+
+  const monthlyRate = Number(annualRate) / 12;
+  if (!monthlyRate) {
+    return amount / months;
+  }
+
+  const factor = Math.pow(1 + monthlyRate, months);
+  return (amount * monthlyRate * factor) / (factor - 1);
+}
+
+function formatNextPaymentDate(dateValue) {
+  const date = normalizeNextPaymentDate(dateValue);
+  if (!date) {
     return 'Next payment date pending';
   }
   const formatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
