@@ -30,29 +30,22 @@ let cachedSystemTheme = null;
 let systemThemeFetchedAt = 0;
 let systemThemePromise = null;
 
-// Measure the navbar height and expose it as a CSS variable so sticky headers
-// can position themselves directly beneath the navbar on all screen sizes.
+// Measure the navbar height and expose it as a CSS variable
 function setNavbarOffset() {
   try {
     const navbar = document.getElementById('navbar');
     const isMobile = window.innerWidth <= 768;
 
-    // Only apply navbar offset on mobile; on desktop we keep it 0 to avoid extra top padding
     const navbarOffset = (isMobile && navbar) ? (navbar.offsetHeight || 64) : 0;
     document.documentElement.style.setProperty('--navbar-offset', `${navbarOffset}px`);
 
-    // Measure dashboard header (if present) so we can account for its height on mobile
     const header = document.querySelector('#main-content .dashboard-header');
-    // Use getBoundingClientRect for a more accurate height (includes transforms)
     const headerOffset = (isMobile && header) ? (Math.ceil(header.getBoundingClientRect().height) || 56) : 0;
     document.documentElement.style.setProperty('--dashboard-header-offset', `${headerOffset}px`);
 
-    // Small extra offset to ensure the top of the first card is fully visible on mobile
-    // Increase to 24px to reduce chance of clipping across devices
     const extraOffset = isMobile ? 24 : 0;
     document.documentElement.style.setProperty('--dashboard-extra-offset', `${extraOffset}px`);
 
-    // Also update dashboard container inline padding so the first card is visible immediately
     const dashContainer = document.querySelector('#main-content .dashboard-container');
     if (dashContainer) dashContainer.style.paddingTop = `calc(1rem + ${navbarOffset}px + ${headerOffset}px + ${extraOffset}px)`;
   } catch (err) {
@@ -60,28 +53,24 @@ function setNavbarOffset() {
   }
 }
 
-// Initialize observers to watch navbar and dashboard header for size/content changes
+// Initialize observers to watch navbar and dashboard header
 function initOffsetObservers() {
   try {
     const navbar = document.getElementById('navbar');
     const header = document.querySelector('#main-content .dashboard-header');
 
-    // Debounced runner
     function scheduleRecalc() {
       if (window.__setNavbarOffsetTimeout) clearTimeout(window.__setNavbarOffsetTimeout);
       window.__setNavbarOffsetTimeout = setTimeout(() => setNavbarOffset(), 60);
     }
 
-    // Use ResizeObserver when available to watch for element size changes
     if (window.ResizeObserver) {
       const ro = new ResizeObserver(() => scheduleRecalc());
       if (navbar) ro.observe(navbar);
       if (header) ro.observe(header);
-      // store for potential cleanup
       window.__zw_ro = ro;
     }
 
-    // Also use MutationObserver to catch content changes that can affect height
     if (header && window.MutationObserver) {
       const mo = new MutationObserver(() => scheduleRecalc());
       mo.observe(header, { childList: true, subtree: true, characterData: true });
@@ -150,8 +139,7 @@ async function hydrateBranding() {
   }
 }
 
-// Periodic session validation (every 2 minutes)
-// Catches edge cases where auth state change doesn't fire
+// Periodic session validation
 setInterval(async () => {
   try {
     const { supabase } = await import('/Services/supabaseClient.js');
@@ -164,72 +152,51 @@ setInterval(async () => {
   } catch (err) {
     console.error('Session check error:', err);
   }
-}, 2 * 60 * 1000); // Every 2 minutes
+}, 2 * 60 * 1000);
 
+// ================================================================
+// DOM CONTENT LOADED - MAIN ENTRY POINT
+// ================================================================
 document.addEventListener('DOMContentLoaded', async () => {
   // Check authentication first
-  const userProfile = await checkAuth();
+  const userProfile = await checkAuth(); 
+  globalUserProfile = userProfile; 
   
-  // Store profile globally
-  globalUserProfile = userProfile;
-  
-  // PROFILE COMPLETION GUARD: Redirect immediately if incomplete
-  if (userProfile && !userProfile.isProfileComplete) {
-    const currentPage = getPageFromURL() || 'dashboard';
-    if (currentPage !== 'profile') {
-      console.log('⚠️ Profile incomplete - redirecting to profile page');
-      window.location.replace('/user-portal/?page=profile');
-      return; // Stop execution to prevent loading other pages
+  if (userProfile && !userProfile.isProfileComplete) { 
+    const currentPage = getPageFromURL() || 'dashboard'; 
+    if (currentPage !== 'profile') { 
+      window.location.replace('/user-portal/?page=profile'); 
+      return; 
     }
   }
   
-  // Load navbar and sidebar
-  await loadNavbar();
-  // apply offset once navbar is rendered
-  setNavbarOffset();
-  await loadSidebar();
-  // re-apply offset after sidebar (layout) has been added
-  setNavbarOffset();
+  // Load navbar & sidebar
+  await loadNavbar(); 
+  setNavbarOffset(); 
+  await loadSidebar(); 
+  setNavbarOffset(); 
   
-  // Populate user info in dropdown
+  // Populate user info (Initials & Dropdown data)
   if (userProfile) {
     populateUserDropdown(userProfile);
   }
 
-  // Get initial page from URL or default to dashboard
+  // Load Initial Page
   const initialPage = getPageFromURL() || 'dashboard';
   await loadPage(initialPage);
-  // ensure offsets are applied after the page content is loaded
   setNavbarOffset();
 
-  // Setup navigation listeners
+  // Setup listeners 
   setupNavigation();
+  loadUnreadCount();
+  setupRealtimeNotifications();
 
-  // Setup notification button
-  setupNotificationButton();
-
-  // Setup account dropdown
-  setupAccountDropdown();
-
-  // Setup notification dropdown
-  setupNotificationDropdown();
-
-  // Keep the CSS variable updated when the viewport changes
+  // Resize Listeners
   window.addEventListener('resize', setNavbarOffset);
-
-  // Observe navbar/header size changes and keep offsets in sync
   initOffsetObservers();
-
-  // Logout button is setup in loadSidebar() after sidebar loads
 });
 
-/**
- * Check if user is authenticated and has borrower role
- * ============================================
- * AUTH GUARD: Protects user portal from unauthorized access
- * Only borrower role can access this portal
- * ============================================
- */
+// Auth Check
 async function checkAuth() {
   const { supabase } = await import('/Services/supabaseClient.js');
   
@@ -241,7 +208,6 @@ async function checkAuth() {
     return null;
   }
   
-  // Check if user has borrower role
   const { data: profile } = await supabase
     .from('profiles')
     .select('*')
@@ -255,9 +221,6 @@ async function checkAuth() {
     return null;
   }
   
-  console.log('✅ Access granted for borrower:', profile.full_name);
-  
-  // Check if financial profile and declarations are complete
   const { data: financialProfile } = await supabase
     .from('financial_profiles')
     .select('*')
@@ -274,33 +237,30 @@ async function checkAuth() {
   profile.hasDeclarations = !!declarations && declarations.accepted_std_conditions === true;
   profile.isProfileComplete = profile.hasFinancialProfile && profile.hasDeclarations;
   
-  console.log('📊 Profile completion:', {
-    financial: profile.hasFinancialProfile,
-    declarations: profile.hasDeclarations,
-    complete: profile.isProfileComplete
-  });
-  
   return profile;
 }
 
-/**
- * Load navbar component
- */
+// Load Navbar
 async function loadNavbar() {
   try {
     const response = await fetch('/user-portal/layouts/navbar.html');
     const html = await response.text();
     document.getElementById('navbar').innerHTML = html;
-    setupNavbarSearch();
+    
+    // UI Interaction Controller (Toggles)
+    setupNavbarInteractions();
+    
+    // Logic setup (Logout, Notification Data)
+    setupAccountDropdownLogic();
+    setupNotificationDropdownLogic();
+    
     hydrateBranding();
   } catch (error) {
     console.error('Error loading navbar:', error);
   }
 }
 
-/**
- * Load sidebar component
- */
+// Load Sidebar
 async function loadSidebar() {
   try {
     const response = await fetch('/user-portal/layouts/sidebar.html');
@@ -308,13 +268,9 @@ async function loadSidebar() {
     document.getElementById('sidebar').innerHTML = html;
     hydrateBranding();
     
-    // Setup logout button after sidebar is loaded
+    // Setup logout button after sidebar is loaded (if present in sidebar)
     setupLogout();
     
-    // Setup mobile nav controls after both navbar and sidebar are loaded
-    setupMobileNavControls();
-    
-    // Lock sidebar if profile incomplete
     if (globalUserProfile && !globalUserProfile.isProfileComplete) {
       lockSidebar();
     }
@@ -323,36 +279,26 @@ async function loadSidebar() {
   }
 }
 
-/**
- * Load page content dynamically
- */
+// Load Page Logic
 async function loadPage(pageName) {
   try {
-    // Profile completion guard - redirect to profile if incomplete
     if (globalUserProfile && !globalUserProfile.isProfileComplete && pageName !== 'profile') {
-      console.log('🚫 Navigation blocked - profile completion required');
       showProfileIncompleteToast();
-      // Force redirect to profile page
       window.history.replaceState({}, '', '/user-portal/?page=profile');
       pageName = 'profile';
     }
     
-    // Phone number guard - block navigation if phone missing
     if (globalUserProfile && globalUserProfile.needsPhoneNumber && pageName !== 'profile') {
-      console.log('🚫 Navigation blocked - phone number required');
       showPhoneNumberRequiredToast();
       return;
     }
     
     showLoading(true);
 
-    // Load HTML
     const htmlResponse = await fetch(`/user-portal/pages/${pageName}.html`);
     if (!htmlResponse.ok) throw new Error(`Page not found: ${pageName}`);
     const htmlContent = await htmlResponse.text();
 
-
-    // Load CSS with error handling
     const oldCss = document.getElementById('page-specific-css');
     if (oldCss) {
       oldCss.remove();
@@ -370,25 +316,18 @@ async function loadPage(pageName) {
         const link = document.createElement('link');
         link.id = 'page-specific-css';
         link.rel = 'stylesheet';
-        link.href = `${cssUrl}?t=${Date.now()}`; // Cache-busting
+        link.href = `${cssUrl}?t=${Date.now()}`;
         document.head.appendChild(link);
-      } else {
-         console.warn(`CSS for ${pageName} not found.`);
       }
     } catch (e) {
       console.warn(`Could not fetch CSS for ${pageName}.`);
     }
 
-    // Insert HTML into main content
     const mainContent = document.getElementById('main-content');
     mainContent.innerHTML = htmlContent;
     mainContent.classList.add('fade-in');
 
-    // Recalculate offsets now that page HTML is present
     setNavbarOffset();
-    // Re-init observers so newly-inserted elements (like dashboard header)
-    // are observed for size/content changes. This prevents stale offsets
-    // when navigating to the dashboard without a full page refresh.
     if (typeof initOffsetObservers === 'function') initOffsetObservers();
 
     const scriptLoaded = await loadPageScript(pageName);
@@ -396,16 +335,10 @@ async function loadPage(pageName) {
       console.warn(`JS for ${pageName} not found or failed to load.`);
     }
 
-    // Dispatch custom event for page load - allows pages to re-initialize
     document.dispatchEvent(new CustomEvent('pageLoaded', { detail: { pageName } }));
     window.dispatchEvent(new CustomEvent('pageLoaded', { detail: { pageName } }));
     
-    console.log('📄 Page loaded:', pageName);
-    
-    // Special handling for dashboard - always reload data
     if (pageName === 'dashboard') {
-      console.log('🔄 Dashboard loaded - fetching fresh data...');
-      // Wait a bit for the script to be loaded and parsed
       setTimeout(() => {
         if (typeof loadDashboardData === 'function') {
           loadDashboardData();
@@ -413,25 +346,18 @@ async function loadPage(pageName) {
       }, 100);
     }
 
-    // Special handling for apply-loan - load document upload module scripts
     if (pageName === 'apply-loan') {
-      console.log('📄 Loading document upload module scripts...');
-      // Wait for page script to load and initialize first
-      await new Promise(resolve => setTimeout(resolve, 150));
       const modules = ['tillslip', 'bankstatement', 'idcard'];
       for (const module of modules) {
         try {
           await import(`/user-portal/modules-js/${module}.js?t=${Date.now()}`);
-          console.log(`✅ ${module} module loaded`);
         } catch (error) {
           console.error(`❌ Failed to load ${module} module:`, error);
         }
       }
     }
 
-    // Special handling for apply-loan-2 - load credit check module script
     if (pageName === 'apply-loan-2') {
-      console.log('💳 Loading credit check module script...');
       try {
         const scriptUrl = `/user-portal/modules-js/credit-check.js?t=${Date.now()}`;
         fetch(scriptUrl)
@@ -440,7 +366,6 @@ async function loadPage(pageName) {
             const script = document.createElement('script');
             script.textContent = scriptContent;
             document.body.appendChild(script);
-            console.log('✅ Credit check module script loaded');
           })
           .catch(error => console.error('❌ Failed to load credit check script:', error));
       } catch (e) {
@@ -448,9 +373,7 @@ async function loadPage(pageName) {
       }
     }
 
-    // Special handling for apply-loan-3 - load loan config module script
     if (pageName === 'apply-loan-3') {
-      console.log('💰 Loading loan config module script...');
       try {
         const scriptUrl = `/user-portal/modules-js/loan-config.js?t=${Date.now()}`;
         fetch(scriptUrl)
@@ -459,7 +382,6 @@ async function loadPage(pageName) {
             const script = document.createElement('script');
             script.textContent = scriptContent;
             document.body.appendChild(script);
-            console.log('✅ Loan config module script loaded');
           })
           .catch(error => console.error('❌ Failed to load loan config script:', error));
       } catch (e) {
@@ -467,12 +389,8 @@ async function loadPage(pageName) {
       }
     }
 
-    // Update active nav link
     updateActiveNavLink(pageName);
-
-    // Update URL
     window.history.pushState({ page: pageName }, '', `/user-portal/?page=${pageName}`);
-
     showLoading(false);
   } catch (error) {
     console.error('Error loading page:', error);
@@ -522,9 +440,6 @@ async function fetchWithTimeout(resource, ms) {
   }
 }
 
-/**
- * Setup navigation click listeners
- */
 function setupNavigation() {
   document.addEventListener('click', (e) => {
     const navLink = e.target.closest('.nav-link');
@@ -536,154 +451,242 @@ function setupNavigation() {
   });
 }
 
-function setupNavbarSearch() {
-  const input = document.getElementById('navbarSearchInput');
-  const button = document.getElementById('navbarSearchButton');
-  const dropdown = document.getElementById('navbarSearchResults');
+// ================================================================
+// UNIFIED NAVBAR CONTROLLER (FIXED)
+// ================================================================
+function setupNavbarInteractions() {
+  const isMobile = () => window.innerWidth <= 768;
 
-  if (!input) {
-    return;
+  // 1. Search Logic
+  // ------------------------------------------------------
+  const desktopInput = document.getElementById('desktopSearchInput'); 
+  const desktopResults = document.getElementById('desktopSearchResults'); 
+  const mobileOverlay = document.getElementById('searchOverlay');
+  const mobileInput = document.getElementById('mobileSearchInput');
+  const closeSearchBtn = document.getElementById('closeSearch');
+  
+  // Desktop Search Button
+  const desktopSearchBtn = document.getElementById('desktopSearchButton');
+  if (desktopSearchBtn) {
+    // Clone to remove old listeners
+    const newBtn = desktopSearchBtn.cloneNode(true);
+    desktopSearchBtn.parentNode.replaceChild(newBtn, desktopSearchBtn);
+
+    newBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Close other dropdowns first
+      document.querySelectorAll('.notification-dropdown, .account-dropdown').forEach(el => el.classList.remove('active'));
+      
+      if (desktopResults) {
+        desktopResults.classList.toggle('hidden');
+        if (!desktopResults.classList.contains('hidden')) {
+          desktopInput?.focus();
+          // Trigger search immediately if there is text
+          if (desktopInput.value) updateNavbarSearchDropdown(desktopInput.value);
+        }
+      }
+    });
   }
 
-  const submitSearch = () => {
-    const query = input.value.trim();
-    if (!query) {
-      showNavbarSearchFeedback('Type to search');
-      return;
-    }
+  // Mobile Search Trigger
+  const mobileSearchTrigger = document.getElementById('mobileSearchTrigger');
+  if (mobileSearchTrigger) {
+    const newBtn = mobileSearchTrigger.cloneNode(true);
+    mobileSearchTrigger.parentNode.replaceChild(newBtn, mobileSearchTrigger);
+    
+    newBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (mobileOverlay) {
+        mobileOverlay.classList.add('open');
+        setTimeout(() => mobileInput?.focus(), 100);
+        renderMobileResults(""); 
+      }
+    });
+  }
 
-    const handled = handleNavbarSearch(query);
-    if (!handled) {
-      showNavbarSearchFeedback('No matches found');
-    }
-    closeNavbarSearchDropdown();
+  // Search Input Listeners (Typing)
+  if (desktopInput) {
+    desktopInput.addEventListener('input', (e) => updateNavbarSearchDropdown(e.target.value));
+    desktopInput.addEventListener('focus', (e) => updateNavbarSearchDropdown(e.target.value));
+  }
+  if (mobileInput) {
+    mobileInput.addEventListener('input', (e) => renderMobileResults(e.target.value));
+  }
+  if (closeSearchBtn && mobileOverlay) {
+    closeSearchBtn.addEventListener('click', () => mobileOverlay.classList.remove('open'));
+  }
+
+
+  // 2. Dropdown Logic (Account & Notifications)
+  // ------------------------------------------------------
+  // Helper: Close all dropdowns
+  const closeAllDropdowns = () => {
+    if (desktopResults) desktopResults.classList.add('hidden');
+    document.querySelectorAll('.notification-dropdown, .account-dropdown').forEach(el => el.classList.remove('active'));
   };
 
-  if (!input.dataset.bound) {
-    input.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        if (navSearchActiveIndex >= 0 && navSearchMatches[navSearchActiveIndex]) {
-          navigateToPage(navSearchMatches[navSearchActiveIndex].page);
-          closeNavbarSearchDropdown();
-        } else {
-          submitSearch();
+  // Generic Handler for Dropdown Toggles
+  // This looks for the dropdown *inside* the same container as the clicked button
+  // ensuring Mobile buttons open Mobile dropdowns, and Desktop opens Desktop.
+  const setupDropdownToggle = (btnSelector, dropdownSelector) => {
+    document.querySelectorAll(btnSelector).forEach(btn => {
+      // remove old listeners by cloning
+      const newBtn = btn.cloneNode(true);
+      btn.parentNode.replaceChild(newBtn, btn);
+
+      newBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        
+        // Find the specific dropdown sibling to this button
+        const container = newBtn.closest('.notification-dropdown-container') || newBtn.closest('.account-dropdown-container');
+        const specificDropdown = container ? container.querySelector(dropdownSelector) : null;
+
+        const wasActive = specificDropdown && specificDropdown.classList.contains('active');
+        
+        closeAllDropdowns(); // Close others
+
+        if (!wasActive && specificDropdown) {
+          specificDropdown.classList.add('active');
+          
+          // If it's the notification dropdown, load data
+          if (dropdownSelector.includes('notification')) {
+            if (typeof loadNotifications === 'function') loadNotifications();
+            // Hide badge
+            const badge = newBtn.querySelector('.notification-badge');
+            if (badge) badge.style.display = 'none';
+          }
         }
-      } else if (event.key === 'ArrowDown') {
-        event.preventDefault();
-        highlightNavbarSearchResult(navSearchActiveIndex + 1);
-      } else if (event.key === 'ArrowUp') {
-        event.preventDefault();
-        highlightNavbarSearchResult(navSearchActiveIndex - 1);
-      } else if (event.key === 'Escape') {
-        closeNavbarSearchDropdown();
-      }
+      });
     });
-    input.addEventListener('input', (event) => {
-      updateNavbarSearchDropdown(event.target.value);
-    });
-    input.addEventListener('focus', (event) => {
-      updateNavbarSearchDropdown(event.target.value);
-    });
-    input.dataset.bound = 'true';
-  }
+  };
 
-  if (button && !button.dataset.bound) {
-    button.addEventListener('click', submitSearch);
-    button.dataset.bound = 'true';
-  }
+  // Initialize Handlers
+  setupDropdownToggle('.account-btn', '.account-dropdown');
+  setupDropdownToggle('.notification-btn', '.notification-dropdown');
 
-  if (dropdown && !dropdown.dataset.bound) {
-    dropdown.addEventListener('mousedown', (event) => {
-      const item = event.target.closest('[data-search-index]');
-      if (!item) {
-        return;
-      }
-      event.preventDefault();
-      const index = Number(item.dataset.searchIndex);
-      const match = navSearchMatches[index];
-      if (match) {
-        navigateToPage(match.page);
-        closeNavbarSearchDropdown();
-      }
-    });
-    dropdown.dataset.bound = 'true';
-  }
-
-  if (!document.body.dataset.navSearchListener) {
-    document.addEventListener('click', (event) => {
-      if (!event.target.closest('.navbar-search')) {
-        closeNavbarSearchDropdown();
-      }
-    });
-    document.body.dataset.navSearchListener = 'true';
-  }
-}
-
-function handleNavbarSearch(query) {
-  const normalized = query.toLowerCase();
-  let bestMatch = null;
-  let bestScore = 0;
-
-  NAV_SEARCH_ITEMS.forEach((item) => {
-    const label = item.label.toLowerCase();
-    let score = 0;
-
-    if (label === normalized) {
-      score = 4;
-    } else if (label.startsWith(normalized)) {
-      score = 3;
-    } else if (label.includes(normalized)) {
-      score = 2;
-    } else if (item.keywords?.some((kw) => kw.includes(normalized))) {
-      score = 1;
-    }
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = item;
+  // 3. Global Closer (Click Outside)
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.navbar-search') && 
+        !e.target.closest('.notification-dropdown-container') && 
+        !e.target.closest('.account-dropdown-container')) {
+      closeAllDropdowns();
     }
   });
-
-  if (!bestMatch) {
-    return false;
+}
+// ================================================================
+// USER DATA & INITIALS POPULATION
+// ================================================================
+function populateUserDropdown(profile) {
+  // 1. Update Names and Emails (Targeting ALL instances by class)
+  if (profile.full_name) {
+    document.querySelectorAll('.user-name').forEach(el => el.textContent = profile.full_name);
+  }
+  if (profile.email) {
+    document.querySelectorAll('.user-email').forEach(el => el.textContent = profile.email);
   }
 
-  navigateToPage(bestMatch.page);
-  return true;
+  // 2. Calculate Initials
+  let initials = 'U';
+  if (profile.full_name) {
+    const names = profile.full_name.split(' ').filter(n => n.length > 0);
+    initials = names.length > 1 
+      ? names[0][0] + names[names.length - 1][0]
+      : names[0][0];
+    initials = initials.toUpperCase();
+  }
+
+  // 3. Update Avatars (Desktop & Mobile Dropdown Headers)
+  document.querySelectorAll('.user-avatar').forEach(el => {
+    el.innerHTML = `<span style="font-weight:700;">${initials}</span>`; 
+  });
+
+  // 4. Update Navbar Buttons (The circles in the top bar)
+  const accountBtns = document.querySelectorAll('.account-btn');
+  accountBtns.forEach(btn => {
+    btn.innerHTML = ''; // Clean old icon
+    const circle = document.createElement('div');
+    circle.style.cssText = `
+      width: 32px; height: 32px; background: var(--color-primary, #E7762E); 
+      color: #fff; border-radius: 50%; display: flex; align-items: center; 
+      justify-content: center; font-size: 14px; font-weight: 700;
+      border: 2px solid #fff; user-select: none;
+    `;
+    circle.textContent = initials;
+    btn.appendChild(circle);
+  });
 }
 
-function navigateToPage(pageName) {
-  if (typeof loadPage === 'function') {
-    loadPage(pageName);
-  } else {
-    window.location.href = `/user-portal/?page=${pageName}`;
+// ================================================================
+// DROPDOWN CONTENT LOGIC
+// ================================================================
+
+function setupAccountDropdownLogic() {
+  const logoutDropdownBtn = document.getElementById('logoutDropdownBtn');
+  if (logoutDropdownBtn) {
+    const newBtn = logoutDropdownBtn.cloneNode(true);
+    logoutDropdownBtn.parentNode.replaceChild(newBtn, logoutDropdownBtn);
+
+    newBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      showToast('Signing Out', 'Please wait while we sign you out...', 'info', 2000);
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
+      try {
+        const { supabase } = await import('/Services/supabaseClient.js');
+        const { error } = await supabase.auth.signOut();
+        
+        if (error) {
+          showToast('Error', 'Failed to sign out. Please try again.', 'warning', 3000);
+          console.error('Sign out error:', error);
+          return;
+        }
+        
+        showToast('Goodbye! 👋', 'You have been signed out successfully.', 'success', 2000);
+        
+        setTimeout(() => {
+          window.location.href = '/auth/login.html';
+        }, 1500);
+        
+      } catch (err) {
+        console.error('Logout error:', err);
+        showToast('Error', 'Something went wrong. Please try again.', 'warning', 3000);
+      }
+    });
   }
 }
 
-function showNavbarSearchFeedback(message) {
-  const input = document.getElementById('navbarSearchInput');
-  if (!input) {
-    return;
+function setupNotificationDropdownLogic() {
+  const markAllReadBtn = document.querySelector('.mark-all-read-btn');
+  if (markAllReadBtn) {
+    const newBtn = markAllReadBtn.cloneNode(true);
+    markAllReadBtn.parentNode.replaceChild(newBtn, markAllReadBtn);
+    
+    newBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      
+      const { markAllAsRead } = await import('/Services/notificationService.js');
+      await markAllAsRead();
+      
+      const unreadItems = document.querySelectorAll('.notification-item.unread');
+      unreadItems.forEach(item => item.classList.remove('unread'));
+      
+      const badge = document.querySelector('.notification-badge');
+      if (badge) {
+        badge.textContent = '0';
+        badge.style.display = 'none';
+      }
+    });
   }
-
-  const originalPlaceholder = input.getAttribute('data-placeholder') || input.placeholder;
-  input.setAttribute('data-placeholder', originalPlaceholder);
-  input.value = '';
-  input.placeholder = message;
-  input.classList.add('search-feedback');
-
-  setTimeout(() => {
-    input.placeholder = originalPlaceholder;
-    input.classList.remove('search-feedback');
-  }, 2000);
 }
+
+// ================================================================
+// SEARCH LOGIC & RENDERING
+// ================================================================
 
 function updateNavbarSearchDropdown(query = '') {
-  const dropdown = document.getElementById('navbarSearchResults');
-  if (!dropdown) {
-    return;
-  }
+  // FIX: ID updated to 'desktopSearchResults'
+  const dropdown = document.getElementById('desktopSearchResults'); 
+  if (!dropdown) return;
 
   const normalized = query.trim().toLowerCase();
 
@@ -704,23 +707,10 @@ function updateNavbarSearchDropdown(query = '') {
   renderNavbarSearchDropdown();
 }
 
-function getNavbarSearchScore(item, normalizedQuery) {
-  const label = item.label.toLowerCase();
-  const keywords = (item.keywords || []).map((kw) => kw.toLowerCase());
-
-  if (label === normalizedQuery) return 5;
-  if (label.startsWith(normalizedQuery)) return 4;
-  if (label.includes(normalizedQuery)) return 3;
-  if (keywords.some((kw) => kw === normalizedQuery)) return 2;
-  if (keywords.some((kw) => kw.includes(normalizedQuery))) return 1;
-  return 0;
-}
-
 function renderNavbarSearchDropdown() {
-  const dropdown = document.getElementById('navbarSearchResults');
-  if (!dropdown) {
-    return;
-  }
+  // FIX: ID updated to 'desktopSearchResults'
+  const dropdown = document.getElementById('desktopSearchResults');
+  if (!dropdown) return;
 
   if (!navSearchMatches || navSearchMatches.length === 0) {
     dropdown.innerHTML = '';
@@ -733,7 +723,7 @@ function renderNavbarSearchDropdown() {
       const keywords = item.keywords?.slice(0, 2).join(', ');
       const meta = keywords ? `${item.page} · ${keywords}` : item.page;
       return `
-        <div class="search-result-item ${index === navSearchActiveIndex ? 'active' : ''}" data-search-index="${index}" role="option">
+        <div class="search-result-item ${index === navSearchActiveIndex ? 'active' : ''}" data-search-index="${index}" role="option" onclick="handleMenuNav('${item.page}')">
           <span class="search-result-label">${item.label}</span>
           <span class="search-result-meta">${meta}</span>
         </div>
@@ -741,220 +731,124 @@ function renderNavbarSearchDropdown() {
     })
     .join('');
 
+  // IMPORTANT: Make sure we unhide it when results are found
   dropdown.classList.remove('hidden');
 }
 
-function highlightNavbarSearchResult(newIndex) {
-  if (!navSearchMatches || navSearchMatches.length === 0) {
-    return;
+function renderMobileResults(query) {
+  const container = document.querySelector('.search-results-container');
+  if (!container) return;
+
+  const items = (typeof NAV_SEARCH_ITEMS !== 'undefined') ? NAV_SEARCH_ITEMS : [];
+  let matches = [];
+
+  const queryLower = query.toLowerCase().trim();
+
+  if (!queryLower) {
+    matches = items.slice(0, 5);
+  } else {
+    matches = items
+      .map(item => ({
+        ...item,
+        score: getNavbarSearchScore(item, queryLower)
+      }))
+      .filter(entry => entry.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8);
   }
 
-  if (newIndex < 0) {
-    newIndex = navSearchMatches.length - 1;
-  } else if (newIndex >= navSearchMatches.length) {
-    newIndex = 0;
-  }
-
-  navSearchActiveIndex = newIndex;
-  renderNavbarSearchDropdown();
+  container.innerHTML = matches.length === 0 
+    ? `<div style="padding: 20px; text-align: center; color: #9ca3af;">No matches found</div>`
+    : matches.map(item => `
+        <div class="menu-list-item" style="padding: 12px; border-bottom: 1px solid #f0f0f0; display:flex; justify-content:space-between; align-items:center;" onclick="handleMenuNav('${item.page}')">
+          <div>
+             <div style="font-weight:600; color:#333;">${item.label}</div>
+             <small style="color: #9ca3af;">${item.page}</small>
+          </div>
+          <i class="fa-solid fa-chevron-right" style="color:#ccc;"></i>
+        </div>
+      `).join('');
 }
 
-function closeNavbarSearchDropdown() {
-  const dropdown = document.getElementById('navbarSearchResults');
-  if (!dropdown) {
-    return;
-  }
-  dropdown.classList.add('hidden');
-  dropdown.innerHTML = '';
-  navSearchMatches = [];
-  navSearchActiveIndex = -1;
+function getNavbarSearchScore(item, normalizedQuery) {
+  const label = item.label.toLowerCase();
+  const keywords = (item.keywords || []).map((kw) => kw.toLowerCase());
+
+  if (label === normalizedQuery) return 5;
+  if (label.startsWith(normalizedQuery)) return 4;
+  if (label.includes(normalizedQuery)) return 3;
+  if (keywords.some((kw) => kw === normalizedQuery)) return 2;
+  if (keywords.some((kw) => kw.includes(normalizedQuery))) return 1;
+  return 0;
 }
 
-/**
- * Update active nav link styling
- */
+// ================================================================
+// MOBILE NAVIGATION & ISLAND LOGIC (PRESERVED)
+// ================================================================
+
 function updateActiveNavLink(pageName) {
+  // 1. Update standard Sidebar links
   document.querySelectorAll('.nav-link').forEach((link) => {
     link.classList.remove('active');
   });
-  document.querySelector(`[data-page="${pageName}"]`)?.classList.add('active');
+  document.querySelector(`.nav-link[data-page="${pageName}"]`)?.classList.add('active');
+
+  // 2. Update Mobile Island Dock icons (The lime green circle)
+  document.querySelectorAll('.dock-item').forEach((item) => {
+    item.classList.remove('active');
+    
+    // Check if the onclick attribute contains the current page name
+    const onClickAttr = item.getAttribute('onclick') || '';
+    if (onClickAttr.includes(`'${pageName}'`)) {
+      item.classList.add('active');
+    }
+  });
 }
 
-/**
- * Get page name from URL
- */
-function getPageFromURL() {
-  const params = new URLSearchParams(window.location.search);
-  return params.get('page');
-}
+// Mobile "More" Menu Listener
+document.addEventListener('click', (e) => {
+  const menuOverlay = document.getElementById('fullScreenMenu');
+  if (!menuOverlay) return;
 
-/**
- * Show/hide loading indicator with page transition overlay
- */
-function showLoading(show) {
-  const pageTransition = document.getElementById('page-transition');
-  if (!pageTransition) return;
+  // Toggle "More" Menu Open
+  if (e.target.closest('#moreMenuToggle')) {
+    menuOverlay.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
   
-  if (show) {
-    pageTransition.classList.remove('transition-hidden');
-    pageTransition.setAttribute('aria-hidden', 'false');
+  // Toggle "More" Menu Close
+  if (e.target.closest('#closeMenu')) {
+    menuOverlay.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+});
+
+window.handleMenuNav = function(pageName) {
+  // 1. Close Sidebar/More Menu
+  const menuOverlay = document.getElementById('fullScreenMenu');
+  if (menuOverlay) {
+    menuOverlay.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  // 2. NEW: Close Mobile Search Overlay
+  const searchOverlay = document.getElementById('searchOverlay');
+  if (searchOverlay) {
+    searchOverlay.classList.remove('open');
+  }
+  
+  // 3. Navigate
+  if (typeof window.loadPage === 'function') {
+    window.loadPage(pageName);
   } else {
-    pageTransition.classList.add('transition-hidden');
-    pageTransition.setAttribute('aria-hidden', 'true');
+    window.location.href = `/user-portal/?page=${pageName}`;
   }
-}
+};
 
-/**
- * Setup notification button (placeholder - actual functionality in setupNotificationDropdown)
- */
-function setupNotificationButton() {
-  // Notification functionality is handled by setupNotificationDropdown
-  // This function is kept for backward compatibility
-}
+// ================================================================
+// NOTIFICATION LOGIC (FULL)
+// ================================================================
 
-/**
- * Populate user dropdown with profile data
- */
-function populateUserDropdown(profile) {
-  const userName = document.getElementById('userName');
-  const userEmail = document.getElementById('userEmail');
-  const userInitials = document.getElementById('userInitials');
-  
-  if (userName && profile.full_name) {
-    userName.textContent = profile.full_name;
-  }
-  
-  if (userEmail && profile.email) {
-    userEmail.textContent = profile.email;
-  }
-  
-  if (userInitials && profile.full_name) {
-    const names = profile.full_name.split(' ');
-    const initials = names.length > 1 
-      ? names[0][0] + names[names.length - 1][0]
-      : names[0][0];
-    userInitials.textContent = initials.toUpperCase();
-  }
-}
-
-/**
- * Setup account dropdown toggle
- */
-function setupAccountDropdown() {
-  const accountToggle = document.getElementById('accountToggle');
-  const accountDropdown = document.getElementById('accountDropdown');
-  
-  if (accountToggle && accountDropdown) {
-    accountToggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      accountDropdown.classList.toggle('active');
-    });
-    
-    // Close dropdown when clicking outside
-    document.addEventListener('click', (e) => {
-      if (!accountToggle.contains(e.target) && !accountDropdown.contains(e.target)) {
-        accountDropdown.classList.remove('active');
-      }
-    });
-    
-    // Setup logout from dropdown
-    const logoutDropdownBtn = document.getElementById('logoutDropdownBtn');
-    if (logoutDropdownBtn) {
-      logoutDropdownBtn.addEventListener('click', async () => {
-        // Show signing out toast
-        showToast('Signing Out', 'Please wait while we sign you out...', 'info', 2000);
-        
-        // Small delay for UX
-        await new Promise(resolve => setTimeout(resolve, 800));
-        
-        try {
-          const { supabase } = await import('/Services/supabaseClient.js');
-          const { error } = await supabase.auth.signOut();
-          
-          if (error) {
-            showToast('Error', 'Failed to sign out. Please try again.', 'warning', 3000);
-            console.error('Sign out error:', error);
-            return;
-          }
-          
-          // Show success toast
-          showToast('Goodbye! 👋', 'You have been signed out successfully.', 'success', 2000);
-          
-          // Redirect after toast
-          setTimeout(() => {
-            window.location.href = '/auth/login.html';
-          }, 1500);
-          
-        } catch (err) {
-          console.error('Logout error:', err);
-          showToast('Error', 'Something went wrong. Please try again.', 'warning', 3000);
-        }
-      });
-    }
-  }
-}
-
-/**
- * Setup notification dropdown toggle
- */
-function setupNotificationDropdown() {
-  const notificationBtn = document.querySelector('.notification-btn');
-  const notificationDropdown = document.querySelector('.notification-dropdown');
-  
-  if (notificationBtn && notificationDropdown) {
-    // Load notifications on first click
-    let notificationsLoaded = false;
-    
-    notificationBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      
-      if (!notificationsLoaded) {
-        await loadNotifications();
-        notificationsLoaded = true;
-      }
-      
-      notificationDropdown.classList.toggle('active');
-    });
-    
-    // Close dropdown when clicking outside
-    document.addEventListener('click', (e) => {
-      if (!notificationBtn.contains(e.target) && !notificationDropdown.contains(e.target)) {
-        notificationDropdown.classList.remove('active');
-      }
-    });
-    
-    // Mark all as read functionality
-    const markAllReadBtn = document.querySelector('.mark-all-read-btn');
-    if (markAllReadBtn) {
-      markAllReadBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        
-        const { markAllAsRead } = await import('/Services/notificationService.js');
-        await markAllAsRead();
-        
-        const unreadItems = document.querySelectorAll('.notification-item.unread');
-        unreadItems.forEach(item => item.classList.remove('unread'));
-        
-        // Update badge
-        const badge = document.querySelector('.notification-badge');
-        if (badge) {
-          badge.textContent = '0';
-          badge.style.display = 'none';
-        }
-      });
-    }
-  }
-  
-  // Load initial unread count
-  loadUnreadCount();
-  
-  // Setup real-time notification updates
-  setupRealtimeNotifications();
-}
-
-/**
- * Load notifications from database
- */
 async function loadNotifications() {
   const { fetchUserNotifications } = await import('/Services/notificationService.js');
   const { data: notifications } = await fetchUserNotifications(20);
@@ -962,20 +856,22 @@ async function loadNotifications() {
   const notificationBody = document.querySelector('.notification-dropdown-body');
   if (!notificationBody) return;
   
+  // 1. Styled Empty State
   if (!notifications || notifications.length === 0) {
     notificationBody.innerHTML = `
-      <div style="padding: 40px 20px; text-align: center; color: rgba(255, 255, 255, 0.5);">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="margin: 0 auto 12px; opacity: 0.3;">
+      <div class="notification-empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
           <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
         </svg>
-        <p>No notifications yet</p>
+        <p>All caught up! No new notifications.</p>
       </div>
     `;
     return;
   }
   
-  notificationBody.innerHTML = notifications.map(notif => {
+  // 2. Map notifications to non-bold HTML structure
+  const listHtml = notifications.map(notif => {
     const timeAgo = getTimeAgo(new Date(notif.created_at));
     const iconType = getNotificationIconType(notif.type);
     
@@ -989,19 +885,32 @@ async function loadNotifications() {
           <span class="notification-time">${timeAgo}</span>
         </div>
         <button class="notification-close-btn" data-id="${notif.id}" title="Dismiss">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
+          <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
     `;
   }).join('');
+
+  // 3. Set full HTML (List + Styled Footer)
+  notificationBody.innerHTML = `
+    <div class="notification-list-wrapper">
+      ${listHtml}
+    </div>
+    <div class="notification-dropdown-footer">
+      <button class="notification-footer-btn" onclick="handleMenuNav('notifications')">
+        View All Notifications
+      </button>
+    </div>
+  `;
   
-  // Add click handlers to mark as read
-  notificationBody.querySelectorAll('.notification-item').forEach(item => {
+  // 4. Re-attach interaction listeners
+  attachNotificationListeners(notificationBody);
+}
+
+function attachNotificationListeners(container) {
+  // Mark as Read Logic
+  container.querySelectorAll('.notification-item').forEach(item => {
     item.addEventListener('click', async (e) => {
-      // Don't mark as read if clicking the close button
       if (e.target.closest('.notification-close-btn')) return;
       
       const notifId = item.dataset.id;
@@ -1013,15 +922,15 @@ async function loadNotifications() {
       }
     });
   });
-  
-  // Add click handlers to close buttons
-  notificationBody.querySelectorAll('.notification-close-btn').forEach(btn => {
+
+  // Delete/Dismiss Logic
+  container.querySelectorAll('.notification-close-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const notifId = btn.dataset.id;
       const notifItem = btn.closest('.notification-item');
       
-      // Fade out animation
+      // Visual feedback before removal
       notifItem.style.opacity = '0';
       notifItem.style.transform = 'translateX(20px)';
       
@@ -1030,28 +939,16 @@ async function loadNotifications() {
         await deleteNotification(notifId);
         notifItem.remove();
         await loadUnreadCount();
-        
-        // Check if no notifications left
-        const remainingNotifs = notificationBody.querySelectorAll('.notification-item');
-        if (remainingNotifs.length === 0) {
-          notificationBody.innerHTML = `
-            <div style="padding: 40px 20px; text-align: center; color: rgba(255, 255, 255, 0.5);">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="margin: 0 auto 12px; opacity: 0.3;">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-              </svg>
-              <p>No notifications yet</p>
-            </div>
-          `;
+
+        // Check if list is now empty after deletion to show empty state
+        if (container.querySelectorAll('.notification-item').length === 0) {
+          loadNotifications(); 
         }
       }, 300);
     });
   });
 }
 
-/**
- * Load unread notification count
- */
 async function loadUnreadCount() {
   const { getUnreadCount } = await import('/Services/notificationService.js');
   const { count } = await getUnreadCount();
@@ -1067,9 +964,6 @@ async function loadUnreadCount() {
   }
 }
 
-/**
- * Setup real-time notification updates
- */
 async function setupRealtimeNotifications() {
   const { supabase } = await import('/Services/supabaseClient.js');
   const { data: { user } } = await supabase.auth.getUser();
@@ -1081,30 +975,25 @@ async function setupRealtimeNotifications() {
   
   console.log('🔌 Setting up real-time notifications for user:', user.id);
   
-  // Subscribe to new notifications with multiple events
   const channel = supabase
     .channel('user-notifications-' + user.id)
     .on(
       'postgres_changes',
       {
-        event: '*', // Listen to all events (INSERT, UPDATE, DELETE) and respond to them
+        event: '*', 
         schema: 'public',
         table: 'notifications',
         filter: `user_id=eq.${user.id}`
       },
       (payload) => {
         console.log('🔔 Real-time notification event:', payload.eventType, payload);
-        
-        // Always update the unread count
         loadUnreadCount();
         
-        // Reload notifications if dropdown is open
         const notificationDropdown = document.querySelector('.notification-dropdown');
         if (notificationDropdown && notificationDropdown.classList.contains('active')) {
           loadNotifications();
         }
         
-        // Show toast notification only for new notifications
         if (payload.eventType === 'INSERT') {
           showNotificationToast(payload.new);
         }
@@ -1113,22 +1002,12 @@ async function setupRealtimeNotifications() {
     .subscribe((status, err) => {
       if (status === 'SUBSCRIBED') {
         console.log('✅ Subscribed to real-time notifications');
-      } else if (status === 'CHANNEL_ERROR') {
-        console.error('❌ Real-time subscription error:', err);
-      } else if (status === 'TIMED_OUT') {
-        console.error('⏱️ Real-time subscription timed out');
-      } else {
-        console.log('📡 Real-time status:', status);
       }
     });
   
-  // Store channel reference for cleanup if needed
   window.notificationChannel = channel;
 }
 
-/**
- * Show toast notification for new notification
- */
 function showNotificationToast(notification) {
   const toast = document.createElement('div');
   toast.className = 'notification-toast';
@@ -1149,9 +1028,6 @@ function showNotificationToast(notification) {
   }, 5000);
 }
 
-/**
- * Show custom toast message
- */
 function showToast(title, message, type = 'info', duration = 3000) {
   const toast = document.createElement('div');
   toast.className = 'notification-toast';
@@ -1171,13 +1047,8 @@ function showToast(title, message, type = 'info', duration = 3000) {
     setTimeout(() => toast.remove(), 300);
   }, duration);
 }
-
-// Make showToast globally accessible
 window.showToast = showToast;
 
-/**
- * Get notification icon type
- */
 function getNotificationIconType(type) {
   const typeMap = {
     'application_status': 'info',
@@ -1192,9 +1063,6 @@ function getNotificationIconType(type) {
   return typeMap[type] || 'info';
 }
 
-/**
- * Get notification icon SVG
- */
 function getNotificationIcon(type) {
   const icons = {
     success: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>',
@@ -1204,154 +1072,38 @@ function getNotificationIcon(type) {
   return icons[type] || icons.info;
 }
 
-/**
- * Get time ago string
- */
 function getTimeAgo(date) {
   const seconds = Math.floor((new Date() - date) / 1000);
-  
-  const intervals = {
-    year: 31536000,
-    month: 2592000,
-    week: 604800,
-    day: 86400,
-    hour: 3600,
-    minute: 60
-  };
-  
+  const intervals = { year: 31536000, month: 2592000, week: 604800, day: 86400, hour: 3600, minute: 60 };
   for (const [unit, secondsInUnit] of Object.entries(intervals)) {
     const interval = Math.floor(seconds / secondsInUnit);
-    if (interval >= 1) {
-      return `${interval} ${unit}${interval > 1 ? 's' : ''} ago`;
-    }
+    if (interval >= 1) return `${interval} ${unit}${interval > 1 ? 's' : ''} ago`;
   }
-  
   return 'Just now';
 }
 
-/**
- * Setup account button
- */
-function setupAccountButton() {
-  const accountBtn = document.querySelector('.account-btn');
-  if (accountBtn) {
-    accountBtn.addEventListener('click', () => {
-      console.log('Account clicked');
-      // You can add account info popup here
-      alert('Account: John Doe\njohn.doe@example.com');
-    });
-  }
+function getPageFromURL() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('page');
 }
 
-/**
- * Setup mobile nav controls (burger + overlay)
- */
-function setupMobileNavControls() {
-  const burgerBtn = document.getElementById('mobileNavbarBurger');
-  const sidebarContainer = document.getElementById('sidebar');
-  const sidebar = sidebarContainer ? sidebarContainer.querySelector('.sidebar') : null;
+function showLoading(show) {}
 
-  if (!burgerBtn || !sidebar) {
-    console.log('Mobile nav controls: Missing elements', { burgerBtn: !!burgerBtn, sidebar: !!sidebar });
-    return;
-  }
+// ================================================================
+// GUARDS & UTILS (FULL)
+// ================================================================
 
-  let overlay = document.querySelector('.mobile-sidebar-overlay');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.className = 'mobile-sidebar-overlay';
-    overlay.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.5);
-      z-index: 1350;
-      display: none;
-      opacity: 0;
-      transition: opacity 0.3s ease;
-    `;
-    document.body.appendChild(overlay);
-  }
-
-  const openSidebar = () => {
-    sidebar.classList.add('active');
-    overlay.style.display = 'block';
-    requestAnimationFrame(() => {
-      overlay.style.opacity = '1';
-    });
-    // Prevent body scroll on mobile when sidebar is open
-    if (window.innerWidth <= 768) {
-      document.body.style.overflow = 'hidden';
-    }
-  };
-
-  const closeSidebar = () => {
-    sidebar.classList.remove('active');
-    overlay.style.opacity = '0';
-    setTimeout(() => {
-      if (!sidebar.classList.contains('active')) {
-        overlay.style.display = 'none';
-      }
-    }, 250);
-    // Restore body scroll
-    document.body.style.overflow = '';
-  };
-
-  burgerBtn.addEventListener('click', () => {
-    if (window.innerWidth > 768) {
-      return;
-    }
-    if (sidebar.classList.contains('active')) {
-      closeSidebar();
-    } else {
-      openSidebar();
-    }
-  });
-
-  overlay.addEventListener('click', closeSidebar);
-
-  document.addEventListener('click', (e) => {
-    const navLink = e.target.closest('.nav-link');
-    if (navLink && window.innerWidth <= 768) {
-      closeSidebar();
-    }
-  });
-
-  window.addEventListener('resize', () => {
-    if (window.innerWidth > 768) {
-      closeSidebar();
-    }
-  });
-}
-
-/**
- * Phone Number Guard Functions
- */
 function showPhoneNumberRequiredToast() {
   const existingToast = document.querySelector('.phone-required-toast');
-  if (existingToast) return; // Don't show multiple toasts
+  if (existingToast) return;
   
   const toast = document.createElement('div');
   toast.className = 'phone-required-toast';
   toast.style.cssText = `
-    position: fixed;
-    top: 90px;
-    right: 20px;
-    min-width: 350px;
-    max-width: 450px;
-    background: linear-gradient(135deg, #EF4444, #DC2626);
-    color: white;
-    padding: 1.25rem;
-    border-radius: 12px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    border: 2px solid #EF4444;
-    z-index: 9999;
-    display: flex;
-    gap: 12px;
-    align-items: flex-start;
-    animation: slideInRight 0.3s ease;
+    position: fixed; top: 90px; right: 20px; min-width: 350px; max-width: 450px;
+    background: linear-gradient(135deg, #EF4444, #DC2626); color: white; padding: 1.25rem;
+    border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); border: 2px solid #EF4444;
+    z-index: 9999; display: flex; gap: 12px; align-items: flex-start; animation: slideInRight 0.3s ease;
   `;
   
   toast.innerHTML = `
@@ -1365,8 +1117,6 @@ function showPhoneNumberRequiredToast() {
   `;
   
   document.body.appendChild(toast);
-  
-  // Auto-remove after 5 seconds
   setTimeout(() => {
     toast.style.animation = 'slideOutRight 0.3s ease';
     setTimeout(() => toast.remove(), 300);
@@ -1374,7 +1124,6 @@ function showPhoneNumberRequiredToast() {
 }
 
 function lockNavigation() {
-  // Disable all nav links except profile
   document.addEventListener('click', (e) => {
     const navLink = e.target.closest('.nav-link');
     if (navLink && globalUserProfile?.needsPhoneNumber) {
@@ -1387,7 +1136,6 @@ function lockNavigation() {
     }
   }, true);
   
-  // Add visual indicator to locked nav items
   const navLinks = document.querySelectorAll('.nav-link');
   navLinks.forEach(link => {
     if (link.dataset.page !== 'profile') {
@@ -1399,50 +1147,30 @@ function lockNavigation() {
 }
 
 function unlockNavigation() {
-  // Remove visual indicators
   const navLinks = document.querySelectorAll('.nav-link');
   navLinks.forEach(link => {
     link.style.opacity = '';
     link.style.cursor = '';
     link.style.pointerEvents = '';
   });
-  
-  // Show success notification
   showToast('Account Unlocked', 'You now have full access to all features!', 'success', 3000);
 }
-
-// Expose unlockNavigation globally so profile.js can call it
 window.unlockNavigation = unlockNavigation;
 
-/**
- * Profile Completion Guard Functions
- */
 function showProfileIncompleteToast() {
   const existingToast = document.querySelector('.profile-incomplete-toast');
   if (existingToast) {
-    // Pulse existing toast
     existingToast.style.animation = 'none';
-    setTimeout(() => {
-      existingToast.style.animation = 'pulse 0.3s ease';
-    }, 10);
+    setTimeout(() => { existingToast.style.animation = 'pulse 0.3s ease'; }, 10);
     return;
   }
   
   const toast = document.createElement('div');
   toast.className = 'profile-incomplete-toast';
   toast.style.cssText = `
-    position: fixed;
-    top: 90px;
-    right: 20px;
-    background: linear-gradient(135deg, #EF4444, #DC2626);
-    color: white;
-    padding: 16px 24px;
-    border-radius: 12px;
-    box-shadow: 0 8px 24px rgba(239, 68, 68, 0.3);
-    z-index: 10000;
-    animation: slideInRight 0.3s ease;
-    max-width: 400px;
-    font-weight: 600;
+    position: fixed; top: 90px; right: 20px; background: linear-gradient(135deg, #EF4444, #DC2626);
+    color: white; padding: 16px 24px; border-radius: 12px; box-shadow: 0 8px 24px rgba(239, 68, 68, 0.3);
+    z-index: 10000; animation: slideInRight 0.3s ease; max-width: 400px; font-weight: 600;
     border: 2px solid rgba(255, 255, 255, 0.2);
   `;
   
@@ -1466,7 +1194,6 @@ function showProfileIncompleteToast() {
   `;
   
   document.body.appendChild(toast);
-  
   setTimeout(() => {
     toast.style.animation = 'slideOutRight 0.3s ease';
     setTimeout(() => toast.remove(), 300);
@@ -1474,16 +1201,14 @@ function showProfileIncompleteToast() {
 }
 
 function lockSidebar() {
-  // Disable all nav links except profile
   const navLinks = document.querySelectorAll('.nav-link');
   navLinks.forEach(link => {
     if (link.dataset.page !== 'profile') {
       link.style.opacity = '0.4';
       link.style.cursor = 'not-allowed';
-      link.style.pointerEvents = 'auto'; // Allow clicks to show toast
+      link.style.pointerEvents = 'auto'; 
       link.style.filter = 'grayscale(1)';
       
-      // Add lock icon
       const icon = link.querySelector('i');
       if (icon && !link.querySelector('.lock-icon')) {
         const lockIcon = document.createElement('i');
@@ -1493,14 +1218,12 @@ function lockSidebar() {
         link.appendChild(lockIcon);
       }
       
-      // Add click handler to show warning toast
       link.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
         showProfileIncompleteToast();
       });
     } else {
-      // Highlight profile link
       link.style.background = 'linear-gradient(135deg, rgb(var(--color-primary-rgb) / 0.15), rgb(var(--color-primary-rgb) / 0.05))';
       link.style.borderLeft = '4px solid var(--color-primary)';
     }
@@ -1508,7 +1231,6 @@ function lockSidebar() {
 }
 
 function unlockSidebar() {
-  // Remove profile incomplete toast if present
   const incompleteToast = document.querySelector('.profile-incomplete-toast');
   if (incompleteToast) {
     incompleteToast.style.animation = 'slideOutRight 0.3s ease';
@@ -1527,50 +1249,34 @@ function unlockSidebar() {
     const lockIcon = link.querySelector('.lock-icon');
     if (lockIcon) lockIcon.remove();
     
-    // Remove click handlers from locked links
     const newLink = link.cloneNode(true);
     link.parentNode.replaceChild(newLink, link);
   });
   
-  // Re-attach navigation after unlocking
   setupNavigation();
-  
   showToast('Profile Complete', 'You now have full access to all features!', 'success', 3000);
 }
-
-// Expose globally
 window.unlockSidebar = unlockSidebar;
 
-/**
- * Setup logout button
- */
 async function setupLogout() {
-  // Import Supabase client
   const { supabase } = await import('/Services/supabaseClient.js');
   
   const logoutButtons = document.querySelectorAll('.logout-btn');
   logoutButtons.forEach((btn) => {
     btn.addEventListener('click', async () => {
-      // Show signing out toast
       showToast('Signing Out', 'Please wait while we sign you out...', 'info', 2000);
-      
-      // Small delay for UX
       await new Promise(resolve => setTimeout(resolve, 800));
       
       try {
-        // Sign out from Supabase
         const { error } = await supabase.auth.signOut();
-        
         if (error) {
           showToast('Error', 'Failed to sign out. Please try again.', 'warning', 3000);
           console.error('Sign out error:', error);
           return;
         }
         
-        // Show success toast
         showToast('You have been signed out successfully.', 'success', 2000);
         
-        // Redirect after toast
         setTimeout(() => {
           window.location.href = '/auth/login.html';
         }, 1500);
@@ -1583,9 +1289,6 @@ async function setupLogout() {
   });
 }
 
-/**
- * Handle browser back/forward buttons
- */
 window.addEventListener('popstate', (e) => {
   const pageName = e.state?.page || 'dashboard';
   loadPage(pageName);
