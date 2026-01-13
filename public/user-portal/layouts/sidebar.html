@@ -68,3 +68,83 @@
     </div>
   </div>
 </aside>
+
+<nav class="island-nav-container">
+  <div class="island-dock">
+    <button class="dock-item active" onclick="loadPage('dashboard')">
+      <i class="fa-solid fa-house"></i>
+      <span class="dock-label">Home</span>
+    </button>
+    <button class="dock-item" onclick="loadPage('apply-loan')">
+      <i class="fa-solid fa-file-contract"></i>
+      <span class="dock-label">Apply</span>
+    </button>
+    <button class="dock-item" onclick="loadPage('documents')">
+      <i class="fa-solid fa-receipt"></i>
+      <span class="dock-label">Transactions</span>
+    </button>
+    <button class="dock-item" id="moreMenuToggle">
+      <i class="fa-solid fa-ellipsis"></i>
+      <span class="dock-label">More</span>
+    </button>
+  </div>
+</nav>
+
+<div id="fullScreenMenu" class="more-menu-overlay">
+  <div class="menu-header-wrapper">
+    <button class="close-menu-btn" id="closeMenu">
+      <i class="fa-solid fa-arrow-left"></i>
+    </button>
+    <div class="menu-title">MENU</div>
+  </div>
+  
+  <div class="menu-list-container">
+    <div class="menu-list-item" onclick="handleMenuNav('dashboard')">
+      <span class="menu-label">Dashboard</span>
+      <i class="fa-solid fa-chevron-right arrow-icon"></i>
+    </div>
+
+    <div class="menu-section">
+      <span class="section-heading">LOAN SERVICES</span>
+      <div class="menu-list-item" onclick="handleMenuNav('apply-loan')">
+        <span class="menu-label">Apply for Loan</span>
+        <i class="fa-solid fa-chevron-right arrow-icon"></i>
+      </div>
+      <div class="menu-list-item" onclick="handleMenuNav('loan-calculator')">
+        <span class="menu-label">Loan Calculator</span>
+        <i class="fa-solid fa-chevron-right arrow-icon"></i>
+      </div>
+    </div>
+
+    <div class="menu-section">
+      <span class="section-heading">ACCOUNT</span>
+      <div class="menu-list-item" onclick="handleMenuNav('profile')">
+        <span class="menu-label">Profile</span>
+        <i class="fa-solid fa-chevron-right arrow-icon"></i>
+      </div>
+      <div class="menu-list-item" onclick="handleMenuNav('transcripts')">
+        <span class="menu-label">Transcripts</span>
+        <i class="fa-solid fa-chevron-right arrow-icon"></i>
+      </div>
+      <div class="menu-list-item" onclick="handleMenuNav('documents')">
+        <span class="menu-label">Transactions</span>
+        <i class="fa-solid fa-chevron-right arrow-icon"></i>
+      </div>
+    </div>
+
+    <div class="menu-section">
+      <span class="section-heading">HELP</span>
+      <div class="menu-list-item" onclick="handleMenuNav('support')">
+        <span class="menu-label">Support & FAQ</span>
+        <i class="fa-solid fa-chevron-right arrow-icon"></i>
+      </div>
+    </div>
+  </div>
+
+  <div class="menu-footer">
+    <button class="menu-logout-btn">
+      <i class="fa-solid fa-sign-out-alt"></i>
+      <span>Sign Out</span>
+    </button>
+  </div>
+</div>
