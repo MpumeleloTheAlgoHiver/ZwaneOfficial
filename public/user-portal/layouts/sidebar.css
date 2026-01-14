@@ -201,3 +201,187 @@
     padding-top: 0;
   }
 }
+
+/* Island Dock - Mobile Only Layout Logic */
+.island-nav-container {
+  display: none; /* Hide by default on desktop */
+}
+.more-menu-overlay {
+  display: none;
+}
+.island-nav-container {
+  display: none; /* Hide by default on desktop */
+}
+
+/* sidebar (2).css corrected mobile section */
+@media (max-width: 768px) {
+  .sidebar {
+    display: none !important;
+  }
+
+  .island-nav-container {
+    display: block;
+    position: fixed;
+    bottom: 24px;
+    left: 0;
+    right: 0;
+    z-index: 9000;
+    padding: 0 16px;
+    pointer-events: none;
+  }
+
+  .island-dock {
+    pointer-events: auto;
+    max-width: 360px;
+    margin: 0 auto;
+    background: rgba(0, 0, 0, 0.85); /* Slight transparency for a modern feel */
+    backdrop-filter: blur(10px); /* Blur effect behind the dock */
+    height: 64px; /* Reduced height from 72px to make it less bulky */
+    border-radius: 32px; /* Matching the new height for a perfect pill shape */
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    padding: 0 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1); /* Subtle border for definition */
+  }
+
+/* Base Item Styles */
+.dock-item {
+  background: transparent;
+  border: none;
+  color: #a1a1aa; /* Muted gray for inactive icons */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dock-item i { font-size: 20px; } 
+.dock-label { font-size: 10px; font-weight: 500; }
+
+
+.dock-item.active {
+  color: #ffffff; 
+  background: var(--color-primary); 
+  border-radius: 24px;
+  height: 48px; 
+  flex: 0 0 85px; 
+  justify-content: center;
+}
+
+.dock-item.active .dock-label { 
+  display: block; 
+  font-weight: 700;
+  margin-top: -2px;
+}
+  .dock-item.active .dock-label { display: none; }
+
+  /* Full Screen Overlay Styling */
+  .more-menu-overlay {
+    position: fixed;
+    inset: 0;
+    background: #ffffff;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    transform: translateY(100%);
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .more-menu-overlay.open { transform: translateY(0); }
+
+  .menu-header-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 24px 20px;
+    border-bottom: 1px solid #f3f4f6;
+  }
+
+  .menu-title {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: #111827;
+  }
+
+  .close-menu-btn, .menu-help-icon {
+    background: none;
+    border: none;
+    font-size: 18px;
+    color: #374151;
+  }
+
+  .menu-list-container {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .section-heading {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    color: #9ca3af;
+    padding: 24px 20px 12px;
+    letter-spacing: 0.5px;
+  }
+
+  .menu-list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid #f9fafb;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .menu-label {
+    font-size: 15px;
+    font-weight: 600;
+    color: #1f2937;
+  }
+
+  .arrow-icon {
+    font-size: 12px;
+    color: #d1d5db;
+  }
+
+  /* SOLID HIGHLIGHT - Using Primary Color from your CSS */
+  .menu-list-item.active,
+  .menu-list-item:active {
+    background-color: var(--color-primary);
+    border-bottom: none;
+  }
+
+  .menu-list-item.active .menu-label,
+  .menu-list-item.active .arrow-icon,
+  .menu-list-item:active .menu-label,
+  .menu-list-item:active .arrow-icon {
+    color: #ffffff;
+  }
+
+  .menu-footer {
+    padding: 20px;
+    border-top: 1px solid #f3f4f6;
+  }
+
+  .menu-logout-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px;
+    background: #fef2f2;
+    color: #ef4444;
+    border: 1px solid #fee2e2;
+    border-radius: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+}
