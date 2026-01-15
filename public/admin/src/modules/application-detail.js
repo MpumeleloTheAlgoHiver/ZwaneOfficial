@@ -729,6 +729,62 @@ window.saveNotes = async () => {
     }
 };
 
+// --- NEW: Update Repayment Date Logic ---
+window.saveRepaymentDate = async () => {
+    const dateInput = document.getElementById('new-repayment-date');
+    if (!dateInput || !dateInput.value) return;
+
+    const newDate = dateInput.value;
+    const btn = document.getElementById('btn-save-date');
+    const originalText = btn.innerHTML;
+
+    // 1. UI Loading State
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+    try {
+        // 2. Prepare the updated JSON object
+        // We clone the existing details or create a new object if empty
+        const currentDetails = currentApplication.offer_details || {};
+        const updatedDetails = {
+            ...currentDetails,
+            first_payment_date: newDate // This updates the specific key in the JSON
+        };
+
+        // 3. Send to Supabase
+        // We also update 'repayment_start_date' column to keep SQL queries consistent
+        const { error } = await supabase
+            .from('loan_applications')
+            .update({ 
+                offer_details: updatedDetails,
+                repayment_start_date: newDate 
+            })
+            .eq('id', currentApplication.id);
+
+        if (error) throw error;
+
+        showFeedback('First repayment date updated successfully', 'success');
+        
+        // 4. Refresh Data
+        await loadApplicationData();
+
+    } catch (error) {
+        console.error('Date Update Error:', error);
+        showFeedback(error.message, 'error');
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+};
+
+// Simple toggle helper for the UI
+window.toggleDateEdit = () => {
+    const viewMode = document.getElementById('date-view-mode');
+    const editMode = document.getElementById('date-edit-mode');
+    if(viewMode && editMode) {
+        viewMode.classList.toggle('hidden');
+        editMode.classList.toggle('hidden');
+    }
+};
 // --- Manual Override Logic ---
 window.manualStatusChange = async () => {
     if (currentApplication.status === 'DISBURSED') {
@@ -1363,13 +1419,36 @@ const renderSidePanel = (app) => {
     
     <div class="mt-4">
         <label class="text-[10px] text-gray-400 uppercase font-bold tracking-widest mb-1 block">Scheduled Payout Info</label>
-        <div class="p-3 bg-orange-50 border border-orange-100 rounded-xl">
-            <div class="flex items-center justify-between">
+        <div class="p-3 bg-orange-50 border border-orange-100 rounded-xl transition-all">
+            
+            <div id="date-view-mode" class="flex items-center justify-between">
                 <span class="text-xs text-orange-800 font-medium">First Repayment:</span>
-                <span class="text-xs font-bold text-orange-900">
-                    ${scheduledDate ? formatDate(scheduledDate) : 'Not Scheduled'}
-                </span>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-bold text-orange-900">
+                        ${scheduledDate ? formatDate(scheduledDate) : 'Not Scheduled'}
+                    </span>
+                    ${status !== 'DISBURSED' ? `
+                    <button onclick="window.toggleDateEdit()" class="w-6 h-6 flex items-center justify-center rounded-full hover:bg-orange-100 text-orange-600 transition-colors" title="Change Date">
+                        <i class="fa-solid fa-pen text-[10px]"></i>
+                    </button>` : ''}
+                </div>
             </div>
+
+            <div id="date-edit-mode" class="hidden mt-1">
+                <div class="flex items-center gap-2">
+                    <input type="date" id="new-repayment-date" 
+                           class="flex-1 text-xs p-1.5 rounded-lg border border-orange-300 bg-white focus:ring-2 focus:ring-orange-500 outline-none"
+                           value="${scheduledDate ? new Date(scheduledDate).toISOString().split('T')[0] : ''}">
+                    
+                    <button id="btn-save-date" onclick="window.saveRepaymentDate()" class="px-3 py-1.5 bg-orange-600 text-white text-xs font-bold rounded-lg hover:bg-orange-700 shadow-sm">
+                        Save
+                    </button>
+                    <button onclick="window.toggleDateEdit()" class="px-2 py-1.5 text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+
         </div>
     </div>
   `;

@@ -4,7 +4,9 @@ import { supabase } from '../services/supabaseClient.js';
 import { 
   fetchLoanApplications, 
   syncAllOfferedApplications, 
-  createWalkInClient 
+  createWalkInClient,
+  fetchBranches,
+  getCurrentAdminProfile
 } from '../services/dataService.js';
 import { formatCurrency, formatDate } from '../shared/utils.js';
 
@@ -34,6 +36,12 @@ const ALL_STATUSES = [
 // --- State ---
 let allApplications = []; 
 let userRole = 'borrower';
+let currentAdminProfile = null;
+let branches = [];
+let searchTerm = '';
+let statusFilter = 'all';
+let currentPageApps = 1;
+const itemsPerPageApps = 20;
 
 let inBranchState = {
   active: false,
@@ -474,61 +482,64 @@ function renderPageContent() {
   if (!mainContent) return;
 
   mainContent.innerHTML = `
-    <div id="applications-list-view" class="bg-white rounded-lg shadow-lg overflow-hidden h-full flex flex-col">
-      <div class="p-4 sm:p-6 border-b border-gray-200">
-        <div class="flex flex-col sm:flex-row justify-between items-center gap-4">
-          <div>
-            <h2 class="text-xl font-semibold text-gray-900">Loan Applications</h2>
-            <p class="text-sm text-gray-500 mt-1">Manage reviews and create in-branch applications.</p>
-          </div>
-          <div class="flex items-center gap-2 w-full sm:w-auto">
-            <button id="create-app-btn" class="w-full sm:w-auto bg-brand-accent text-white px-4 py-2 rounded-md font-semibold hover:bg-brand-accent-hover transition flex items-center justify-center gap-2 whitespace-nowrap shadow-sm">
-                <i class="fa-solid fa-desktop text-sm"></i> In-Branch Application
-            </button>
-          </div>
+    <div id="applications-list-view" class="flex flex-col h-full animate-fade-in">
+      
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4 shrink-0">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-900">Loan Applications</h1>
+          <p class="mt-1 text-sm text-gray-500">Manage reviews and create in-branch applications.</p>
         </div>
         
-        <div class="flex flex-col sm:flex-row gap-2 mt-4">
-          <div class="relative w-full sm:w-80">
-            <input type="search" id="search-input" placeholder="Search..." class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-brand-accent">
-            <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
-            <div id="search-suggestions" class="absolute z-20 w-full bg-white border border-gray-300 rounded-lg mt-1 hidden max-h-72 overflow-y-auto shadow-lg"></div>
-          </div>
-          <select id="status-filter" class="w-full sm:w-auto px-4 py-2 border border-gray-300 rounded-md text-sm">
-            <option value="all">All Statuses</option>
-            ${ALL_STATUSES.map(s => `<option value="${s}">${s}</option>`).join('')}
-          </select>
+        <div class="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+            <button id="create-app-btn" class="w-full sm:w-auto bg-gray-900 text-white px-4 py-2 rounded-lg font-bold hover:bg-black transition flex items-center justify-center gap-2 shadow-sm text-sm">
+                <i class="fa-solid fa-desktop"></i> In-Branch App
+            </button>
+
+            <select id="status-filter" class="bg-white border border-gray-300 text-gray-700 py-2 pl-4 pr-8 rounded-lg text-sm font-medium focus:ring-orange-500 focus:border-orange-500 cursor-pointer">
+                <option value="all">All Statuses</option>
+                ${ALL_STATUSES.map(s => `<option value="${s}">${s}</option>`).join('')}
+            </select>
+
+            <div class="relative w-full sm:w-64">
+                <input type="text" id="search-input" placeholder="Search applications..." 
+                       class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-orange-500 focus:border-orange-500 text-sm">
+                <i class="fa-solid fa-search absolute left-3 top-2.5 text-gray-400"></i>
+                <div id="search-suggestions" class="absolute z-20 w-full bg-white border border-gray-300 rounded-lg mt-1 hidden max-h-72 overflow-y-auto shadow-xl"></div>
+            </div>
         </div>
       </div>
-      
-      <div class="overflow-x-auto flex-1">
-        <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50 sticky top-0 z-10">
+
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden flex-1 min-h-0">
+        <div class="overflow-auto custom-scrollbar">
+          <table class="min-w-full divide-y divide-gray-200 relative">
+            <thead class="bg-gray-50 sticky top-0 z-10 shadow-sm">
                 <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Applicant</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                    <th class="px-6 py-3"></th>
+                    <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50">Applicant</th>
+                    <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50">Amount</th>
+                    <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50">Status</th>
+                    <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50">Date</th>
+                    <th class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50">Action</th>
                 </tr>
             </thead>
             <tbody id="applications-table-body" class="bg-white divide-y divide-gray-200">
-                <tr><td colspan="5" class="px-6 py-10 text-center text-gray-500">Loading...</td></tr>
+                <tr><td colspan="5" class="p-10 text-center text-gray-400">Loading...</td></tr>
             </tbody>
-        </table>
+          </table>
+        </div>
       </div>
+      <div class="mt-2 text-xs text-gray-400 text-right">Showing <span id="visible-count">0</span> records</div>
     </div>
 
-    <div id="in-branch-view" class="hidden bg-white rounded-lg shadow-lg h-full flex flex-col">
-       <div class="flex justify-between items-center px-6 py-4 border-b border-gray-200 bg-gray-50">
+    <div id="in-branch-view" class="hidden bg-white rounded-xl shadow-lg h-full flex flex-col border border-gray-200">
+       <div class="flex justify-between items-center px-6 py-4 border-b border-gray-200 bg-gray-50 rounded-t-xl">
             <div class="flex items-center gap-3">
-                <button id="back-to-list-btn" class="flex items-center gap-2 text-gray-600 hover:text-brand-accent">
+                <button id="back-to-list-btn" class="flex items-center gap-2 text-gray-600 hover:text-orange-600 font-medium transition-colors">
                     <i class="fa-solid fa-arrow-left"></i> Cancel
                 </button>
                 <span class="h-6 w-px bg-gray-300"></span>
                 <span class="text-sm font-bold text-gray-800">In-Branch Application Mode</span>
             </div>
-            <div class="text-xs text-brand-accent font-medium flex items-center gap-2 bg-orange-50 px-3 py-1 rounded-full border border-orange-100">
+            <div class="text-xs text-orange-600 font-bold flex items-center gap-2 bg-orange-50 px-3 py-1.5 rounded-full border border-orange-100">
                 <i class="fa-solid fa-store"></i> Branch Terminal
             </div>
         </div>
@@ -541,9 +552,9 @@ function renderPageContent() {
         
         <div id="wizard-content" class="flex-1 overflow-y-auto px-6 pb-6 bg-gray-50"></div>
         
-        <div class="px-6 py-4 border-t border-gray-200 bg-white flex justify-end gap-3">
-            <button id="wizard-prev-btn" class="hidden px-4 py-2 border border-gray-300 rounded-md">Back</button>
-            <button id="wizard-next-btn" class="px-6 py-2 bg-brand-accent text-white rounded-md">Next Step</button>
+        <div class="px-6 py-4 border-t border-gray-200 bg-white rounded-b-xl flex justify-end gap-3">
+            <button id="wizard-prev-btn" class="hidden px-4 py-2 border border-gray-300 text-gray-700 font-bold rounded-lg hover:bg-gray-50 text-sm">Back</button>
+            <button id="wizard-next-btn" class="px-6 py-2 bg-gray-900 text-white font-bold rounded-lg hover:bg-black shadow-sm text-sm">Next Step</button>
         </div>
     </div>
   `;
@@ -668,21 +679,23 @@ function updateWizardButtons() {
 }
 
 // ==========================================
-//   STEP 1: USER SELECTION (GREEN THEME + RESUME LOGIC)
+//   STEP 1: USER SELECTION (BRANCH 100 = ONLINE)
 // ==========================================
 
 async function renderUserSelection(container) {
-    const allowedRoles = ['admin', 'super_admin', 'base_admin'];
-    const canCreateWalkIn = allowedRoles.includes(userRole); //
+    const canCreateWalkIn = ['admin', 'super_admin', 'base_admin'].includes(userRole);
     
+    // --- CONFIGURATION ---
+    const ONLINE_BRANCH_ID = 100; 
+
     container.innerHTML = `
         <div class="max-w-2xl mx-auto bg-white p-8 rounded-lg border border-gray-200 shadow-sm mt-4">
             <div class="flex border-b border-gray-200 mb-6">
-                <button id="tab-search" class="flex-1 py-2 text-sm font-medium text-green-600 border-b-2 border-green-600">
+                <button id="tab-search" class="flex-1 py-2 text-sm font-medium text-orange-600 border-b-2 border-orange-600">
                     <i class="fa-solid fa-magnifying-glass mr-2"></i>Search Existing
                 </button>
                 ${canCreateWalkIn ? `
-                <button id="tab-create" class="flex-1 py-2 text-sm font-medium text-gray-500 hover:text-green-700 transition-colors">
+                <button id="tab-create" class="flex-1 py-2 text-sm font-medium text-gray-500 hover:text-orange-700 transition-colors">
                     <i class="fa-solid fa-user-plus mr-2"></i>New Walk-in Client
                 </button>` : ''}
             </div>
@@ -691,9 +704,9 @@ async function renderUserSelection(container) {
                 <h3 class="text-xl font-bold text-gray-800 mb-2">Find Client</h3>
                 <p class="text-sm text-gray-500 mb-6">Search by name, email, or ID number.</p>
                 <div class="relative mb-6">
-                    <input type="text" id="user-search" class="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 transition-all shadow-sm" placeholder="Start typing name or ID...">
+                    <input type="text" id="user-search" class="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-orange-500 focus:border-orange-500 transition-all shadow-sm" placeholder="Start typing name or ID...">
                     <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                    <div id="search-spinner" class="hidden absolute right-3 top-1/2 -translate-y-1/2 text-green-500">
+                    <div id="search-spinner" class="hidden absolute right-3 top-1/2 -translate-y-1/2 text-orange-500">
                         <i class="fa-solid fa-circle-notch fa-spin"></i>
                     </div>
                 </div>
@@ -702,33 +715,45 @@ async function renderUserSelection(container) {
             
             ${canCreateWalkIn ? `
             <div id="view-create" class="hidden animate-fade-in">
-                <div class="bg-green-50 border-l-4 border-green-500 p-4 mb-6">
+                <div class="bg-orange-50 border-l-4 border-orange-500 p-4 mb-6">
                     <div class="flex">
-                        <div class="flex-shrink-0"><i class="fa-solid fa-store text-green-600"></i></div>
+                        <div class="flex-shrink-0"><i class="fa-solid fa-store text-orange-600"></i></div>
                         <div class="ml-3">
-                            <p class="text-sm text-green-700">You are registering a <strong>Walk-in Client</strong>. No email required.</p>
+                            <p class="text-sm text-orange-700">You are registering a <strong>Walk-in Client</strong>. Physical branch selection is required.</p>
                         </div>
                     </div>
                 </div>
                 <div class="space-y-5">
                     <div>
                         <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Full Name <span class="text-red-500">*</span></label>
-                        <input type="text" id="new-fullname" class="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="e.g. John Doe">
+                        <input type="text" id="new-fullname" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-orange-500" placeholder="e.g. John Doe">
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-gray-700 uppercase mb-1">ID Number <span class="text-red-500">*</span></label>
-                        <input type="text" id="new-idnumber" maxlength="13" class="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="13-digit SA ID">
+                        <input type="text" id="new-idnumber" maxlength="13" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-orange-500" placeholder="13-digit SA ID">
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Phone</label>
-                            <input type="tel" id="new-phone" class="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="082...">
+                            <input type="tel" id="new-phone" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-orange-500" placeholder="082...">
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Email (Optional)</label>
-                            <input type="email" id="new-email" class="w-full border border-gray-300 rounded-md px-3 py-2" placeholder="Leave empty if none">
+                            <input type="email" id="new-email" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-orange-500" placeholder="Leave empty if none">
                         </div>
                     </div>
+
+                    <div class="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                        <label class="block text-xs font-bold text-gray-700 uppercase mb-1">Select Physical Branch <span class="text-red-500">*</span></label>
+                        <select id="new-branch-id" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-orange-500 bg-white">
+                            <option value="">-- Choose Location --</option>
+                            ${branches.filter(b => b.id !== ONLINE_BRANCH_ID).map(b => `<option value="${b.id}">${b.name}</option>`).join('')}
+                        </select>
+                        <p class="text-[10px] text-gray-500 mt-2 font-medium">
+                            <i class="fa-solid fa-circle-info"></i> Please specify the branch where this walk-in application is taking place.
+                        </p>
+                    </div>
+
                     <button id="btn-create-client" class="w-full py-3 bg-gray-900 text-white font-bold rounded-lg hover:bg-black transition-all shadow-md mt-2 flex justify-center items-center gap-2">
                         <i class="fa-solid fa-user-plus"></i> Create & Select Client
                     </button>
@@ -736,9 +761,9 @@ async function renderUserSelection(container) {
             </div>` : ''}
             
             <div id="selected-user-card" class="${inBranchState.targetUser ? '' : 'hidden'} mt-6 space-y-4 animate-fade-in">
-                <div class="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center justify-between">
+                <div class="bg-orange-50 border border-orange-200 rounded-xl p-4 flex items-center justify-between">
                     <div class="flex items-center gap-4">
-                        <div class="w-12 h-12 rounded-full bg-green-200 flex items-center justify-center text-green-700 font-bold text-xl shadow-sm">
+                        <div class="w-12 h-12 rounded-full bg-orange-200 flex items-center justify-center text-orange-700 font-bold text-xl shadow-sm">
                             ${inBranchState.targetUser?.full_name?.charAt(0) || 'U'}
                         </div>
                         <div>
@@ -749,10 +774,10 @@ async function renderUserSelection(container) {
                     <button id="clear-user-btn" class="text-gray-400 hover:text-red-500 transition-colors"><i class="fa-solid fa-times text-xl"></i></button>
                 </div>
 
-                <div id="action-new-loan" class="bg-white border-2 border-green-600 border-dashed rounded-2xl p-6 shadow-md hover:bg-green-50 cursor-pointer transition-all group">
+                <div id="action-new-loan" class="bg-white border-2 border-orange-600 border-dashed rounded-2xl p-6 shadow-md hover:bg-orange-50 cursor-pointer transition-all group">
                     <div class="flex justify-between items-center">
                         <div class="flex items-center gap-4">
-                            <div class="w-10 h-10 bg-green-600 text-white rounded-full flex items-center justify-center shadow-lg"><i class="fa-solid fa-plus"></i></div>
+                            <div class="w-10 h-10 bg-orange-600 text-white rounded-full flex items-center justify-center shadow-lg"><i class="fa-solid fa-plus"></i></div>
                             <div>
                                 <h5 class="font-black text-gray-900 uppercase">Start New Loan Application</h5>
                                 <div id="outstanding-balance-warning">
@@ -760,7 +785,7 @@ async function renderUserSelection(container) {
                                 </div>
                             </div>
                         </div>
-                        <i class="fa-solid fa-chevron-right text-green-600"></i>
+                        <i class="fa-solid fa-chevron-right text-orange-600"></i>
                     </div>
                 </div>
 
@@ -776,7 +801,7 @@ async function renderUserSelection(container) {
         </div>
     `;
 
-    // --- DOM Elements ---
+    // --- DOM Elements & Listeners ---
     const tabSearch = document.getElementById('tab-search'); 
     const tabCreate = document.getElementById('tab-create');
     const viewSearch = document.getElementById('view-search'); 
@@ -785,24 +810,19 @@ async function renderUserSelection(container) {
     const results = document.getElementById('user-results');
     const spinner = document.getElementById('search-spinner');
 
-    // --- 1. Tab Switching Listeners (Green Theme) ---
     if (canCreateWalkIn && tabCreate) {
         tabSearch.onclick = () => { 
-            viewSearch.classList.remove('hidden'); 
-            viewCreate.classList.add('hidden'); 
-            tabSearch.className = "flex-1 py-2 text-sm font-medium text-green-600 border-b-2 border-green-600";
-            tabCreate.className = "flex-1 py-2 text-sm font-medium text-gray-500 hover:text-green-700 transition-colors";
+            viewSearch.classList.remove('hidden'); viewCreate.classList.add('hidden'); 
+            tabSearch.className = "flex-1 py-2 text-sm font-medium text-orange-600 border-b-2 border-orange-600";
+            tabCreate.className = "flex-1 py-2 text-sm font-medium text-gray-500 hover:text-orange-700 transition-colors";
         };
-
         tabCreate.onclick = () => { 
-            viewSearch.classList.add('hidden'); 
-            viewCreate.classList.remove('hidden'); 
-            tabCreate.className = "flex-1 py-2 text-sm font-medium text-green-600 border-b-2 border-green-600";
-            tabSearch.className = "flex-1 py-2 text-sm font-medium text-gray-500 hover:text-green-700 transition-colors";
+            viewSearch.classList.add('hidden'); viewCreate.classList.remove('hidden'); 
+            tabCreate.className = "flex-1 py-2 text-sm font-medium text-orange-600 border-b-2 border-orange-600";
+            tabSearch.className = "flex-1 py-2 text-sm font-medium text-gray-500 hover:text-orange-700 transition-colors";
         };
     }
 
-    // --- 2. Existing Client Search (Debounced) ---
     if(input) {
         let timer;
         input.oninput = (e) => {
@@ -811,38 +831,31 @@ async function renderUserSelection(container) {
             if(val.length < 2) { results.classList.add('hidden'); return; }
             spinner.classList.remove('hidden');
             timer = setTimeout(async () => {
-                const { data: matches } = await supabase.from('profiles')
-                    .select('*')
-                    .or(`full_name.ilike.%${val}%,identity_number.ilike.%${val}%`)
-                    .limit(5);
-                
+                const { data: matches } = await supabase.from('profiles').select('*').or(`full_name.ilike.%${val}%,identity_number.ilike.%${val}%`).limit(5);
                 spinner.classList.add('hidden');
                 if(matches?.length > 0) {
-                    results.innerHTML = matches.map(u => `
-                        <div class="p-3 hover:bg-gray-50 cursor-pointer border-b last:border-0 user-option" data-id="${u.id}">
-                            <div class="font-bold text-gray-800">${u.full_name}</div>
-                            <div class="text-xs text-gray-500 font-mono">ID: ${u.identity_number || 'N/A'}</div>
-                        </div>`).join('');
+                    results.innerHTML = matches.map(u => `<div class="p-3 hover:bg-orange-50 cursor-pointer border-b last:border-0 user-option" data-id="${u.id}"><div class="font-bold text-gray-800">${u.full_name}</div><div class="text-xs text-gray-500 font-mono">ID: ${u.identity_number || 'N/A'}</div></div>`).join('');
                     results.classList.remove('hidden');
-                    document.querySelectorAll('.user-option').forEach(el => el.onclick = () => { 
-                        inBranchState.targetUser = matches.find(u => u.id === el.dataset.id); 
-                        renderUserSelection(container); 
-                        updateWizardButtons(); 
-                    });
-                } else { 
-                    results.innerHTML = `<div class="p-4 text-sm text-gray-500">No clients found.</div>`; 
-                    results.classList.remove('hidden'); 
-                }
+                    document.querySelectorAll('.user-option').forEach(el => el.onclick = () => { inBranchState.targetUser = matches.find(u => u.id === el.dataset.id); renderUserSelection(container); updateWizardButtons(); });
+                } else { results.innerHTML = `<div class="p-4 text-sm text-gray-500">No clients found.</div>`; results.classList.remove('hidden'); }
             }, 400);
         };
     }
 
-    // --- 3. Walk-in Creation Handler ---
+    // --- UPDATED CREATE HANDLER (MANDATORY BRANCH SELECTION) ---
     document.getElementById('btn-create-client')?.addEventListener('click', async (e) => {
         const fullName = document.getElementById('new-fullname').value.trim(); 
         const idNumber = document.getElementById('new-idnumber').value.trim();
         const phone = document.getElementById('new-phone').value.trim(); 
         const email = document.getElementById('new-email').value.trim();
+        const branchSelect = document.getElementById('new-branch-id');
+        
+        // Forced branch selection logic
+        const branchId = branchSelect ? branchSelect.value : null;
+
+        if (!branchId) {
+            return showToast("Manual branch selection is required to proceed.", 'warning');
+        }
 
         if(!fullName || !idNumber) return showToast("Name and ID Number are required.", 'warning');
 
@@ -850,85 +863,41 @@ async function renderUserSelection(container) {
         e.target.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creating...';
 
         try {
-            const { data, error } = await createWalkInClient({ fullName, idNumber, phone, email: email || null });
+            const { data, error } = await createWalkInClient({ fullName, idNumber, phone, email: email || null, branchId });
             if(error) throw error;
-            inBranchState.targetUser = data; // Automatically select
-            renderUserSelection(container);
+            inBranchState.targetUser = data; 
+            renderUserSelection(container); 
             updateWizardButtons(); 
         } catch (err) {
             showToast(err.message, 'error');
-            e.target.disabled = false;
+            e.target.disabled = false; 
             e.target.innerHTML = '<i class="fa-solid fa-user-plus"></i> Create & Select Client';
         }
     });
 
-    // --- 4. Selection Management (Active Verification & Resume) ---
     if (inBranchState.targetUser) {
         const listContainer = document.getElementById('user-loan-history-list');
         const warningContainer = document.getElementById('outstanding-balance-warning');
         const actionNewBtn = document.getElementById('action-new-loan');
 
-        supabase.from('loan_applications')
-            .select('*')
-            .eq('user_id', inBranchState.targetUser.id)
-            .order('created_at', { ascending: false })
-            .then(({ data: apps, error }) => {
-                if (error) return listContainer.innerHTML = `<p class="text-xs text-red-500 p-4">Error loading history</p>`;
-
-                // Verify for Active Loans
-                const activeLoan = apps?.find(a => !['REPAID', 'DECLINED', 'ERROR', 'DISBURSED'].includes(a.status));
-
-                if (activeLoan) {
-                    warningContainer.innerHTML = `
-                        <p class="text-[10px] text-red-600 font-bold uppercase flex items-center gap-1">
-                            <i class="fa-solid fa-triangle-exclamation"></i> Active Application: ${activeLoan.status}
-                        </p>`;
-                    actionNewBtn.classList.add('opacity-50', 'bg-gray-50', 'cursor-not-allowed');
-                    actionNewBtn.onclick = () => showToast(`Cannot start new. Application active in status: ${activeLoan.status}`, "warning");
-                } else {
-                    warningContainer.innerHTML = `<p class="text-[10px] text-green-600 font-bold uppercase">Ready for new application</p>`;
-                    actionNewBtn.onclick = () => handleNextStep(); // Step 2 (Bureau)
-                }
-
-                // Render History with Resume Logic
-                if (!apps || apps.length === 0) {
-                    listContainer.innerHTML = `<p class="text-xs text-gray-400 p-4 text-center italic">No previous applications found.</p>`;
-                } else {
-                    listContainer.innerHTML = apps.map(app => {
-                        const canResume = !['REPAID', 'DECLINED', 'ERROR', 'DISBURSED'].includes(app.status);
-                        return `
-                            <div class="bg-white border border-gray-200 rounded-lg p-3 flex justify-between items-center text-sm shadow-sm">
-                                <div>
-                                    <span class="font-bold text-gray-700">${formatCurrency(app.amount)}</span>
-                                    <span class="text-[10px] ml-2 text-gray-400 font-mono">${formatDate(app.created_at)}</span>
-                                    <div class="mt-1"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${getBadgeColor(app.status)}">${app.status}</span></div>
-                                </div>
-                                ${canResume ? `<button class="resume-app-btn px-3 py-1 bg-green-600 text-white text-xs font-bold rounded-md hover:bg-green-700 transition" data-id="${app.id}">Resume</button>` : ''}
-                            </div>`;
-                    }).join('');
-
-                    document.querySelectorAll('.resume-app-btn').forEach(btn => {
-                        btn.onclick = (e) => {
-                            const appId = e.target.dataset.id;
-                            const appData = apps.find(a => a.id == appId);
-                            // Load existing data into global state
-                            inBranchState.creditCheck.applicationId = appId;
-                            inBranchState.loanConfig = { ...inBranchState.loanConfig, amount: appData.amount, period: appData.term_months, reason: appData.purpose };
-                            showToast(`Resuming Application #${appId.slice(0,8)}...`);
-                            handleNextStep(); 
-                        };
-                    });
-                }
-            });
+        supabase.from('loan_applications').select('*').eq('user_id', inBranchState.targetUser.id).order('created_at', { ascending: false }).then(({ data: apps, error }) => {
+            if (error) return;
+            const activeLoan = apps?.find(a => !['REPAID', 'DECLINED', 'ERROR', 'DISBURSED'].includes(a.status));
+            if (activeLoan) {
+                warningContainer.innerHTML = `<p class="text-[10px] text-red-600 font-bold uppercase flex items-center gap-1"><i class="fa-solid fa-triangle-exclamation"></i> Active: ${activeLoan.status}</p>`;
+                actionNewBtn.classList.add('opacity-50', 'bg-gray-50', 'cursor-not-allowed');
+                actionNewBtn.onclick = () => showToast(`Cannot start new. Application active.`, "warning");
+            } else {
+                warningContainer.innerHTML = `<p class="text-[10px] text-green-600 font-bold uppercase">Ready for new application</p>`;
+                actionNewBtn.onclick = () => handleNextStep();
+            }
+            if (!apps || apps.length === 0) listContainer.innerHTML = `<p class="text-xs text-gray-400 p-4 text-center italic">No history found.</p>`;
+            else listContainer.innerHTML = apps.map(app => `<div class="bg-white border border-gray-200 rounded-lg p-3 flex justify-between items-center text-sm shadow-sm"><div><span class="font-bold text-gray-700">${formatCurrency(app.amount)}</span><span class="text-[10px] ml-2 text-gray-400 font-mono">${formatDate(app.created_at)}</span><div class="mt-1"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${getBadgeColor(app.status)}">${app.status}</span></div></div>${!['REPAID', 'DECLINED', 'ERROR', 'DISBURSED'].includes(app.status) ? `<button class="resume-app-btn px-3 py-1 bg-orange-600 text-white text-xs font-bold rounded-md hover:bg-orange-700 transition" data-id="${app.id}">Resume</button>` : ''}</div>`).join('');
+            document.querySelectorAll('.resume-app-btn').forEach(btn => { btn.onclick = (e) => { const appId = e.target.dataset.id; const appData = apps.find(a => a.id == appId); inBranchState.creditCheck.applicationId = appId; inBranchState.loanConfig = { ...inBranchState.loanConfig, amount: appData.amount, period: appData.term_months, reason: appData.purpose }; showToast(`Resuming Application...`); handleNextStep(); }; });
+        });
     }
-
-    document.getElementById('clear-user-btn')?.addEventListener('click', () => { 
-        inBranchState.targetUser = null; 
-        renderUserSelection(container); 
-        updateWizardButtons(); 
-    });
+    document.getElementById('clear-user-btn')?.addEventListener('click', () => { inBranchState.targetUser = null; renderUserSelection(container); updateWizardButtons(); });
 }
-
 // ==========================================
 //   STEP 2: BUREAU (MERGED DESIGN & LOGIC)
 // ==========================================
@@ -1938,26 +1907,46 @@ async function handleBulkSync() {
 
 const renderApplications = (apps) => { 
     const tb = document.getElementById('applications-table-body'); 
+    const countEl = document.getElementById('visible-count');
+    
     if(!tb) return; 
     
+    if (countEl) countEl.textContent = apps.length;
+
     if (apps.length === 0) {
-        tb.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-gray-500">No applications match your criteria.</td></tr>`;
+        tb.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-sm text-gray-400">No applications match your criteria.</td></tr>`;
         return;
     }
     
     tb.innerHTML = apps.map(app => `
-        <tr class="hover:bg-gray-50">
+        <tr class="hover:bg-gray-50 transition-colors group">
             <td class="px-6 py-4">
-                <div>${app.profiles?.full_name||'N/A'}</div>
-                <div class="text-xs text-gray-500">${app.id}</div>
+                <div class="flex items-center">
+                    <div class="h-9 w-9 rounded-full flex items-center justify-center text-xs font-bold mr-3 border border-gray-200 bg-gray-100 text-gray-500">
+                        ${(app.profiles?.full_name || 'A').charAt(0)}
+                    </div>
+                    <div>
+                        <div class="text-sm font-bold text-gray-900">${app.profiles?.full_name || 'N/A'}</div>
+                        <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wide">ID: ${app.id}</div>
+                    </div>
+                </div>
             </td>
-            <td class="px-6 py-4">${formatCurrency(app.amount)}</td>
             <td class="px-6 py-4">
-                <span class="px-2 py-1 text-xs font-bold rounded ${getBadgeColor(app.status)}">${app.status}</span>
+                <div class="text-sm font-mono font-medium text-gray-900">${formatCurrency(app.amount)}</div>
             </td>
-            <td class="px-6 py-4 text-sm text-gray-500">${formatDate(app.created_at)}</td>
+            <td class="px-6 py-4">
+                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border border-transparent ${getBadgeColor(app.status)}">
+                    ${app.status}
+                </span>
+            </td>
+            <td class="px-6 py-4">
+                <div class="text-xs text-gray-500 font-medium">${formatDate(app.created_at)}</div>
+            </td>
             <td class="px-6 py-4 text-right">
-                <a href="/admin/application-detail?id=${app.id}" class="text-orange-600 hover:underline">View</a>
+                <a href="/admin/application-detail?id=${app.id}" 
+                   class="text-gray-400 hover:text-orange-600 transition-colors p-2 rounded-full hover:bg-orange-50 inline-block">
+                    <i class="fa-solid fa-eye"></i>
+                </a>
             </td>
         </tr>
     `).join('');
@@ -1983,18 +1972,52 @@ const renderSearchSuggestions = (apps) => {
     searchSuggestions.classList.remove('hidden');
 };
 
-const filterAndSearch = () => { 
+/**
+ * @param {boolean} resetPage 
+ */
+/**
+ * @param {boolean} resetPage - Set to true when filters change to return to page 1.
+ */
+const filterAndSearch = (resetPage = true) => { 
+    if (resetPage) currentPageApps = 1;
+
     const term = document.getElementById('search-input')?.value.toLowerCase().trim() || ''; 
     const status = document.getElementById('status-filter')?.value || 'all'; 
     
-    let filtered = allApplications.filter(a => 
-        (status === 'all' || a.status === status) && 
-        (a.profiles?.full_name?.toLowerCase().includes(term) || String(a.id).includes(term))
-    ); 
+    const filtered = allApplications.filter(app => {
+        // 1. Status Match
+        const statusMatch = (status === 'all' || app.status === status);
+
+        // 2. Text Match (Name, ID, or Amount)
+        const textMatch = !term || 
+            (app.profiles?.full_name || '').toLowerCase().includes(term) || 
+            String(app.id).toLowerCase().includes(term) ||
+            String(app.amount).includes(term);
+
+        // 3. Branch Lock Logic
+        let branchMatch = false;
+        if (userRole === 'super_admin') {
+            // Super Admins: Can see everything
+            branchMatch = true; 
+        } else {
+            // Admins/Staff: Locked to their own branch_id from their profile
+            branchMatch = (app.branch_id === currentAdminProfile?.branch_id);
+        }
+
+        return statusMatch && textMatch && branchMatch;
+    }); 
     
-    renderApplications(filtered); 
+    // Pagination Slicing
+    const totalPages = Math.ceil(filtered.length / itemsPerPageApps) || 1;
+    const start = (currentPageApps - 1) * itemsPerPageApps;
+    const paginatedData = filtered.slice(start, start + itemsPerPageApps);
+
+    renderApplications(paginatedData); 
+    renderAppPaginationControls(totalPages, filtered.length);
     
-    if (document.activeElement === document.getElementById('search-input') && term.length > 1) {
+    // Handle Search Suggestions (Dropdown)
+    const searchInput = document.getElementById('search-input');
+    if (document.activeElement === searchInput && term.length > 1) {
         renderSearchSuggestions(filtered.slice(0, 5));
     } else {
         document.getElementById('search-suggestions')?.classList.add('hidden');
@@ -2013,12 +2036,12 @@ async function loadApplications() {
 
 // --- Init ---
 function attachEventListeners() {
-    document.getElementById('search-input')?.addEventListener('input', filterAndSearch);
-    document.getElementById('status-filter')?.addEventListener('change', filterAndSearch);
+    document.getElementById('search-input')?.addEventListener('input', () => filterAndSearch(true));
+    document.getElementById('status-filter')?.addEventListener('change', () => filterAndSearch(true));  
     document.getElementById('create-app-btn')?.addEventListener('click', startInBranchFlow);
     document.getElementById('sync-offered-btn')?.addEventListener('click', handleBulkSync);
-    
     document.addEventListener('click', (e) => { 
+        
         const sug = document.getElementById('search-suggestions'); 
         if (sug && !document.getElementById('search-input').contains(e.target) && !sug.contains(e.target)) {
             sug.classList.add('hidden'); 
@@ -2028,18 +2051,31 @@ function attachEventListeners() {
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', async () => { 
+    // 1. Initialize the shared layout and check authentication
     const auth = await initLayout(); 
-    if(auth) { 
+    
+    if (auth) { 
+        
         userRole = auth.role; 
+        
+
+        const [profile, branchesList] = await Promise.all([
+            getCurrentAdminProfile(),
+            fetchBranches()
+        ]);
+        
+        currentAdminProfile = profile;
+        branches = branchesList || [];
+
         renderPageContent(); 
+        
         await loadApplications(); 
     } 
 });
-
 // --- Final Application Submission ---
 async function handleFinalSubmit() {
     const nextBtn = document.getElementById('wizard-next-btn');
-    if (!nextBtn) return; // Guard clause to ensure button exists
+    if (!nextBtn) return; 
 
     nextBtn.disabled = true;
     nextBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
@@ -2048,12 +2084,12 @@ async function handleFinalSubmit() {
         const { amount, period, startDate } = inBranchState.loanConfig;
         const history = inBranchState.loanHistoryCount || 0;
         
-        // Generate the full fee breakdown based on current state
+        // Generate the full fee breakdown
         const calc = calculateLoanDetails(amount, period, startDate, history);
         
         let bankId = document.getElementById('bank-select').value;
 
-        // Handle bank account selection or new creation
+        // Handle new bank account creation if needed
         if (bankId === 'new') {
             const newBank = {
                 user_id: inBranchState.targetUser.id,
@@ -2078,7 +2114,7 @@ async function handleFinalSubmit() {
 
         if (!bankId) throw new Error("Please select or add a bank account.");
 
-        // Prepare application update payload
+        // --- PREPARE UPDATE PAYLOAD (With Branch ID) ---
         const updatePayload = {
             status: 'AFFORD_OK', 
             amount: amount,
@@ -2092,6 +2128,9 @@ async function handleFinalSubmit() {
             offer_monthly_repayment: calc.monthlyPayment,
             offer_total_repayment: calc.totalRepayment,
             offer_total_admin_fees: calc.totalMonthlyFees,
+            
+            branch_id: inBranchState.targetUser?.branch_id || currentAdminProfile?.branch_id,
+
             offer_details: {
                 first_repayment_date: startDate,
                 interest_portion: calc.interestPortion,
@@ -2101,7 +2140,7 @@ async function handleFinalSubmit() {
             notes: `In-branch application for ${inBranchState.targetUser.full_name}. Verified by Admin.`
         };
 
-        // Update the application record in Supabase
+        // Update Supabase
         const { error: appError } = await supabase
             .from('loan_applications')
             .update(updatePayload)
@@ -2119,3 +2158,46 @@ async function handleFinalSubmit() {
         nextBtn.innerHTML = 'Submit Application';
     }
 }
+function renderAppPaginationControls(totalPages, totalRecords) {
+    let container = document.getElementById('app-pagination-container');
+    const listView = document.getElementById('applications-list-view');
+    const visibleCount = document.getElementById('visible-count');
+
+    // Update the record count displayed in the UI
+    if (visibleCount) visibleCount.textContent = totalRecords;
+
+    // Create the container if it doesn't exist yet
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'app-pagination-container';
+        container.className = 'flex justify-between items-center p-4 border-t border-gray-100 bg-gray-50/50';
+        listView.appendChild(container);
+    }
+
+    // If there is only one page, show status text but hide buttons
+    if (totalPages <= 1) {
+        container.innerHTML = `<span class="text-xs text-gray-400">Showing all records</span>`;
+        return;
+    }
+
+    // Build the navigation buttons
+    container.innerHTML = `
+        <span class="text-xs font-bold text-gray-500 uppercase tracking-tight">Page ${currentPageApps} of ${totalPages}</span>
+        <div class="flex gap-2">
+            <button onclick="window.changePageApps(${currentPageApps - 1})" ${currentPageApps === 1 ? 'disabled' : ''} 
+                class="px-4 py-2 text-xs font-bold border rounded-lg bg-white hover:bg-gray-50 disabled:opacity-30 transition-all shadow-sm">
+                Prev
+            </button>
+            <button onclick="window.changePageApps(${currentPageApps + 1})" ${currentPageApps === totalPages ? 'disabled' : ''} 
+                class="px-4 py-2 text-xs font-bold border rounded-lg bg-white hover:bg-gray-50 disabled:opacity-30 transition-all shadow-sm">
+                Next
+            </button>
+        </div>
+    `;
+}
+
+// Global function to handle page switching
+window.changePageApps = (page) => {
+    currentPageApps = page;
+    filterAndSearch(false); 
+};
