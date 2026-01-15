@@ -1,22 +1,21 @@
-import { initLayout, getRole } from '../shared/layout.js';
+import { initLayout } from '../shared/layout.js';
 import { formatCurrency, formatDate } from '../shared/utils.js';
 import { 
   fetchPayouts,
-  fetchPayoutStats,
-  fetchPayoutsOverTime,
-  fetchPayoutDetail,
   approvePayout, 
   updateApplicationStatus,
-  fetchProfile,
-  fetchApplicationDetail
+  getCurrentAdminProfile
 } from '../services/dataService.js';
 
 // --- State ---
 let allPayouts = [];
 let selectedPayoutIds = new Set();
-let activeTab = 'pending';
-
-const TAB_BASE_CLASS = 'tab-toggle flex-1 py-3 text-sm font-bold transition-colors';
+let activeTab = 'pending'; // 'pending' vs 'history'
+let searchTerm = '';
+let currentPagePayouts = 1;
+const itemsPerPagePayouts = 20;
+let userRole = 'borrower';
+let currentAdminProfile = null;
 
 // --- Main Page Rendering ---
 
@@ -24,210 +23,331 @@ function renderPageContent() {
   const mainContent = document.getElementById('main-content');
   if (!mainContent) return;
 
+  // Layout: Stats Cards -> Tabs -> Table
   mainContent.innerHTML = `
-    <div id="payout-stats-cards" class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-      ${renderStatCardLoading('Total Disbursed')}
-      ${renderStatCardLoading('Pending Queue')}
-      ${renderStatCardLoading('Pending Value')}
-    </div>
-  
-    <div class="bg-white rounded-lg shadow-lg overflow-hidden">
-      <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 h-[calc(100vh-270px)]">
+    <div id="payout-list-view" class="flex flex-col h-full animate-fade-in space-y-6">
+      
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
         
-        <div class="md:col-span-1 lg:col-span-1 border-r border-gray-200 flex flex-col">
-          
-           <div class="flex border-b border-gray-200 bg-white">
-             <button id="tab-pending" class="${TAB_BASE_CLASS} active">
-                Pending Queue
-             </button>
-             <button id="tab-history" class="${TAB_BASE_CLASS}">
-                History
-             </button>
-          </div>
+        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 flex items-center justify-between">
+            <div>
+                <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Total Disbursed</p>
+                <h2 id="stat-total-disbursed" class="text-3xl font-black text-gray-900 mt-2">R 0.00</h2>
+            </div>
+            <div class="w-12 h-12 rounded-xl bg-green-50 text-green-600 flex items-center justify-center text-xl shadow-sm">
+                <i class="fa-solid fa-money-bill-wave"></i>
+            </div>
+        </div>
 
-          <div id="bulk-actions-toolbar" class="p-4 border-b border-gray-200 bg-gray-50 transition-all duration-300 overflow-hidden" style="max-height: 200px;">
-            <div class="flex justify-between items-center mb-3">
-                <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Bulk Actions</h3>
-                <span id="selection-count" class="selection-count-badge text-xs font-bold px-2 py-1 rounded-full hidden">0 Selected</span>
+        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 flex items-center justify-between">
+            <div>
+                <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Pending Value</p>
+                <h2 id="stat-pending-value" class="text-3xl font-black text-yellow-600 mt-2">R 0.00</h2>
+            </div>
+            <div class="w-12 h-12 rounded-xl bg-yellow-50 text-yellow-600 flex items-center justify-center text-xl shadow-sm">
+                <i class="fa-solid fa-clock"></i>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 flex items-center justify-between">
+            <div>
+                <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Pending Queue</p>
+                <h2 id="stat-pending-queue" class="text-3xl font-black text-gray-900 mt-2">0</h2>
+            </div>
+            <div class="w-12 h-12 rounded-xl bg-gray-50 text-gray-600 flex items-center justify-center text-xl shadow-sm">
+                <i class="fa-solid fa-list-check"></i>
+            </div>
+        </div>
+
+      </div>
+
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden flex-1 min-h-0">
+        
+        <div class="p-6 border-b border-gray-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+            <div>
+                <h3 class="text-lg font-bold text-gray-900 uppercase tracking-tight">Transaction View</h3>
+                <div class="flex gap-6 mt-2">
+                    <button id="tab-pending" class="text-xs font-bold uppercase transition-colors pb-1 border-b-2 ${activeTab === 'pending' ? 'text-orange-600 border-orange-600' : 'text-gray-400 border-transparent hover:text-gray-600'}">
+                        Ready to Pay
+                    </button>
+                    <button id="tab-history" class="text-xs font-bold uppercase transition-colors pb-1 border-b-2 ${activeTab === 'history' ? 'text-orange-600 border-orange-600' : 'text-gray-400 border-transparent hover:text-gray-600'}">
+                        Paid History
+                    </button>
+                </div>
             </div>
             
-            <div class="flex gap-2 mb-3">
-                 <button id="btn-bulk-disburse" class="flex-1 bg-green-600 text-white text-xs font-bold py-2 rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm" disabled>
-                    <i class="fa-solid fa-file-csv mr-1"></i> Disburse & CSV
+            <div class="flex items-center gap-3 w-full lg:w-auto">
+                <div class="relative flex-1 lg:w-64">
+                    <input type="text" id="payout-search-input" placeholder="Search ID or Name..." 
+                           class="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-orange-500 text-sm focus:bg-white transition-colors">
+                    <i class="fa-solid fa-search absolute left-3 top-2.5 text-gray-400"></i>
+                </div>
+                <button id="btn-bulk-disburse" class="px-4 py-2 bg-gray-900 text-white text-xs font-bold rounded-xl hover:bg-black disabled:opacity-30 transition-all flex items-center gap-2 shadow-sm" disabled>
+                    <i class="fa-solid fa-file-csv"></i> <span>Export Data</span>
                 </button>
             </div>
+        </div>
 
-            <div class="flex items-center gap-2">
-              <input type="checkbox" id="select-all-checkbox" class="rounded border-gray-300 text-brand-accent focus:ring-brand-accent cursor-pointer">
-                <label for="select-all-checkbox" class="text-xs font-bold text-gray-600 cursor-pointer select-none">Select All Pending</label>
-            </div>
-          </div>
-
-          <div class="p-3 border-b border-gray-200 bg-white">
-             <input type="search" id="payout-search-input" placeholder="Search name..." class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-brand-accent text-sm">
-          </div>
-
-          <div id="payout-list-container" class="flex-1 overflow-y-auto relative bg-white">
-            <div class="p-10 text-center text-gray-500">
-              <i class="fa-solid fa-circle-notch fa-spin text-2xl text-brand-accent"></i>
-            </div>
-          </div>
+        <div class="overflow-auto custom-scrollbar flex-1">
+          <table class="min-w-full divide-y divide-gray-100">
+            <thead class="bg-gray-50/80 sticky top-0 z-10 backdrop-blur-md">
+                <tr>
+                    <th class="px-6 py-4 text-left w-10">
+                        <input type="checkbox" id="select-all-checkbox" class="rounded border-gray-300 text-orange-600 focus:ring-orange-500 cursor-pointer">
+                    </th>
+                    <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Date</th>
+                    <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Transaction ID</th>
+                    <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Recipient</th>
+                    <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Amount</th>
+                    <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Status</th>
+                    <th class="px-6 py-4 text-right text-[10px] font-bold text-gray-400 uppercase tracking-widest">Action</th>
+                </tr>
+            </thead>
+            <tbody id="payouts-table-body" class="bg-white divide-y divide-gray-50">
+                <tr><td colspan="7" class="p-10 text-center text-gray-400 italic">
+                    <i class="fa-solid fa-circle-notch fa-spin mr-2"></i> Loading transaction queue...
+                </td></tr>
+            </tbody>
+          </table>
         </div>
         
-        <div id="payout-detail-panel" class="md:col-span-2 lg:col-span-3 overflow-y-auto p-6 bg-gray-50">
-          <div class="flex flex-col items-center justify-center h-full text-gray-400">
-            <i class="fa-solid fa-hand-holding-dollar text-4xl mb-3"></i>
-            <p class="text-lg font-medium">Select a payout to view details</p>
-          </div>
-        </div>
-        
+        <div id="payout-pagination-container"></div>
+      </div>
+      
+      <div class="mt-1 text-[10px] text-gray-400 text-right font-bold uppercase tracking-tight">
+        Total Records Found: <span id="visible-count">0</span>
       </div>
     </div>
   `;
-
+  
   attachEventListeners();
 }
 
 /**
- * Renders the list of payout "cards"
+ * Filter Logic: 
+ * 1. Checks Status (Ready vs Disbursed) based on active Tab
+ * 2. Checks Text Search
+ * 3. Checks Branch ID (Security)
  */
-function renderPayoutList(payouts) {
-  const listContainer = document.getElementById('payout-list-container');
-  const selectAll = document.getElementById('select-all-checkbox');
-  if (!listContainer) return;
-  
-  listContainer.innerHTML = '';
-  
-  if (payouts.length === 0) {
-    const msg = activeTab === 'pending' ? 'Queue is empty.' : 'No history found.';
-    listContainer.innerHTML = `<div class="flex flex-col items-center justify-center h-40 text-gray-400"><i class="fa-regular fa-folder-open text-2xl mb-2"></i><p class="text-sm">${msg}</p></div>`;
-    if(selectAll) selectAll.disabled = true;
-    return;
-  }
-
-  if(selectAll) selectAll.disabled = false;
-
-  payouts.forEach(payout => {
-    const isSelected = selectedPayoutIds.has(payout.id);
-    const isPending = payout.status === 'pending_disbursement';
+const filterAndSearch = (resetPage = true) => { 
+    if (resetPage) currentPagePayouts = 1;
+    searchTerm = document.getElementById('payout-search-input')?.value.toLowerCase().trim() || ''; 
     
-    const card = document.createElement('div');
-    card.className = `payout-card-row flex items-center p-3 border-b border-gray-100 ${isSelected ? 'selected' : ''}`;
-    
-    const checkboxHtml = activeTab === 'pending' 
-        ? `<div class="mr-3"><input type="checkbox" class="payout-checkbox rounded text-orange-600 focus:ring-orange-500 w-4 h-4 cursor-pointer" data-id="${payout.id}" ${isSelected ? 'checked' : ''}></div>` 
-        : `<div class="mr-3 w-4"></div>`;
+    const filtered = allPayouts.filter(p => {
+        // 1. Status Check: Joined application status
+        const appStatus = p.application?.status || p.status;
+        const statusMatch = (activeTab === 'pending') 
+            ? (appStatus === 'READY_TO_DISBURSE' || appStatus === 'pending_disbursement') 
+            : (appStatus === 'DISBURSED' || appStatus === 'disbursed');
 
-    const badgeHtml = isPending 
-        ? `<span class="text-[10px] bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded border border-yellow-200 uppercase font-bold">Ready</span>`
-        : `<span class="text-[10px] bg-green-100 text-green-800 px-1.5 py-0.5 rounded border border-green-200 uppercase font-bold">Disbursed</span>`;
+        // 2. Text Match
+        const textMatch = !searchTerm || 
+            (p.profile?.full_name || '').toLowerCase().includes(searchTerm) || 
+            String(p.id).includes(searchTerm) ||
+            String(p.application_id).includes(searchTerm);
 
-    card.innerHTML = `
-      ${checkboxHtml}
-      <div class="flex-1 cursor-pointer card-clickable" data-id="${payout.id}">
-        <div class="flex justify-between items-start">
-            <p class="text-sm font-bold text-gray-900 truncate w-32">${payout.profile?.full_name || 'Unknown'}</p>
-            <p class="text-sm font-bold text-gray-900">${formatCurrency(payout.amount)}</p>
-        </div>
-        <div class="flex justify-between items-center mt-1">
-             ${badgeHtml}
-             <span class="text-xs text-gray-400 font-mono">#${payout.application_id}</span>
-        </div>
-      </div>
-    `;
+        // 3. Branch Security (Non-Super Admins see only their branch)
+        let branchMatch = true;
+        if (userRole !== 'super_admin' && currentAdminProfile?.branch_id) {
+             branchMatch = (p.application?.branch_id === currentAdminProfile.branch_id);
+        }
+
+        return statusMatch && textMatch && branchMatch;
+    }); 
+
+    const totalPages = Math.ceil(filtered.length / itemsPerPagePayouts) || 1;
+    const start = (currentPagePayouts - 1) * itemsPerPagePayouts;
+    const paginatedData = filtered.slice(start, start + itemsPerPagePayouts);
+
+    renderPayoutTable(paginatedData); 
+    renderPayoutPaginationControls(totalPages, filtered.length);
     
-    const checkbox = card.querySelector('.payout-checkbox');
-    if (checkbox) {
-        checkbox.addEventListener('change', (e) => {
-            e.stopPropagation();
-            toggleSelection(payout.id, e.target.checked);
+    // Update visible count
+    const countEl = document.getElementById('visible-count');
+    if(countEl) countEl.textContent = filtered.length;
+};
+
+function renderPayoutTable(payouts) {
+    const tb = document.getElementById('payouts-table-body');
+    if (!tb) return;
+
+    if (payouts.length === 0) {
+        tb.innerHTML = `<tr><td colspan="7" class="p-10 text-center text-sm text-gray-400 italic">No transactions found for the selected view.</td></tr>`;
+        return;
+    }
+
+    tb.innerHTML = payouts.map(p => {
+        const isSelected = selectedPayoutIds.has(p.id);
+        const dateStr = formatDate(p.created_at);
+        
+        return `
+        <tr class="hover:bg-gray-50 transition-colors group border-b border-gray-50 last:border-0">
+            <td class="px-6 py-4">
+                <input type="checkbox" class="payout-checkbox rounded border-gray-300 text-orange-600 focus:ring-orange-500 cursor-pointer" data-id="${p.id}" ${isSelected ? 'checked' : ''}>
+            </td>
+            <td class="px-6 py-4 text-xs text-gray-600 font-medium whitespace-nowrap">
+                ${dateStr}
+            </td>
+            <td class="px-6 py-4">
+                <div class="text-xs font-mono text-gray-500 bg-gray-50 px-2 py-1 rounded inline-block border border-gray-100">
+                    #${p.id}
+                </div>
+            </td>
+            <td class="px-6 py-4">
+                <div class="text-xs font-bold text-gray-900">${p.profile?.full_name || 'N/A'}</div>
+                <div class="text-[10px] text-gray-400">App ID: ${p.application_id}</div>
+            </td>
+            <td class="px-6 py-4 text-xs font-black text-gray-900">
+                ${formatCurrency(p.amount)}
+            </td>
+            <td class="px-6 py-4">
+                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${activeTab === 'pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-green-50 text-green-600 border-green-100'}">
+                    ${activeTab === 'pending' ? 'Pending' : 'Paid'}
+                </span>
+            </td>
+            <td class="px-6 py-4 text-right">
+                <a href="/admin/application-detail?id=${p.application_id}" class="text-gray-400 hover:text-orange-600 transition-colors p-2 rounded-full hover:bg-orange-50 inline-block">
+                    <i class="fa-solid fa-eye"></i>
+                </a>
+            </td>
+        </tr>
+    `}).join('');
+
+    // Attach row-specific checkbox listeners
+    tb.querySelectorAll('.payout-checkbox').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+            const id = parseInt(e.target.dataset.id);
+            if (e.target.checked) selectedPayoutIds.add(id);
+            else selectedPayoutIds.delete(id);
+            updateBulkUI();
         });
-    }
-
-    const clickArea = card.querySelector('.card-clickable');
-    clickArea.addEventListener('click', () => handlePayoutClick(payout.id));
-
-    listContainer.appendChild(card);
-  });
-}
-
-// --- Tab Logic ---
-function switchTab(tabName) {
-    activeTab = tabName;
-    selectedPayoutIds.clear(); 
-    
-    const tabPending = document.getElementById('tab-pending');
-    const tabHistory = document.getElementById('tab-history');
-    const toolbar = document.getElementById('bulk-actions-toolbar');
-
-    if (tabPending) {
-      tabPending.className = `${TAB_BASE_CLASS} ${tabName === 'pending' ? 'active' : ''}`;
-    }
-
-    if (tabHistory) {
-      tabHistory.className = `${TAB_BASE_CLASS} ${tabName === 'history' ? 'active' : ''}`;
-    }
-
-    if (tabName === 'pending') {
-      toolbar.style.maxHeight = '200px';
-      toolbar.style.padding = '1rem'; 
-      toolbar.style.opacity = '1';
-      toolbar.classList.remove('border-b-0');
-    } else {
-      toolbar.style.maxHeight = '0px';
-      toolbar.style.padding = '0px';
-      toolbar.style.opacity = '0';
-      toolbar.classList.add('border-b-0');
-    }
-
-    updateBulkUI();
-    filterAndRender();
-}
-
-// --- Selection Logic ---
-function toggleSelection(id, isChecked) {
-    if (isChecked) selectedPayoutIds.add(id);
-    else selectedPayoutIds.delete(id);
-    updateBulkUI();
-}
-
-function toggleSelectAll(isChecked) {
-    const checkboxes = document.querySelectorAll('.payout-checkbox');
-    checkboxes.forEach(cb => {
-        cb.checked = isChecked;
-        const id = parseInt(cb.getAttribute('data-id'));
-        if (isChecked) selectedPayoutIds.add(id);
-        else selectedPayoutIds.delete(id);
     });
-    updateBulkUI();
 }
 
 function updateBulkUI() {
-    const countSpan = document.getElementById('selection-count');
     const btn = document.getElementById('btn-bulk-disburse');
+    if (!btn) return;
     const count = selectedPayoutIds.size;
-
+    btn.disabled = count === 0;
+    
+    // Change Button Text based on selection
     if (count > 0) {
-        countSpan.textContent = `${count} Selected`;
-        countSpan.classList.remove('hidden');
-        btn.disabled = false;
-        btn.innerHTML = `<i class="fa-solid fa-file-csv mr-1"></i> Disburse ${count} items`;
+        btn.innerHTML = `<i class="fa-solid fa-file-csv"></i> <span class="ml-2">Export & Process (${count})</span>`;
+        btn.classList.remove('bg-gray-900');
+        btn.classList.add('bg-orange-600');
     } else {
-        countSpan.classList.add('hidden');
-        btn.disabled = true;
-        btn.innerHTML = `<i class="fa-solid fa-file-csv mr-1"></i> Disburse & CSV`;
+        btn.innerHTML = `<i class="fa-solid fa-file-csv"></i> <span class="ml-2">Export Data</span>`;
+        btn.classList.add('bg-gray-900');
+        btn.classList.remove('bg-orange-600');
     }
 }
 
-// --- Bulk Disbursement Logic ---
+function renderPayoutPaginationControls(totalPages, totalRecords) {
+    const container = document.getElementById('payout-pagination-container');
+    if (!container) return; 
+
+    if (totalPages <= 1) {
+        container.innerHTML = `<div class="p-4 border-t border-gray-100 bg-gray-50/50 text-[10px] text-gray-400 font-bold uppercase tracking-widest text-center">End of Records</div>`;
+        return;
+    }
+
+    container.innerHTML = `
+        <div class="flex justify-between items-center p-4 border-t border-gray-100 bg-gray-50/50">
+            <span class="text-[10px] font-bold text-gray-500 uppercase tracking-tight">Page ${currentPagePayouts} of ${totalPages}</span>
+            <div class="flex gap-2">
+                <button onclick="window.changePagePayouts(${currentPagePayouts - 1})" ${currentPagePayouts === 1 ? 'disabled' : ''} 
+                    class="px-3 py-1 text-[10px] font-bold border rounded-lg bg-white disabled:opacity-30 hover:bg-gray-50 transition-all shadow-sm text-gray-700">Prev</button>
+                <button onclick="window.changePagePayouts(${currentPagePayouts + 1})" ${currentPagePayouts === totalPages ? 'disabled' : ''} 
+                    class="px-3 py-1 text-[10px] font-bold border rounded-lg bg-white disabled:opacity-30 hover:bg-gray-50 transition-all shadow-sm text-gray-700">Next</button>
+            </div>
+        </div>
+    `;
+}
+
+// Global page changer attached to window
+window.changePagePayouts = (page) => {
+    currentPagePayouts = page;
+    filterAndSearch(false); 
+};
+
+// --- Event Listeners ---
+function attachEventListeners() {
+    // Search Listener
+    document.getElementById('payout-search-input')?.addEventListener('input', () => filterAndSearch(true));
+    
+    // Tab Listeners
+    document.getElementById('tab-pending')?.addEventListener('click', () => { 
+        activeTab = 'pending'; 
+        selectedPayoutIds.clear();
+        updateBulkUI();
+        renderPageContent(); 
+        updateDashboardStats(allPayouts); // Refresh stats
+        filterAndSearch(true);
+    });
+    
+    document.getElementById('tab-history')?.addEventListener('click', () => { 
+        activeTab = 'history'; 
+        selectedPayoutIds.clear();
+        updateBulkUI();
+        renderPageContent(); 
+        updateDashboardStats(allPayouts); // Refresh stats
+        filterAndSearch(true);
+    });
+
+    // Select All Listener
+    document.getElementById('select-all-checkbox')?.addEventListener('change', (e) => {
+        const checkboxes = document.querySelectorAll('.payout-checkbox');
+        checkboxes.forEach(cb => {
+            cb.checked = e.target.checked;
+            const id = parseInt(cb.dataset.id);
+            if (e.target.checked) selectedPayoutIds.add(id);
+            else selectedPayoutIds.delete(id);
+        });
+        updateBulkUI();
+    });
+
+    // Bulk Export/Process Button Listener
+    document.getElementById('btn-bulk-disburse')?.addEventListener('click', () => {
+        if (activeTab === 'pending') {
+            handleBulkDisburse(); // Logic for processing payments
+        } else {
+            handleBulkExport(); // Logic for just exporting history
+        }
+    });
+}
+
+// --- Stats Logic ---
+function updateDashboardStats(data) {
+    // 1. Calculate Total Disbursed (All time)
+    // Filter for disbursed status in history
+    const disbursedItems = data.filter(p => p.status === 'disbursed' || p.application?.status === 'DISBURSED');
+    const totalDisbursedVal = disbursedItems.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+
+    // 2. Calculate Pending Value & Queue
+    const pendingItems = data.filter(p => p.status === 'pending_disbursement' || p.application?.status === 'READY_TO_DISBURSE');
+    const pendingVal = pendingItems.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    const pendingCount = pendingItems.length;
+
+    // 3. Update DOM
+    const elTotal = document.getElementById('stat-total-disbursed');
+    const elPendingVal = document.getElementById('stat-pending-value');
+    const elPendingCount = document.getElementById('stat-pending-queue');
+
+    if (elTotal) elTotal.textContent = formatCurrency(totalDisbursedVal);
+    if (elPendingVal) elPendingVal.textContent = formatCurrency(pendingVal);
+    if (elPendingCount) elPendingCount.textContent = pendingCount;
+}
+
+// --- Bulk Logic Actions ---
+
 async function handleBulkDisburse() {
     if (selectedPayoutIds.size === 0) return;
 
-    const confirm = window.confirm(`Are you sure you want to mark ${selectedPayoutIds.size} items as DISBURSED and download the CSV?`);
-    if (!confirm) return;
+    if (!confirm(`Are you sure you want to mark ${selectedPayoutIds.size} items as DISBURSED and download the CSV?`)) return;
 
     const selectedItems = allPayouts.filter(p => selectedPayoutIds.has(p.id));
     
+    // 1. Download CSV first (safeguard)
     downloadCSV(selectedItems);
 
     const btn = document.getElementById('btn-bulk-disburse');
@@ -236,6 +356,7 @@ async function handleBulkDisburse() {
     btn.disabled = true;
 
     try {
+        // 2. Process updates sequentially
         for (const payout of selectedItems) {
             await approvePayout(payout.id); 
             await updateApplicationStatus(payout.application_id, 'DISBURSED');
@@ -243,8 +364,7 @@ async function handleBulkDisburse() {
         
         alert("Disbursement processed successfully!");
         selectedPayoutIds.clear();
-        await loadData(); 
-        document.getElementById('payout-detail-panel').innerHTML = `<div class="flex flex-col items-center justify-center h-full text-gray-400"><i class="fa-solid fa-check-circle text-4xl mb-3 text-green-500"></i><p class="text-lg font-medium">Batch Complete</p></div>`;
+        await loadData(); // Reload data to refresh list
 
     } catch (error) {
         console.error(error);
@@ -255,228 +375,67 @@ async function handleBulkDisburse() {
     }
 }
 
-// --- CSV Export ---
+function handleBulkExport() {
+    if (selectedPayoutIds.size === 0) return;
+    const selectedItems = allPayouts.filter(p => selectedPayoutIds.has(p.id));
+    downloadCSV(selectedItems);
+    selectedPayoutIds.clear();
+    updateBulkUI();
+    // Uncheck select-all visually
+    const selectAll = document.getElementById('select-all-checkbox');
+    if(selectAll) selectAll.checked = false;
+    document.querySelectorAll('.payout-checkbox').forEach(cb => cb.checked = false);
+}
+
 function downloadCSV(items) {
-  const headers = ["Payout ID", "Recipient Name", "Account Number", "Bank", "Amount", "Reference"];
-  const rows = items.map(p => [
-    p.id,
-    `"${p.profile?.full_name || 'Unknown'}"`,
-    `"${p.bank_account?.account_number || 'N/A'}"`, 
-    `"${p.bank_account?.bank_name || 'N/A'}"`,
-    p.amount,
-    `LOAN-${p.application_id}`
-  ]);
+    const headers = ["Payout ID", "Recipient", "Amount", "Status", "Date", "Application ID", "Bank", "Account"];
+    const rows = items.map(p => [
+        p.id,
+        `"${p.profile?.full_name || 'N/A'}"`,
+        p.amount,
+        activeTab === 'pending' ? 'Pending' : 'Paid',
+        formatDate(p.created_at),
+        p.application_id,
+        `"${p.bank_account?.bank_name || 'N/A'}"`,
+        `"${p.bank_account?.account_number || 'N/A'}"`
+    ]);
 
-  const csvContent = [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `disbursement_batch_${new Date().toISOString().slice(0,19)}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-}
-
-/**
- * Handles clicking a payout row to see details
- */
-async function handlePayoutClick(payoutId) {
-  const detailPanel = document.getElementById('payout-detail-panel');
-  if (!detailPanel) return;
-
-  detailPanel.innerHTML = `
-    <div class="flex flex-col items-center justify-center h-full text-gray-500">
-      <i class="fa-solid fa-circle-notch fa-spin text-3xl text-brand-accent"></i>
-    </div>
-  `;
-
-  const { data, error } = await fetchPayoutDetail(payoutId);
-  if (error) {
-    detailPanel.innerHTML = `<div class="p-4 bg-red-100 text-red-800 rounded-lg">Error: ${error.message}</div>`;
-    return;
-  }
-  
-  const { payout, profile, application } = data;
-  const isPending = payout.status === 'pending_disbursement';
-
-  // Admin Name/Email Fetch Logic
-  let adminDisplay = 'System / Unknown';
-  try {
-      const { data: fullApp } = await fetchApplicationDetail(payout.application_id);
-      if (fullApp && fullApp.reviewed_by_admin) {
-          const { data: adminProfile } = await fetchProfile(fullApp.reviewed_by_admin);
-          if (adminProfile) {
-              adminDisplay = adminProfile.email || adminProfile.full_name || 'Unknown Admin';
-          }
-      }
-  } catch (e) {
-      console.warn("Could not fetch admin details", e);
-  }
-  
-  const statusBadge = isPending 
-    ? `<span class="px-3 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold uppercase rounded-full border border-yellow-200">Pending</span>`
-    : `<span class="px-3 py-1 bg-green-100 text-green-800 text-xs font-bold uppercase rounded-full border border-green-200">Disbursed</span>`;
-
-  detailPanel.innerHTML = `
-    <div class="pb-4 border-b border-gray-200 bg-white p-6 rounded-xl shadow-sm">
-      <div class="flex justify-between items-start">
-        <div>
-            <p class="text-sm text-gray-500 uppercase tracking-wide font-bold">Review Disbursement</p>
-            <p class="text-2xl font-bold text-gray-900 mt-1">${profile?.full_name || 'N/A'}</p>
-        </div>
-        ${statusBadge}
-      </div>
-      <div class="mt-6">
-        <p class="text-4xl font-mono font-bold text-gray-900">${formatCurrency(payout.amount)}</p>
-        <p class="text-sm text-gray-500 mt-1">Created: ${formatDate(payout.created_at)}</p>
-      </div>
-      
-      <div class="mt-4 pt-4 border-t border-gray-100 flex items-center gap-2">
-         <div class="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-xs"><i class="fa-solid fa-user-shield"></i></div>
-         <div>
-            <p class="text-[10px] text-gray-400 uppercase font-bold">Approved By</p>
-            <p class="text-sm font-bold text-gray-800">${adminDisplay}</p>
-         </div>
-      </div>
-    </div>
+    const csvContent = [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     
-    <div class="p-6 space-y-4">
-        <div class="flex justify-between border-b border-gray-100 pb-2">
-            <span class="text-gray-500">Recipient ID</span>
-            <span class="font-mono text-xs text-gray-700">${payout.user_id}</span>
-        </div>
-        <div class="flex justify-between border-b border-gray-100 pb-2">
-            <span class="text-gray-500">Payout ID</span>
-            <span class="font-mono text-xs text-gray-700">${payout.id}</span>
-        </div>
-        <div class="flex justify-between border-b border-gray-100 pb-2">
-            <span class="text-gray-500">Loan Purpose</span>
-            <span class="text-sm text-gray-700 text-right">${application?.purpose || 'N/A'}</span>
-        </div>
-        ${!isPending ? `
-        <div class="flex justify-between border-b border-gray-100 pb-2">
-            <span class="text-gray-500">Disbursed Date</span>
-            <span class="text-sm font-bold text-green-600">${formatDate(payout.disbursed_at || payout.updated_at)}</span>
-        </div>` : ''}
-    </div>
-
-    <div class="p-6 pt-0">
-        <a href="/admin/application-detail?id=${payout.application_id}" class="flex items-center justify-center w-full py-3 bg-white border-2 border-brand-accent text-brand-accent font-bold rounded-xl hover:bg-brand-accent hover:text-white transition-all shadow-sm group">
-            View Full Application 
-            <i class="fa-solid fa-arrow-right ml-2 group-hover:translate-x-1 transition-transform"></i>
-        </a>
-    </div>
-  `;
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `payout_export_${activeTab}_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }
 
-// --- Search & Filter Logic ---
-const filterAndRender = () => {
-  const searchInput = document.getElementById('payout-search-input');
-  if (!searchInput) return;
+// --- Data Loading ---
 
-  const searchTerm = searchInput.value.toLowerCase();
-  
-  let filtered = allPayouts.filter(p => {
-      if (activeTab === 'pending') return p.status === 'pending_disbursement';
-      if (activeTab === 'history') return p.status === 'disbursed';
-      return false;
-  });
-
-  if (searchTerm) {
-    filtered = filtered.filter(payout =>
-        (payout.profile?.full_name && payout.profile.full_name.toLowerCase().includes(searchTerm))
-    );
-  }
-  
-  renderPayoutList(filtered);
-};
-
-// --- Event Listeners ---
-function attachEventListeners() {
-  document.getElementById('payout-search-input')?.addEventListener('input', filterAndRender);
-  document.getElementById('select-all-checkbox')?.addEventListener('change', (e) => toggleSelectAll(e.target.checked));
-  document.getElementById('btn-bulk-disburse')?.addEventListener('click', handleBulkDisburse);
-  
-  document.getElementById('tab-pending')?.addEventListener('click', () => switchTab('pending'));
-  document.getElementById('tab-history')?.addEventListener('click', () => switchTab('history'));
-}
-
-// --- Main Initialization ---
 async function loadData() {
-  selectedPayoutIds.clear();
-  updateBulkUI();
-  
   try {
     const { data, error } = await fetchPayouts();
     if (error) throw error;
-    
     allPayouts = data;
-    filterAndRender(); 
     
-    const pendingItems = data.filter(p => p.status === 'pending_disbursement');
-    calculateLocalStats(pendingItems);
-
+    // Update dashboard stats immediately
+    updateDashboardStats(allPayouts);
+    
+    filterAndSearch(true); 
+    
   } catch (error) {
-    document.getElementById('payout-list-container').innerHTML = `<p class="p-6 text-center text-red-600 text-sm">Error: ${error.message}</p>`;
+    console.error("Payout Load Error:", error);
   }
 }
 
-function calculateLocalStats(pendingItems) {
-    const statsContainer = document.getElementById('payout-stats-cards');
-    if (!statsContainer) return;
-
-    const pendingCount = pendingItems.length;
-    const pendingValue = pendingItems.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
-
-    fetchPayoutStats().then(({ data }) => {
-        const totalDisbursed = data?.total_disbursed || 0;
-        
-        statsContainer.innerHTML = `
-            <div class="bg-white p-5 rounded-lg shadow-sm border border-gray-100">
-              <div class="flex justify-between items-start">
-                <div>
-                     <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">Total Disbursed</p>
-                     <p class="mt-1 text-2xl font-bold text-gray-900">${formatCurrency(totalDisbursed)}</p>
-                </div>
-                <div class="p-2 bg-green-50 text-green-600 rounded-lg"><i class="fa-solid fa-money-bill-wave"></i></div>
-              </div>
-            </div>
-            <div class="bg-white p-5 rounded-lg shadow-sm border border-gray-100">
-              <div class="flex justify-between items-start">
-                <div>
-                    <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">Pending Value</p>
-                    <p class="mt-1 text-2xl font-bold text-yellow-600">${formatCurrency(pendingValue)}</p>
-                </div>
-                <div class="p-2 bg-yellow-50 text-yellow-600 rounded-lg"><i class="fa-solid fa-clock"></i></div>
-              </div>
-            </div>
-            <div class="bg-white p-5 rounded-lg shadow-sm border border-gray-100">
-              <div class="flex justify-between items-start">
-                <div>
-                    <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">Pending Queue</p>
-                    <p class="mt-1 text-2xl font-bold text-gray-900">${pendingCount}</p>
-                </div>
-                <div class="p-2 bg-gray-50 text-gray-600 rounded-lg"><i class="fa-solid fa-list-check"></i></div>
-              </div>
-            </div>
-        `;
-    });
-}
-
-function renderStatCardLoading(title) {
-  return `
-    <div class="bg-white p-5 rounded-lg shadow-sm">
-      <p class="text-sm font-medium text-gray-500">${title}</p>
-      <div class="mt-2 h-8 w-3/4 bg-gray-200 rounded animate-pulse"></div>
-    </div>
-  `;
-}
-
 document.addEventListener('DOMContentLoaded', async () => {
-  const authInfo = await initLayout();
-  if (!authInfo) return;
-  
-  renderPageContent();
-  await loadData();
+  const auth = await initLayout();
+  if (auth) {
+      userRole = auth.role;
+      currentAdminProfile = await getCurrentAdminProfile();
+      renderPageContent();
+      await loadData();
+  }
 });

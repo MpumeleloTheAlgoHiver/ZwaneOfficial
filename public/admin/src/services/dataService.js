@@ -30,12 +30,21 @@ async function ensureLoanFromApplication(application) {
 
   const applicationId = application.id;
 
+  // 1. GUARD CLAUSE: Check if a loan record ALREADY exists for this application
   const { data: existingLoan } = await supabase
     .from('loans')
     .select('*')
     .eq('application_id', applicationId)
     .maybeSingle();
 
+  // 2. If it exists, return the existing loan immediately.
+  // This prevents the "Double Recording" issue you encountered.
+  if (existingLoan) {
+      console.log(`Loan already exists for Application #${applicationId}. Skipping creation.`);
+      return { data: existingLoan, error: null };
+  }
+
+  // 3. Prepare Loan Calculations
   const offerDetails = application.offer_details || {};
   const principal = Number(application.offer_principal ?? application.amount ?? 0) || 0;
   const termMonths = Number(application.term_months || offerDetails.term_months || 0) || 1;
@@ -45,6 +54,7 @@ async function ensureLoanFromApplication(application) {
   const monthlyFromOffer = Number(application.offer_monthly_repayment ?? offerDetails.monthly_payment ?? 0);
   let monthlyPayment = monthlyFromOffer;
 
+  // Calculate monthly payment if not provided
   if (!monthlyPayment) {
     const factor = Math.pow(1 + rate, termMonths);
     monthlyPayment = rate === 0 ? principal / termMonths : principal * (rate * factor) / (factor - 1);
@@ -61,6 +71,7 @@ async function ensureLoanFromApplication(application) {
   const nextPaymentDate = firstPaymentDate ? new Date(firstPaymentDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
   nextPaymentDate.setUTCHours(0, 0, 0, 0);
 
+  // 4. Build the new Loan Object
   const baseLoan = {
     application_id: applicationId,
     user_id: application.user_id,
@@ -81,32 +92,7 @@ async function ensureLoanFromApplication(application) {
     baseLoan.total_repayment = totalRepayment;
   }
 
-  if (existingLoan?.id) {
-    const updatePayload = {
-      monthly_payment: monthlyPayment,
-      next_payment_date: baseLoan.next_payment_date,
-      interest_rate: rate,
-      term_months: termMonths,
-      principal_amount: principal
-    };
-
-    if (baseLoan.total_repayment) {
-      updatePayload.total_repayment = baseLoan.total_repayment;
-    }
-    if (baseLoan.first_payment_date) {
-      updatePayload.first_payment_date = baseLoan.first_payment_date;
-    }
-
-    const { data, error } = await supabase
-      .from('loans')
-      .update(updatePayload)
-      .eq('id', existingLoan.id)
-      .select()
-      .single();
-
-    return { data, error };
-  }
-
+  // 5. Insert the single new loan record
   const { data, error } = await supabase
     .from('loans')
     .insert([baseLoan])
@@ -179,10 +165,8 @@ const hydrateSystemSettings = (settings = {}) => ({
 // == NEW: WALK-IN CLIENT CREATION
 // =================================================================
 export async function createWalkInClient(clientData) {
-  // 1. Generate a random UUID for the profile (since they don't have an auth.users ID)
   const newId = crypto.randomUUID();
 
-  // 2. Create the Profile directly
   const { data, error } = await supabase
     .from('profiles')
     .insert([
@@ -191,7 +175,8 @@ export async function createWalkInClient(clientData) {
         full_name: clientData.fullName,
         identity_number: clientData.idNumber,
         contact_number: clientData.phone,
-        email: clientData.email || null, // Optional for walk-ins
+        email: clientData.email || null,
+        branch_id: clientData.branchId, 
         role: 'borrower'
       }
     ])
@@ -381,12 +366,31 @@ export async function upsertFinancialProfile(financialData) {
 // =================================================================
 // == USER & PROFILE FUNCTIONS
 // =================================================================
-export async function fetchUsers() {
-  return supabase
-    .from('profiles')
-    .select('*')
-    .order('created_at', { ascending: false });
-}
+export const fetchUsers = async () => {
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('*, branches(id, name)') 
+        .order('created_at', { ascending: false });
+    
+    if (error) {
+        console.error('Error fetching users:', error);
+        return [];
+    }
+    return data;
+};
+
+export const fetchBranches = async () => {
+    const { data, error } = await supabase
+        .from('branches')
+        .select('id, name')
+        .order('name');
+    
+    if (error) {
+        console.error('Error fetching branches:', error);
+        return [];
+    }
+    return data;
+};
 
 export async function fetchProfile(userId) {
   const { data, error } = await supabase
@@ -474,7 +478,12 @@ export async function fetchPaymentDetail(paymentId) {
 export async function fetchPayouts() {
   return supabase
     .from('payouts')
-    .select('*, profile:user_id(full_name, email), bank_account:user_id(*)')
+    .select(`
+      *, 
+      profile:user_id(full_name, email), 
+      bank_account:user_id(*),
+      application:loan_applications(status, branch_id)
+    `)
     .order('created_at', { ascending: false });
 }
 
@@ -1105,3 +1114,72 @@ export async function fetchFinancialTrends() {
     }
 }
 
+/**
+ * Claims a user and their active loan for the current admin's branch
+ */
+export const claimClientProtocol = async (userId, applicationId = null) => {
+    // This calls the secure SQL function we wrote
+    const { error } = await supabase.rpc('claim_client_and_application', {
+        target_user_id: userId,
+        target_app_id: applicationId
+    });
+
+    if (error) throw error;
+    return true;
+};
+
+/**
+ * Get current Admin's details (to check which branch they are in)
+ */
+export const getCurrentAdminProfile = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('*, branches(id, name)')
+        .eq('id', user.id)
+        .single();
+    
+    if (error) return null;
+    return data;
+};
+// --- NEW: Fetch Full User Profile (Deep Dive) ---
+export const fetchFullUserProfile = async (userId) => {
+    // 1. Get Profile + Branch
+    const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*, branches(id, name)')
+        .eq('id', userId)
+        .single();
+
+    if (profileError) throw profileError;
+
+    // 2. Get Loan History
+    const { data: loans } = await supabase
+        .from('loan_applications')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+    // 3. Get Documents
+    // (Try both tables depending on your setup, usually 'document_uploads')
+    const { data: docs } = await supabase
+        .from('document_uploads')
+        .select('*')
+        .eq('user_id', userId);
+
+    // 4. Get Financial Profile
+    const { data: financials } = await supabase
+        .from('financial_profiles')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    return {
+        profile,
+        loans: loans || [],
+        documents: docs || [],
+        financials: financials || null
+    };
+};
