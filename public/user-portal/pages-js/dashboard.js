@@ -45,7 +45,7 @@ const dashboardData = {
         // { type: 'inbound', description: 'Loan Disbursement', amount: 'R 10,000', date: 'Oct 15, 2025' }
     ],
     applications: [
-        // Applications will be fetched from Supabase..
+        // Applications will be fetched from Supabase...
         // Example structure:
         // { id: 'APP-001', type: 'Personal Loan', amount: 'R 10,000', date: 'Oct 10, 2025', status: 'Approved' }
     ]
