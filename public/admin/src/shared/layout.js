@@ -50,7 +50,7 @@ export async function initLayout() {
   attachEventListeners();
   highlightActiveLink();
   
-  // INIT NOTIFICATIONS (Pass profile.id to track "read" status)
+  // INIT NOTIFICATIONS
   initNotifications(role, profile.id);
 
   return { profile, role };
@@ -58,6 +58,40 @@ export async function initLayout() {
 
 export function getProfile() { return userProfile; }
 export function getRole() { return userRole; }
+
+/**
+ * GLOBAL TOAST SYSTEM
+ * Usage: window.showToast("Message", "success" | "error")
+ */
+window.showToast = (message, type = 'success') => {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'fixed bottom-8 right-8 z-[100] flex flex-col items-end pointer-events-none';
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    const isSuccess = type === 'success';
+    const bg = isSuccess ? 'bg-green-600' : 'bg-red-600';
+    const icon = isSuccess ? 'fa-check-circle' : 'fa-circle-exclamation';
+
+    toast.className = `${bg} text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 mb-3 pointer-events-auto animate-fade-in-up border border-white/10`;
+    toast.innerHTML = `
+        <i class="fa-solid ${icon} text-lg"></i>
+        <div class="flex flex-col">
+            <span class="text-[10px] font-black uppercase tracking-widest opacity-70">${type}</span>
+            <span class="text-xs font-bold uppercase tracking-tight">${message}</span>
+        </div>
+    `;
+
+    container.appendChild(toast);
+    setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-4');
+        setTimeout(() => toast.remove(), 500);
+    }, 4000);
+};
 
 // ==========================================
 // RENDER APP SHELL
@@ -79,7 +113,6 @@ function renderAppShell(profile, role, theme = null) {
   
   appShell.innerHTML = `
     <div id="sidebar" class="fixed inset-y-0 left-0 z-50 flex flex-col w-72 bg-gray-100 border-r border-gray-200 text-gray-600 transition-transform duration-300 ease-in-out md:translate-x-0 -translate-x-full shadow-xl">
-      
       <div class="flex items-center justify-center h-24 px-6 border-b border-gray-200 bg-gray-100">
         ${logoMarkup}
       </div>
@@ -126,7 +159,6 @@ function renderAppShell(profile, role, theme = null) {
           </div>
 
           <div class="flex items-center gap-6">
-             
              <div class="relative">
                  <button id="notif-btn" class="relative p-2 text-gray-400 hover:text-brand-accent transition-colors focus:outline-none">
                     <i class="fa-solid fa-bell text-xl"></i>
@@ -138,8 +170,8 @@ function renderAppShell(profile, role, theme = null) {
                         <h3 class="font-bold text-gray-800 text-sm">Notifications</h3>
                         <button id="mark-all-read" class="text-[10px] text-brand-accent font-medium hover:text-brand-accent-hover uppercase tracking-wide">Mark all read</button>
                     </div>
-                    <div id="notif-list" class="max-h-64 overflow-y-auto bg-white">
-                        <div class="p-6 text-center text-gray-400 text-xs">Loading...</div>
+                    <div id="notif-list" class="max-h-80 overflow-y-auto bg-white">
+                        <div class="p-6 text-center text-gray-400 text-xs italic">Loading...</div>
                     </div>
                  </div>
              </div>
@@ -150,8 +182,7 @@ function renderAppShell(profile, role, theme = null) {
         </div>
       </header>
       
-      <main id="main-content" class="flex-1 p-8 relative z-10">
-        </main>
+      <main id="main-content" class="flex-1 p-8 relative z-10"></main>
     </div>
   `;
 }
@@ -175,7 +206,6 @@ function renderSidebarNav(role) {
                 <i class="fa-solid fa-chart-line w-5 h-5 mr-3 sidebar-nav-icon transition-colors"></i>Dashboard
             </a>
         </li>
-        
         <li>
           <button type="button" id="analytics-toggle" class="w-full flex items-center justify-between ${linkBase} ${linkInactive}">
             <span class="flex items-center"><i class="fa-solid fa-chart-pie w-5 h-5 mr-3 sidebar-nav-icon transition-colors"></i>Analytics</span>
@@ -186,7 +216,6 @@ function renderSidebarNav(role) {
             <li><a href="/admin/financials.html" class="block px-4 py-2 text-sm text-gray-500 hover:text-brand-accent border-l-2 border-gray-200 ml-4 hover:border-tertiary transition-all">Financials</a></li>
           </ul>
         </li>
-
         <li>
             <a href="/admin/applications" class="${linkBase} ${linkInactive}">
                 <i class="fa-solid fa-file-signature w-5 h-5 mr-3 sidebar-nav-icon transition-colors"></i>Applications
@@ -197,7 +226,6 @@ function renderSidebarNav(role) {
       ${isAdmin ? `
         <p class="px-4 text-xs font-bold text-gray-400 uppercase tracking-wider mt-8 mb-3">Finance</p>
         <li><a href="/admin/users" class="${linkBase} ${linkInactive}"><i class="fa-solid fa-users w-5 h-5 mr-3 sidebar-nav-icon transition-colors"></i>Customers</a></li>
-        
         <li>
           <button type="button" id="payments-toggle" class="w-full flex items-center justify-between ${linkBase} ${linkInactive}">
             <span class="flex items-center"><i class="fa-solid fa-coins w-5 h-5 mr-3 sidebar-nav-icon transition-colors"></i>Payments</span>
@@ -285,14 +313,10 @@ function highlightActiveLink() {
       link.classList.remove('text-gray-600', 'hover:bg-white', 'hover:text-brand-accent');
       
       if (link.parentElement.parentElement.id === 'payments-submenu' || link.parentElement.parentElement.id === 'analytics-submenu') {
-        // Submenu Active State
         link.classList.add('text-brand-accent', 'font-bold', 'border-brand-accent', 'bg-white');
         link.classList.remove('text-gray-500', 'border-gray-200');
-        
-        const parentSubmenu = link.parentElement.parentElement;
-        parentSubmenu.classList.remove('hidden');
+        link.parentElement.parentElement.classList.remove('hidden');
       } else {
-        // Main Link Active State
         link.classList.add('bg-brand-accent', 'text-white', 'shadow-md');
         link.style.boxShadow = '0 15px 35px -20px var(--color-shadow)';
         const icon = link.querySelector('i');
@@ -306,83 +330,106 @@ function highlightActiveLink() {
 }
 
 // ==========================================
-// NOTIFICATION SYSTEM (PERSONALIZED)
+// NOTIFICATION SYSTEM
 // ==========================================
 async function initNotifications(role, userId) {
     const notifBadge = document.getElementById('notif-badge');
     const notifList = document.getElementById('notif-list');
     const markAllReadBtn = document.getElementById('mark-all-read');
-
-    const targetRole = (role === 'base_admin') ? 'base_admin' : 'admin';
+    
+    // 1. Extract the user's branch from the profile loaded earlier
+    const branchId = userProfile?.branch_id || null;
 
     const fetchNotifications = async () => {
-        // Fetch last 20 notifications for this role
-        const { data, error } = await supabase
-            .from('admin_notifications')
-            .select('*')
-            .eq('target_role', targetRole)
-            .order('created_at', { ascending: false })
-            .limit(20);
+        // 2. Call the smart RPC instead of a direct table query
+        const { data, error } = await supabase.rpc('get_filtered_notifications', {
+            p_user_id: userId,
+            p_role: role,
+            p_branch_id: branchId
+        });
 
         if (data) {
-            // Filter out notifications where current User ID is already in 'read_by'
-            // 'read_by' defaults to empty array in DB, but might be null in JS if not set
-            const unreadNotifications = data.filter(n => {
-                const readers = n.read_by || [];
-                return !readers.includes(userId);
-            });
+            // 3. Filter out items already read by THIS specific user
+            const unreadNotifications = data.filter(n => !(n.read_by || []).includes(userId));
             updateNotifUI(unreadNotifications);
+        } else if (error) {
+            console.error("Hierarchy Fetch Error:", error);
         }
     };
 
     const updateNotifUI = (notifications) => {
-        // Badge Visibility
-        if (notifications.length > 0) {
+        const unreadCount = notifications.length;
+        if (unreadCount > 0) {
             notifBadge.classList.remove('hidden');
+            notifBadge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+            // Pulsing badge for attention
+            notifBadge.className = "absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-[8px] font-bold text-white border-2 border-white animate-bounce";
         } else {
             notifBadge.classList.add('hidden');
         }
 
-        // List Content
-        if (notifications.length === 0) {
-          notifList.innerHTML = `<div class="p-6 text-center text-gray-400 text-xs">No new notifications</div>`;
+        if (unreadCount === 0) {
+          notifList.innerHTML = `
+            <div class="flex flex-col items-center justify-center p-10 text-center animate-fade-in">
+                <div class="w-12 h-12 bg-green-50 text-green-500 rounded-full flex items-center justify-center mb-3">
+                    <i class="fa-solid fa-check-double text-xl"></i>
+                </div>
+                <p class="text-xs font-bold text-gray-800 uppercase tracking-tighter">You're all caught up!</p>
+            </div>`;
           return;
         }
 
-        notifList.innerHTML = notifications.map(n => `
-            <div class="p-3 border-b border-gray-100 hover-brand-sheen transition-colors cursor-pointer relative group">
-                <a href="${n.link}" class="block">
-                    <p class="text-xs font-bold text-gray-800 mb-0.5">${n.title}</p>
-                    <p class="text-[10px] text-gray-500 leading-tight">${n.message}</p>
-                    <p class="text-[9px] text-gray-400 mt-1 text-right">${new Date(n.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
-                </a>
-            </div>
-        `).join('');
+        // Render each notification item with role-based icons
+        notifList.innerHTML = notifications.map(n => {
+            const isUrgent = n.title.toLowerCase().includes('failed') || n.title.toLowerCase().includes('overdue');
+            const iconClass = isUrgent ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600';
+            const icon = isUrgent ? 'fa-triangle-exclamation' : 'fa-bolt';
+
+            return `
+                <div class="p-4 border-b border-gray-50 hover:bg-gray-50 transition-all relative group" data-id="${n.id}">
+                    <div class="flex gap-4 pr-6">
+                        <div class="shrink-0 w-10 h-10 rounded-xl ${iconClass} flex items-center justify-center shadow-sm">
+                            <i class="fa-solid ${icon} text-sm"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <a href="${n.link || '#'}" class="block">
+                                <div class="flex justify-between items-start mb-0.5">
+                                    <p class="text-xs font-black text-gray-900 truncate pr-2 uppercase tracking-tight">${n.title}</p>
+                                    <p class="text-[9px] font-bold text-gray-400 uppercase">${formatRelativeTime(n.created_at)}</p>
+                                </div>
+                                <p class="text-[10px] text-gray-600 leading-relaxed line-clamp-2">${n.message}</p>
+                            </a>
+                        </div>
+                    </div>
+                    <button class="dismiss-notif absolute right-2 top-4 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-1">
+                        <i class="fa-solid fa-xmark text-xs"></i>
+                    </button>
+                </div>
+            `;
+        }).join('');
+
+        // Attach listeners for dismissing individual items
+        notifList.querySelectorAll('.dismiss-notif').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const id = e.currentTarget.closest('[data-id]').dataset.id;
+                // Calls RPC to mark single item read
+                const { error } = await supabase.rpc('mark_notification_read_single', { p_notif_id: id });
+                if (!error) fetchNotifications();
+            });
+        });
     };
 
-    // 1. Initial Fetch
+    // Initial Fetch
     await fetchNotifications();
 
-    // 2. Realtime Subscription...
-  supabase
-    .channel('admin_notif_channel')
-    .on(
-      'postgres_changes', 
-      { event: 'INSERT', schema: 'public', table: 'admin_notifications', filter: `target_role=eq.${targetRole}` },
-      (payload) => {
-        fetchNotifications(); 
-      }
-    )
-    .subscribe();
+    // Realtime Listeners
+    supabase.channel('admin_notif_channel')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'admin_notifications' }, () => fetchNotifications())
+      .subscribe();
 
-    // 3. Mark All Read (Personalized)
     if(markAllReadBtn) {
         markAllReadBtn.addEventListener('click', async () => {
-            // Call the RPC to append MY user ID to the read_by array
-            const { error } = await supabase.rpc('mark_notifications_read', {
-                p_target_role: targetRole
-            });
-            
+            const { error } = await supabase.rpc('mark_notifications_read', { p_target_role: role });
             if(!error) fetchNotifications();
         });
     }

@@ -83,10 +83,10 @@ const getMetricValue = (row, keys = []) => {
     return 0;
 };
 
-const getPrincipalValue = (row) => getMetricValue(row, ['principal_due_month', 'principal_outstanding']);
-const getInterestValue = (row) => getMetricValue(row, ['interest_due_month', 'interest_receivable']);
-const getFeeValue = (row) => getMetricValue(row, ['fee_due_month', 'fee_receivable']);
-const getArrearsValue = (row) => getMetricValue(row, ['arrears_due_month', 'arrears_amount']);
+const getPrincipalValue = (row) => getMetricValue(row, ['principal_collected_month', 'principal_outstanding']);
+const getInterestValue = (row) => getMetricValue(row, ['interest_collected_month', 'interest_receivable']);
+const getFeeValue = (row) => getMetricValue(row, ['fees_collected_month', 'fee_receivable', 'admin_collected_month', 'initiation_collected_month']);
+const getArrearsValue = (row) => getMetricValue(row, ['arrears_amount', 'principal_outstanding']);
 
 // --- EXCEL EXPORT ---
 function exportAnalyticsToExcel() {
