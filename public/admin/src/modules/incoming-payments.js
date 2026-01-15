@@ -1,67 +1,142 @@
-// src/modules/incoming-payments.js
 import { initLayout } from '../shared/layout.js';
 import { formatCurrency, formatDate } from '../shared/utils.js';
 import { 
   fetchPayments, 
-  fetchPaymentsOverTime, 
-  fetchPaymentDetail 
+  fetchAnalyticsData
 } from '../services/dataService.js';
 
 // --- State ---
 let allPayments = [];
-
-// --- Main Page Rendering ---
+let analyticsData = [];
+let activeTab = '30days'; 
+let searchTerm = '';
+let currentPage = 1;
+const itemsPerPage = 15;
 
 /**
- * **NEW UI**
- * Renders the "master-detail" layout inspired by your screenshots.
+ * Main Page Rendering
+ * Implements the brand guide layout: 3 Cards -> Table (Left) & Analytics (Right)
  */
 function renderPageContent() {
   const mainContent = document.getElementById('main-content');
   if (!mainContent) return;
 
   mainContent.innerHTML = `
-    <!-- Master-Detail Container -->
-    <div class="bg-white rounded-lg shadow-lg overflow-hidden">
-      <!-- 
-        NEW: Set a fixed height for the master-detail view to allow internal scrolling.
-        h-[calc(100vh-150px)] is a good height (viewport - header - padding)
-      -->
-      <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 h-[calc(100vh-150px)]">
-        
-        <!-- Master List (Left Column) -->
-        <div class="md:col-span-1 lg:col-span-1 border-r border-gray-200 flex flex-col">
-          
-          <!-- Chart Area -->
-          <div class="p-4 border-b border-gray-200">
-            <h2 class="text-lg font-semibold text-gray-900">Payments Over Time</h2>
-            <div id="payments-chart-container" class="w-full h-[200px] mt-2">
-              <div class="text-center p-8"><i class="fa-solid fa-circle-notch fa-spin text-2xl text-brand-accent"></i></div>
+    <div id="recovery-dashboard" class="flex flex-col h-full animate-fade-in space-y-6">
+      
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 flex items-center justify-between relative overflow-hidden group">
+            <div class="z-10">
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Recoveries (MTD)</p>
+                <h2 id="stat-mtd-recoveries" class="text-3xl font-black text-gray-900 mt-2">R 0.00</h2>
+                <p id="stat-mtd-count" class="text-xs text-green-600 font-bold mt-1 flex items-center gap-1"></p>
             </div>
-          </div>
-
-          <!-- Transaction List Header -->
-          <div class="p-4 border-b border-gray-200">
-            <h3 class="text-md font-semibold text-gray-900">All Incoming Payments</h3>
-            <input type="search" id="payment-search-input" placeholder="Search by name or ID..." class="w-full px-4 py-2 mt-2 border border-gray-300 rounded-md focus:ring-brand-accent focus:border-brand-accent text-sm">
-          </div>
-
-          <!-- Transaction List -->
-          <div id="payment-list-container" class="flex-1 overflow-y-auto">
-            <div class="p-10 text-center text-gray-500">
-              <i class="fa-solid fa-circle-notch fa-spin text-2xl text-brand-accent"></i>
+            <div class="w-12 h-12 rounded-xl bg-green-50 text-green-600 flex items-center justify-center text-xl shadow-sm z-10">
+                <i class="fa-solid fa-hand-holding-dollar"></i>
             </div>
-          </div>
         </div>
-        
-        <!-- Detail Panel (Right Column) -->
-        <div id="payment-detail-panel" class="md:col-span-2 lg:col-span-3 overflow-y-auto p-6 bg-gray-50">
-          <div class="flex flex-col items-center justify-center h-full text-gray-400">
-            <i class="fa-solid fa-hand-pointer text-4xl mb-3"></i>
-            <p class="text-lg font-medium">Select a payment to view details</p>
-          </div>
+
+        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 flex items-center justify-between relative overflow-hidden">
+            <div class="z-10">
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Realized Profit (MTD)</p>
+                <h2 id="stat-revenue-yield" class="text-3xl font-black text-indigo-900 mt-2">R 0.00</h2>
+                <p class="text-xs text-indigo-400 font-bold mt-1 tracking-tight">Contractual Fees & Interest</p>
+            </div>
+            <div class="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-xl shadow-sm z-10">
+                <i class="fa-solid fa-chart-pie"></i>
+            </div>
         </div>
+
+        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 flex items-center justify-between relative overflow-hidden">
+            <div class="z-10">
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Active Payers</p>
+                <h2 id="stat-active-payers" class="text-3xl font-black text-gray-900 mt-2">0</h2>
+                <p class="text-xs text-gray-400 font-bold mt-1">Unique clients this period</p>
+            </div>
+            <div class="w-12 h-12 rounded-xl bg-gray-50 text-gray-600 flex items-center justify-center text-xl shadow-sm z-10">
+                <i class="fa-solid fa-users-viewfinder"></i>
+            </div>
+        </div>
+      </div>
+
+      <div class="flex flex-col lg:flex-row gap-6 flex-1 min-h-0">
         
+        <div class="lg:w-3/4 bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
+            
+            <div class="p-5 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <h3 class="text-lg font-bold text-gray-900 uppercase tracking-tight">Recovery Detail</h3>
+                    <div class="flex gap-6 mt-2">
+                        <button id="tab-30days" class="text-xs font-bold uppercase transition-colors pb-1 border-b-2 ${activeTab === '30days' ? 'text-orange-600 border-orange-600' : 'text-gray-400 border-transparent hover:text-gray-600'}">Last 30 Days</button>
+                        <button id="tab-all" class="text-xs font-bold uppercase transition-colors pb-1 border-b-2 ${activeTab === 'all' ? 'text-orange-600 border-orange-600' : 'text-gray-400 border-transparent hover:text-gray-600'}">All History</button>
+                    </div>
+                </div>
+                <div class="relative flex-1 sm:w-64">
+                    <input type="text" id="search-input" placeholder="Search client or ID..." 
+                           class="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-orange-500 text-xs focus:bg-white transition-colors">
+                    <i class="fa-solid fa-search absolute left-3 top-2.5 text-gray-400 text-xs"></i>
+                </div>
+            </div>
+
+            <div class="flex-1 overflow-auto custom-scrollbar relative">
+                <table class="min-w-full divide-y divide-gray-100">
+                    <thead class="bg-gray-50/80 sticky top-0 z-10 backdrop-blur-md">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Date</th>
+                            <th class="px-6 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Client & ID</th>
+                            <th class="px-6 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Loan Ref</th>
+                            <th class="px-6 py-3 text-center text-[10px] font-bold text-gray-400 uppercase tracking-widest">Status</th>
+                            <th class="px-6 py-3 text-right text-[10px] font-bold text-gray-400 uppercase tracking-widest">Paid In</th>
+                            <th class="px-6 py-3 text-right text-[10px] font-bold text-gray-400 uppercase tracking-widest">Balance</th>
+                        </tr>
+                    </thead>
+                    <tbody id="payments-table-body" class="bg-white divide-y divide-gray-50">
+                        <tr><td colspan="6" class="p-10 text-center text-xs text-gray-400 italic">Initializing transaction view...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <div id="pagination-controls" class="border-t border-gray-100 bg-gray-50/50 p-3"></div>
+        </div>
+
+        <div class="lg:w-1/4 flex flex-col gap-6">
+            
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+                <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wide mb-4">Allocation (MTD)</h4>
+                
+                <div class="relative w-40 h-40 mx-auto mb-6">
+                    <svg viewBox="0 0 36 36" class="w-full h-full transform -rotate-90">
+                        <path class="text-gray-100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-width="3.8" />
+                        <path id="chart-interest-ring" class="text-indigo-500 transition-all duration-1000" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-width="3.8" />
+                    </svg>
+                    <div class="absolute inset-0 flex flex-col items-center justify-center">
+                        <span class="text-[10px] text-gray-400 font-bold uppercase">Profit</span>
+                        <span id="chart-profit-percent" class="text-xl font-black text-gray-900">0%</span>
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <div class="flex justify-between items-center p-2 bg-gray-50 rounded-lg border border-gray-100">
+                        <span class="text-[10px] font-bold text-gray-500 uppercase">Capital Back</span>
+                        <span id="label-principal-split" class="text-xs font-black text-gray-900">R 0</span>
+                    </div>
+                    <div class="flex justify-between items-center p-2 bg-indigo-50 rounded-lg border border-indigo-100">
+                        <span class="text-[10px] font-bold text-indigo-600 uppercase">Interest/Fees</span>
+                        <span id="label-interest-split" class="text-xs font-black text-indigo-900">R 0</span>
+                    </div>
+                    <div class="flex justify-between items-center p-2 bg-purple-50 rounded-lg border border-purple-100">
+                        <span class="text-[10px] font-bold text-purple-600 uppercase">Credit/Extra</span>
+                        <span id="label-overpayment-split" class="text-xs font-black text-purple-900">R 0</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 flex-1">
+                <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wide mb-4">Top Period Recoveries</h4>
+                <div id="top-payments-list" class="space-y-3 overflow-y-auto max-h-[300px] pr-1 custom-scrollbar"></div>
+            </div>
+
+        </div>
       </div>
     </div>
   `;
@@ -70,222 +145,235 @@ function renderPageContent() {
 }
 
 /**
- * **NEW UI**
- * Renders the list of payment "cards" on the left panel.
+ * Data Orchestrator
+ * Pulls both raw payments (for the table) and analytics (for the metrics).
  */
-function renderPaymentList(payments) {
-  const listContainer = document.getElementById('payment-list-container');
-  if (!listContainer) return;
-  
-  listContainer.innerHTML = '';
-  if (payments.length === 0) {
-    listContainer.innerHTML = `<p class="p-6 text-center text-gray-500">No payments match your criteria.</p>`;
-    return;
-  }
-
-  payments.forEach(payment => {
-    const card = document.createElement('button');
-    card.type = 'button';
-    card.className = 'payment-card w-full text-left flex items-center justify-between p-4 border-b border-gray-200 hover:bg-gray-50 transition-colors duration-150';
-    card.dataset.paymentId = payment.id;
+async function loadData() {
+  try {
     
-    card.innerHTML = `
-      <div class="flex-1 overflow-hidden">
-        <p class="text-sm font-semibold text-gray-900 truncate">${payment.profile?.full_name || 'N/A'}</p>
-        <p class="text-xs text-gray-500 truncate">Loan ID: ${payment.loan_id} | ${formatDate(payment.payment_date)}</p>
-      </div>
-      <div class="ml-4">
-        <p class="text-sm font-bold text-green-600">+ ${formatCurrency(payment.amount)}</p>
-      </div>
-    `;
+    const [paymentsRes, analyticsRes] = await Promise.all([ 
+      fetchPayments(), 
+      fetchAnalyticsData() 
+    ]);
+
     
-    card.addEventListener('click', () => handlePaymentClick(payment.id, card));
-    listContainer.appendChild(card);
-  });
-}
-
-/**
- * **NEW**: Handles clicking a payment card.
- */
-async function handlePaymentClick(paymentId, cardElement) {
-  const detailPanel = document.getElementById('payment-detail-panel');
-  if (!detailPanel) return;
-
-  // 1. Update selected state in the list
-  document.querySelectorAll('.payment-card').forEach(card => card.classList.remove('selected'));
-  cardElement.classList.add('selected');
-
-  // 2. Show loading spinner in detail panel
-  detailPanel.innerHTML = `
-    <div class="flex flex-col items-center justify-center h-full text-gray-500">
-      <i class="fa-solid fa-circle-notch fa-spin text-3xl text-brand-accent"></i>
-      <p class="mt-3">Loading payment details...</p>
-    </div>
-  `;
-
-  // 3. Fetch and render the full details
-  const { data, error } = await fetchPaymentDetail(paymentId);
-  if (error) {
-    detailPanel.innerHTML = `<div class="p-4 bg-red-100 text-red-800 rounded-lg">Error: ${error.message}</div>`;
-    return;
-  }
-  
-  renderPaymentDetail(data);
-}
-
-/**
- * **NEW**: Renders the full payment details in the right-hand "detail" panel.
- * This is inspired by the "C-Pay" screenshot.
- */
-function renderPaymentDetail(data) {
-  const detailPanel = document.getElementById('payment-detail-panel');
-  if (!detailPanel || !data.payment) {
-    detailPanel.innerHTML = `<div class="p-4 bg-red-100 text-red-800 rounded-lg">Error: Payment data is incomplete.</div>`;
-    return;
-  }
-
-  const { payment, profile, loan } = data;
-  
-  detailPanel.innerHTML = `
-    <!-- Header -->
-    <div class="pb-4 border-b border-gray-200">
-      <p class="text-sm text-gray-500">Payment from</p>
-      <p class="text-xl font-semibold text-gray-900">${profile?.full_name || 'N/A'}</p>
-      <div class="mt-4">
-        <p class="text-4xl font-bold text-green-600">+ ${formatCurrency(payment.amount)}</p>
-        <p class="text-sm font-medium text-gray-500">Completed on ${formatDate(payment.payment_date)}</p>
-      </div>
-    </div>
+    if (paymentsRes.error) throw paymentsRes.error;
+    if (analyticsRes.error) throw analyticsRes.error;
     
-    <!-- Details List -->
-    <div class="mt-6">
-      <dl class="divide-y divide-gray-200">
-        <div class="grid grid-cols-3 gap-4 py-3">
-          <dt class="text-sm font-medium text-gray-500">Transaction ID</dt>
-          <dd class="col-span-2 text-sm text-gray-900 font-mono">${payment.id}</dd>
-        </div>
-        <div class="grid grid-cols-3 gap-4 py-3">
-          <dt class="text-sm font-medium text-gray-500">Payer Email</dt>
-          <dd class="col-span-2 text-sm text-gray-900">${profile?.email || 'N/A'}</dd>
-        </div>
-        <div class="grid grid-cols-3 gap-4 py-3">
-          <dt class="text-sm font-medium text-gray-500">Loan ID</dt>
-          <dd class="col-span-2 text-sm text-brand-accent font-semibold hover:underline">
-            <a href="/admin/application-detail?id=${loan?.application_id || ''}">
-              ${payment.loan_id}
-            </a>
-          </dd>
-        </div>
-        <div class="grid grid-cols-3 gap-4 py-3">
-          <dt class="text-sm font-medium text-gray-500">Loan Amount</dt>
-          <dd class="col-span-2 text-sm text-gray-900">${formatCurrency(loan?.principal_amount)}</dd>
-        </div>
-      </dl>
-    </div>
-  `;
-}
+    
+    allPayments = paymentsRes.data || [];
+    analyticsData = analyticsRes.data || [];
 
-/**
- * **NEW**: Renders the line chart
- */
-async function renderPaymentsChart() {
-  const container = document.getElementById('payments-chart-container');
-  if (!container) return;
-  
-  const { data, error } = await fetchPaymentsOverTime();
+    
+    calculateAndRenderMetrics();
+    filterAndRender(true);
 
-  if (error || !data || data.length === 0) {
-    container.innerHTML = `<p class="text-center text-sm text-gray-500 pt-16">No payment data for chart.</p>`;
-    return;
-  }
-
-  container.innerHTML = `<canvas id="paymentsChart"></canvas>`;
-  const ctx = document.getElementById('paymentsChart').getContext('2d');
-
-  new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: data.map(d => d.month_year),
-      datasets: [
-        {
-          label: 'Repaid',
-          data: data.map(d => d.total_repaid),
-          borderColor: 'rgb(16, 185, 129)', // green-500
-          backgroundColor: 'rgba(16, 185, 129, 0.1)',
-          fill: true,
-          tension: 0.2,
-          pointBackgroundColor: 'rgb(16, 185, 129)'
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        y: { beginAtZero: true, ticks: { callback: (value) => formatCurrency(value) } },
-        x: { grid: { display: false } }
-      },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: (context) => `${context.dataset.label}: ${formatCurrency(context.raw)}`
-          }
-        }
-      }
+  } catch (error) {
+    console.error("Load Error:", error);
+    
+ 
+    const errorMsg = error.message || "Unable to connect to the database. Please check your connection.";
+    const tbody = document.getElementById('payments-table-body');
+    
+    if (tbody) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="p-10 text-center text-xs text-red-500 italic border-2 border-dashed border-red-50 rounded-xl">
+            <i class="fa-solid fa-triangle-exclamation mb-2 text-lg"></i><br>
+            Error Loading Data: ${errorMsg}
+          </td>
+        </tr>`;
     }
-  });
+    
+    
+    if (window.showToast) window.showToast("Failed to load recovery data", "error");
+  }
 }
 
+/**
+ * Real-time Financial Breakdown
+ * Uses the waterfall data to fill cards and charts.
+ */
+function calculateAndRenderMetrics() {
+    const now = new Date();
+    const currentMonth = now.toISOString().slice(0, 7); 
 
-// --- Search & Filter Logic ---
-const filterAndRender = () => {
-  const searchInput = document.getElementById('payment-search-input');
-  if (!searchInput) return;
+    const mtdPayments = allPayments.filter(p => p.payment_date.startsWith(currentMonth));
+    const mtdTotal = mtdPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+    const uniquePayers = new Set(mtdPayments.map(p => p.loan_id)).size;
 
-  const searchTerm = searchInput.value.toLowerCase();
-  
-  let filtered = allPayments;
+    // Calculation using CONTRACTUAL collected fields
+    const currentMonthAnalytics = analyticsData.filter(row => row.month === currentMonth);
+    const profitTotal = currentMonthAnalytics.reduce((sum, row) => sum + (row.profit_collected_month || 0), 0);
+    const principalTotal = currentMonthAnalytics.reduce((sum, row) => sum + (row.principal_collected_month || 0), 0);
+    const extraTotal = currentMonthAnalytics.reduce((sum, row) => sum + (row.overpayment_collected_month || 0), 0);
+    
+    // Update DOM
+    document.getElementById('stat-mtd-recoveries').textContent = formatCurrency(mtdTotal);
+    document.getElementById('stat-revenue-yield').textContent = formatCurrency(profitTotal);
+    document.getElementById('stat-active-payers').textContent = uniquePayers;
+    document.getElementById('stat-mtd-count').innerHTML = `<i class="fa-solid fa-arrow-trend-up"></i> <span>${mtdPayments.length}</span> transactions`;
 
-  if (searchTerm) {
-    filtered = filtered.filter(payment =>
-        (payment.profile?.full_name && payment.profile.full_name.toLowerCase().includes(searchTerm)) ||
-        (String(payment.id).includes(searchTerm)) ||
-        (String(payment.loan_id).includes(searchTerm))
-    );
-  }
-  
-  renderPaymentList(filtered);
+    document.getElementById('label-principal-split').textContent = formatCurrency(principalTotal);
+    document.getElementById('label-interest-split').textContent = formatCurrency(profitTotal);
+    document.getElementById('label-overpayment-split').textContent = formatCurrency(extraTotal);
+    
+    const profitPercent = mtdTotal > 0 ? Math.round((profitTotal / mtdTotal) * 100) : 0;
+    document.getElementById('chart-profit-percent').textContent = `${profitPercent}%`;
+    document.getElementById('chart-interest-ring').setAttribute('stroke-dasharray', `${profitPercent}, 100`);
+
+    renderTopRecentWidget(mtdPayments.length > 0 ? mtdPayments : allPayments.slice(0, 10));
+}
+
+function renderTopRecentWidget(payments) {
+    const list = document.getElementById('top-payments-list');
+    if(!list) return;
+
+    const top5 = [...payments].sort((a,b) => Number(b.amount) - Number(a.amount)).slice(0, 5);
+    if (top5.length === 0) {
+        list.innerHTML = `<div class="text-center py-10 text-xs text-gray-400">No data for period</div>`;
+        return;
+    }
+
+    list.innerHTML = top5.map(p => `
+        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100 hover:bg-white hover:shadow-sm transition-all cursor-pointer" onclick="window.location.href='/admin/application-detail?id=${p.loan_id}'">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-xs font-black">${p.profile?.full_name?.charAt(0) || '$'}</div>
+                <div>
+                    <p class="text-xs font-bold text-gray-900 truncate w-24">${p.profile?.full_name || 'Unknown'}</p>
+                    <p class="text-[10px] text-gray-400 font-mono">#${p.loan_id}</p>
+                </div>
+            </div>
+            <span class="text-xs font-black text-green-600">+${formatCurrency(p.amount)}</span>
+        </div>
+    `).join('');
+}
+
+/**
+ * Filter & Table Logic
+ * Handles Balance States: Overpaid, Complete, Partial
+ */
+function filterAndRender(resetPage = true) {
+    if (resetPage) currentPage = 1;
+    
+    let filtered = allPayments;
+    
+    if (activeTab === '30days') {
+        const d = new Date(); d.setDate(d.getDate() - 30);
+        filtered = filtered.filter(p => new Date(p.payment_date) >= d);
+    }
+
+    const term = searchTerm.toLowerCase();
+    if (term) {
+        filtered = filtered.filter(p => 
+            (p.profile?.full_name || '').toLowerCase().includes(term) ||
+            String(p.id).includes(term) ||
+            String(p.loan_id).includes(term)
+        );
+    }
+    
+    const start = (currentPage - 1) * itemsPerPage;
+    const paginated = filtered.slice(start, start + itemsPerPage);
+    
+    const tbody = document.getElementById('payments-table-body');
+    if(tbody) {
+        if (paginated.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-xs text-gray-400 italic">No transactions found.</td></tr>`;
+        } else {
+            tbody.innerHTML = paginated.map(p => {
+                // CONTRACTUAL LOGIC: Handle Balance & Installment
+                const balance = p.loan?.outstanding_balance || 0;
+                const monthlyRequired = p.loan?.application?.offer_monthly_repayment || 0;
+                const amountPaid = Number(p.amount);
+                
+                let balanceHtml = '';
+                let statusHtml = '';
+
+                // Identify Overpaid/Settled/Partial
+                if (balance < -1) { 
+                    balanceHtml = `<span class="text-[10px] font-bold px-2 py-1 rounded bg-purple-50 text-purple-700 uppercase">Credit: ${formatCurrency(Math.abs(balance))}</span>`;
+                    statusHtml = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">Overpaid</span>`;
+                } else if (balance <= 1) { 
+                    balanceHtml = `<span class="text-[10px] font-bold px-2 py-1 rounded bg-green-50 text-green-700 uppercase tracking-tighter">Fully Settled</span>`;
+                    statusHtml = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-800 border border-green-200">Complete</span>`;
+                } else { 
+                    balanceHtml = `<span class="text-[10px] font-bold px-2 py-1 rounded bg-red-50 text-red-700 uppercase tracking-tighter">Due: ${formatCurrency(balance)}</span>`;
+                    // Highlight if they underpaid the MONTHLY commitment
+                    statusHtml = (amountPaid < monthlyRequired) 
+                        ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-200">Partial</span>`
+                        : `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-yellow-100 text-yellow-800 border border-yellow-200">On Track</span>`;
+                }
+
+                return `
+                <tr class="hover:bg-gray-50 transition-colors group border-b border-gray-50 last:border-0">
+                    <td class="px-6 py-4 text-xs text-gray-500 font-medium whitespace-nowrap">${formatDate(p.payment_date)}</td>
+                    <td class="px-6 py-4">
+                        <div class="flex flex-col">
+                            <span class="text-xs font-bold text-gray-900">${p.profile?.full_name || 'Unknown'}</span>
+                            <span class="text-[10px] text-gray-400 font-mono tracking-tighter">TX ID: #${p.id}</span>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4">
+                        <a href="/admin/application-detail?id=${p.loan_id}" class="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 transition-colors bg-indigo-50 px-2 py-1 rounded hover:bg-indigo-100">
+                            #${p.loan_id}
+                        </a>
+                    </td>
+                    <td class="px-6 py-4 text-center">${statusHtml}</td>
+                    <td class="px-6 py-4 text-right">
+                        <span class="text-xs font-black text-gray-900">+ ${formatCurrency(p.amount)}</span>
+                    </td>
+                    <td class="px-6 py-4 text-right">${balanceHtml}</td>
+                </tr>`;
+            }).join('');
+        }
+    }
+    
+    renderPaginationControls(filtered.length);
+}
+
+function renderPaginationControls(totalRecords) {
+    const controls = document.getElementById('pagination-controls');
+    if(!controls) return;
+    const totalPages = Math.ceil(totalRecords / itemsPerPage) || 1;
+
+    controls.innerHTML = `
+        <div class="flex justify-between items-center">
+            <span class="text-[10px] font-bold text-gray-400 uppercase tracking-tight">Page ${currentPage} of ${totalPages}</span>
+            <div class="flex gap-2">
+                <button onclick="window.changePageRecovery(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''} class="px-3 py-1 text-[10px] font-bold border rounded-lg bg-white disabled:opacity-30 hover:bg-gray-50 transition-all text-gray-700">Prev</button>
+                <button onclick="window.changePageRecovery(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''} class="px-3 py-1 text-[10px] font-bold border rounded-lg bg-white disabled:opacity-30 hover:bg-gray-50 transition-all text-gray-700">Next</button>
+            </div>
+        </div>`;
+}
+
+function attachEventListeners() {
+    document.getElementById('search-input')?.addEventListener('input', (e) => {
+        searchTerm = e.target.value.trim();
+        filterAndRender(true);
+    });
+
+    document.getElementById('tab-30days')?.addEventListener('click', () => {
+        activeTab = '30days';
+        renderPageContent(); 
+        loadData();
+    });
+
+    document.getElementById('tab-all')?.addEventListener('click', () => {
+        activeTab = 'all';
+        renderPageContent();
+        loadData();
+    });
+}
+
+window.changePageRecovery = (p) => {
+    currentPage = p;
+    filterAndRender(false);
 };
 
-// --- Event Listeners ---
-function attachEventListeners() {
-  document.getElementById('payment-search-input')?.addEventListener('input', filterAndRender);
-}
-
-// --- Main Initialization ---
 document.addEventListener('DOMContentLoaded', async () => {
-  // 1. Wait for layout (and auth)
-  const authInfo = await initLayout();
-  if (!authInfo) return; // Stop if auth fails
-
-  // 2. Set page title
-  const pageTitle = document.getElementById('page-title');
-  if (pageTitle) pageTitle.textContent = 'Incoming Payments';
-
-  // 3. Render the dynamic content for this page
-  renderPageContent();
-
-  // 4. Load the data
-  renderPaymentsChart();
-  
-  // Load main payments list
-  try {
-    const { data, error } = await fetchPayments();
-    if (error) throw error;
-    allPayments = data;
-    filterAndRender(); // Initial render
-  } catch (error) {
-    document.getElementById('payment-list-container').innerHTML = `<p class="p-6 text-center text-red-600">Error: ${error.message}</p>`;
+  const auth = await initLayout();
+  if (auth) {
+      renderPageContent();
+      await loadData();
   }
 });

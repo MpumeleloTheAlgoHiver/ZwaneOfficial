@@ -30,69 +30,43 @@ async function ensureLoanFromApplication(application) {
 
   const applicationId = application.id;
 
-  // 1. GUARD CLAUSE: Check if a loan record ALREADY exists for this application
+  // 1. GUARD CLAUSE: Prevent duplicate loans for the same application
   const { data: existingLoan } = await supabase
     .from('loans')
     .select('*')
     .eq('application_id', applicationId)
     .maybeSingle();
 
-  // 2. If it exists, return the existing loan immediately.
-  // This prevents the "Double Recording" issue you encountered.
   if (existingLoan) {
-      console.log(`Loan already exists for Application #${applicationId}. Skipping creation.`);
       return { data: existingLoan, error: null };
   }
 
-  // 3. Prepare Loan Calculations
-  const offerDetails = application.offer_details || {};
-  const principal = Number(application.offer_principal ?? application.amount ?? 0) || 0;
-  const termMonths = Number(application.term_months || offerDetails.term_months || 0) || 1;
-  const rateFromOfferDetails = typeof offerDetails.interest_rate === 'number' ? offerDetails.interest_rate : null;
-  const rate = rateFromOfferDetails ?? (Number(application.offer_interest_rate) ? Number(application.offer_interest_rate) / 100 : 0.025);
+  // 2. Extract calculations from the application's "Offer" columns
+  // These were locked in during the 'READY_TO_DISBURSE' status update
+  const totalRepayment = Number(application.offer_total_repayment || 0);
+  const startDate = new Date().toISOString();
+  
+  // Use the repayment date locked in the application record
+  const repaymentDate = application.repayment_start_date || startDate;
 
-  const monthlyFromOffer = Number(application.offer_monthly_repayment ?? offerDetails.monthly_payment ?? 0);
-  let monthlyPayment = monthlyFromOffer;
-
-  // Calculate monthly payment if not provided
-  if (!monthlyPayment) {
-    const factor = Math.pow(1 + rate, termMonths);
-    monthlyPayment = rate === 0 ? principal / termMonths : principal * (rate * factor) / (factor - 1);
-  }
-
-  const totalRepayment = Number(
-    application.offer_total_repayment
-    ?? offerDetails.total_repayment
-    ?? (monthlyPayment && termMonths ? monthlyPayment * termMonths : 0)
-  );
-
-  const firstPaymentDate = resolveFirstPaymentDate(application);
-  const normalizedFirstPayment = normalizeToIsoMidnight(firstPaymentDate);
-  const nextPaymentDate = firstPaymentDate ? new Date(firstPaymentDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-  nextPaymentDate.setUTCHours(0, 0, 0, 0);
-
-  // 4. Build the new Loan Object
+  // 3. Build the Loan Object to match your public.loans table schema
   const baseLoan = {
     application_id: applicationId,
     user_id: application.user_id,
-    principal_amount: principal,
-    interest_rate: rate,
-    term_months: termMonths,
-    monthly_payment: monthlyPayment,
+    principal_amount: Number(application.offer_principal || application.amount || 0),
+    interest_rate: Number(application.offer_interest_rate || 0), // Already stored as decimal (e.g. 0.2000)
+    term_months: Number(application.term_months || 1),
+    monthly_payment: Number(application.offer_monthly_repayment || 0),
     status: 'active',
-    start_date: new Date().toISOString(),
-    next_payment_date: nextPaymentDate.toISOString(),
-    outstanding_balance: principal
+    start_date: startDate,
+    first_payment_date: repaymentDate,
+    next_payment_date: repaymentDate,
+    // Initialize balance to TOTAL contractual debt
+    outstanding_balance: totalRepayment, 
+    total_repayment: totalRepayment
   };
 
-  if (normalizedFirstPayment) {
-    baseLoan.first_payment_date = normalizedFirstPayment;
-  }
-  if (!Number.isNaN(totalRepayment) && totalRepayment > 0) {
-    baseLoan.total_repayment = totalRepayment;
-  }
-
-  // 5. Insert the single new loan record
+  // 4. Insert the single record into the loans table
   const { data, error } = await supabase
     .from('loans')
     .insert([baseLoan])
@@ -327,22 +301,73 @@ export async function fetchApplicationDetail(applicationId) {
 }
 
 export async function updateApplicationStatus(applicationId, newStatus) {
-  const { data: updatedApp, error } = await supabase
-    .from('loan_applications')
-    .update({ status: newStatus })
-    .eq('id', applicationId)
-    .select()
-    .single();
+  try {
+    const { data: app, error: fetchError } = await supabase
+      .from('loan_applications')
+      .select('*')
+      .eq('id', applicationId)
+      .single();
 
-  if (error) {
+    if (fetchError) throw fetchError;
+
+    let updatePayload = { status: newStatus };
+
+    // When approving (READY_TO_DISBURSE), calculate and store the "Truth"
+    if (['READY_TO_DISBURSE', 'DISBURSED', 'OFFER_ACCEPTED'].includes(newStatus)) {
+      const { count: historyCount } = await supabase
+        .from('loans')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', app.user_id);
+
+      const principal = Number(app.amount || 0);
+      const term = Number(app.term_months || 1);
+      
+      const MONTHLY_ADMIN_FEE = 60.00;
+      const INITIATION_FEE_RATE = 0.15;
+      const totalAnnualRate = (historyCount < 3) ? 0.20 : 0.18; 
+      const interestOnlyRate = totalAnnualRate - INITIATION_FEE_RATE;
+
+      const totalInterest = principal * interestOnlyRate * (term / 12);
+      const totalInitiation = principal * INITIATION_FEE_RATE;
+      const totalAdminFees = MONTHLY_ADMIN_FEE * term;
+      const totalRepayment = principal + totalInterest + totalInitiation + totalAdminFees;
+      const monthlyPayment = totalRepayment / term;
+
+      // Fallback date if none selected: 30 days from today
+      const scheduledDate = app.repayment_start_date || (app.offer_details?.first_payment_date) || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+      updatePayload = {
+        ...updatePayload,
+        offer_principal: principal,
+        offer_interest_rate: totalAnnualRate, // Stored as 0.2000 for numeric(5,4)
+        offer_total_interest: totalInterest,
+        offer_total_initiation_fees: totalInitiation,
+        offer_total_admin_fees: totalAdminFees,
+        offer_total_repayment: totalRepayment,
+        offer_monthly_repayment: monthlyPayment,
+        repayment_start_date: scheduledDate
+      };
+    }
+
+    const { data: updatedApp, error: updateError } = await supabase
+      .from('loan_applications')
+      .update(updatePayload)
+      .eq('id', applicationId)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+
+    // Phase 2: ONLY create loan record if status is DISBURSED
+    if (newStatus === 'DISBURSED' || newStatus === 'ACTIVE') {
+      await ensureLoanFromApplication(updatedApp);
+    }
+
+    return { data: updatedApp, error: null };
+  } catch (error) {
+    console.error("Status Update Error:", error);
     return { data: null, error };
   }
-
-  if (updatedApp && ['OFFERED', 'READY_TO_DISBURSE', 'DISBURSED', 'ACTIVE'].includes(newStatus)) {
-    await ensureLoanFromApplication(updatedApp);
-  }
-
-  return { data: updatedApp, error: null };
 }
 
 export async function updateApplicationNotes(applicationId, notes) {
@@ -441,9 +466,26 @@ export async function fetchUserDetail(userId) {
 // == PAYMENTS & PAYOUTS
 // =================================================================
 export async function fetchPayments() {
+  // Use 'loan:loan_id' to create an alias that matches your JS code logic.
+  // This fixes the 400 error and the "Fully Settled" display bug.
   return supabase
     .from('payments')
-    .select('*, profile:user_id(full_name)')
+    .select(`
+      *,
+      profile:user_id(full_name),
+      loan:loan_id (
+        outstanding_balance,
+        principal_amount,
+        application:application_id (
+          offer_monthly_repayment,
+          offer_total_repayment,
+          offer_total_interest,
+          offer_total_initiation_fees,
+          offer_total_admin_fees,
+          application_source
+        )
+      )
+    `)
     .order('payment_date', { ascending: false });
 }
 
@@ -787,48 +829,37 @@ export async function syncAllOfferedApplications() {
 // =================================================================
 export async function fetchAnalyticsData() {
   try {
-    // 1. Fetch Loans
+    // 1. Fetch Loans + Contractual DNA from Applications
     const { data: loans, error: loanError } = await supabase
       .from('loans')
       .select(`
-        id,
-        application_id,
-        user_id,
-        principal_amount,
-        interest_rate,
-        term_months,
-        status,
-        start_date,
-        first_payment_date,
-        next_payment_date,
-        created_at,
-        monthly_payment,
-        total_repayment
+        id, application_id, user_id, principal_amount, interest_rate, term_months, status, 
+        start_date, first_payment_date, next_payment_date, created_at, monthly_payment, 
+        application:application_id(
+          offer_total_initiation_fees,
+          offer_total_admin_fees,
+          offer_total_interest,
+          offer_total_repayment,
+          offer_monthly_repayment
+        )
       `)
       .order('created_at', { ascending: true });
     if (loanError) throw loanError;
 
-    // 2. Fetch Payments
+    // 2. Fetch All Payments
     const { data: payments, error: payError } = await supabase
       .from('payments')
       .select('loan_id, amount, payment_date')
       .order('payment_date', { ascending: true });
     if (payError) throw payError;
 
-    // 3. Fetch Profiles
+    // 3. Fetch Profiles for Names
     const userIds = [...new Set(loans.map(l => l.user_id))].filter(Boolean);
-    let profiles = [];
-    if (userIds.length > 0) {
-      const { data: profileRows, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, full_name')
-        .in('id', userIds);
-      if (profileError) throw profileError;
-      profiles = profileRows || [];
-    }
-
     const nameMap = {};
-    profiles?.forEach(p => { nameMap[p.id] = p.full_name });
+    if (userIds.length > 0) {
+      const { data: profileRows } = await supabase.from('profiles').select('id, full_name').in('id', userIds);
+      profileRows?.forEach(p => { nameMap[p.id] = p.full_name });
+    }
 
     const paymentsMap = {};
     payments.forEach(p => {
@@ -840,134 +871,103 @@ export async function fetchAnalyticsData() {
     const today = new Date();
     const currentMonthStr = today.toISOString().slice(0, 7);
     
-    // 4. Process Each Loan
-    const resolveStartDate = (loan) => {
-      const candidate = loan.start_date || loan.first_payment_date || loan.created_at || loan.next_payment_date;
-      if (!candidate) return null;
-      const parsed = new Date(candidate);
-      return Number.isNaN(parsed.getTime()) ? null : parsed;
-    };
-
+    // 4. Process Each Loan Month-by-Month
     loans.forEach(loan => {
+      const app = loan.application || {};
       const loanPayments = paymentsMap[loan.id] || [];
-      const monthlyServiceFee = 60;
       
-      // -- SAFETY CHECK: INTEREST RATE FORMAT --
+      // Contractual Targets (Used for Waterfall)
+      let initiationRemaining = Number(app.offer_total_initiation_fees || 0);
+      let adminRemaining = Number(app.offer_total_admin_fees || 0);
+      let interestReceivable = 0; // Accrues monthly
+      
+      let principalOutstanding = Math.max(Number(loan.principal_amount) || 0, 0);
+      let totalPaidToDate = 0;
+
+      // Rate Calculation
       let rawRate = Number(loan.interest_rate) || 0;
       if (rawRate > 1) rawRate = rawRate / 100; 
       const monthlyRate = rawRate / 12; 
-      
-      let principalOutstanding = Math.max(Number(loan.principal_amount) || 0, 0);
-      let interestReceivable = 0;
-      let feeReceivable = 0;
-      let arrearsAmount = 0;
 
-      const startDate = resolveStartDate(loan);
-      if (!startDate) {
-        return;
-      }
+      const startDate = loan.start_date ? new Date(loan.start_date) : new Date(loan.created_at);
+      if (!startDate) return;
+      
       let currentDate = new Date(startDate);
       currentDate.setDate(1); 
       
-      const normalizedTerm = Number(loan.term_months) > 0 ? Number(loan.term_months) : 1;
-      const storedMonthlyPayment = Number(loan.monthly_payment) || 0;
-
       let loopCount = 0;
       while (currentDate <= today || currentDate.toISOString().slice(0,7) === currentMonthStr) {
-        if (loopCount++ > Math.max(normalizedTerm + 2, 120)) break;
+        if (loopCount++ > 120) break; // Safety break
 
         const monthStr = currentDate.toISOString().slice(0, 7);
         const openingPrincipal = principalOutstanding;
-        const rawInstallment = normalizedTerm > 0
-          ? Number(loan.principal_amount) / normalizedTerm
-          : openingPrincipal;
-        const principalInstallment = Number.isFinite(rawInstallment) && rawInstallment > 0 ? rawInstallment : openingPrincipal;
-        let principalDueThisMonth = Math.min(principalInstallment, openingPrincipal);
         
-        // A. ACCRUALS
-        let interestAccrued = 0;
-        let feesAccrued = 0;
-
+        // A. ACCRUALS (Monthly Interest)
+        let interestAccruedThisMonth = 0;
         if(openingPrincipal > 0.01) {
-            interestAccrued = openingPrincipal * monthlyRate;
-            feesAccrued = monthlyServiceFee;
+            interestAccruedThisMonth = openingPrincipal * monthlyRate;
         }
+        interestReceivable += interestAccruedThisMonth;
 
-        // B. Update Balances
-        interestReceivable += interestAccrued;
-        feeReceivable += feesAccrued;
-        
-        const baseInstallment = interestAccrued + feesAccrued + principalDueThisMonth;
-        const targetInstallment = storedMonthlyPayment > 0 ? storedMonthlyPayment : baseInstallment;
-        if (targetInstallment > 0) {
-          const principalPortion = Math.max(targetInstallment - (interestAccrued + feesAccrued), 0);
-          if (principalPortion > 0) {
-            principalDueThisMonth = Math.min(principalPortion, openingPrincipal);
-          }
-        }
-        const installmentDue = interestAccrued + feesAccrued + principalDueThisMonth;
-        
-        // C. PAYMENTS
+        // B. COLLECTED (Waterfall Allocation)
         const monthsPayments = loanPayments.filter(p => p.payment_date.startsWith(monthStr));
         const totalPaidThisMonth = monthsPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+        totalPaidToDate += totalPaidThisMonth;
         
         let remainingPayment = totalPaidThisMonth;
         
-        // Waterfall Allocation
-        const feesCollected = Math.min(remainingPayment, feeReceivable);
-        feeReceivable -= feesCollected;
-        remainingPayment -= feesCollected;
+        // 1. Recover Initiation Fees First (Cost of Sale)
+        const initiationCollected = Math.min(remainingPayment, initiationRemaining);
+        initiationRemaining -= initiationCollected;
+        remainingPayment -= initiationCollected;
         
+        // 2. Recover Admin Fees Second (Overhead)
+        const adminCollected = Math.min(remainingPayment, adminRemaining);
+        adminRemaining -= adminCollected;
+        remainingPayment -= adminCollected;
+        
+        // 3. Recover Interest Third (Profit Yield)
         const interestCollected = Math.min(remainingPayment, interestReceivable);
         interestReceivable -= interestCollected;
         remainingPayment -= interestCollected;
         
+        // 4. Recover Principal Last (Capital Back)
         const principalPaid = Math.min(remainingPayment, principalOutstanding);
         principalOutstanding = Math.max(principalOutstanding - principalPaid, 0);
         remainingPayment -= principalPaid;
         
-        // D. ARREARS CALCULATION
-        const paymentGap = installmentDue - totalPaidThisMonth;
-        let arrearsForMonth = 0;
-        if (currentDate >= startDate && openingPrincipal > 0) {
-          if (paymentGap > 5) {
-            arrearsAmount += paymentGap;
-            arrearsForMonth = paymentGap;
-          } else if (paymentGap < -5) {
-            arrearsAmount = Math.max(0, arrearsAmount + paymentGap);
-          }
-        } else if (principalOutstanding === 0) {
-          arrearsAmount = Math.max(0, arrearsAmount + paymentGap);
-        }
+        // 5. Overpayment (Any remainder after loan is $0)
+        const overpaymentCollected = remainingPayment;
         
-        // E. STORE DATA POINT
+        // E. STORE DATA POINT (CORRECTED WITH ARREARS)
         balanceSheet.push({
           month: monthStr,
           loan_id: loan.id,
           customer: nameMap[loan.user_id] || 'Unidentified', 
           status: loan.status,
           
-          // Values
           principal_outstanding: principalOutstanding,
-          interest_receivable: interestReceivable,
-          fee_receivable: feeReceivable,
-          arrears_amount: arrearsAmount,
-          principal_due_month: principalDueThisMonth,
-          interest_due_month: interestAccrued,
-          fee_due_month: feesAccrued,
-          arrears_due_month: arrearsForMonth,
+          interest_receivable: interestReceivable, 
+          // Arrears logic: If principal is still owed and the month has passed
+          arrears_amount: (principalOutstanding > 0 && currentDate < today) ? principalOutstanding : 0,
+          total_paid_to_date: totalPaidToDate,
+          contract_total: app.offer_total_repayment || 0,
           
-          // Earnings for this specific month
-          interest_earned_month: interestAccrued,
-          fees_earned_month: feesAccrued,
+          // COLLECTED METRICS (Cash Basis)
+          initiation_collected_month: initiationCollected,
+          admin_collected_month: adminCollected,
+          // CRITICAL: Combined fees for the Analytics Table 'Fees' column
+          fees_collected_month: initiationCollected + adminCollected, 
+          interest_collected_month: interestCollected,
+          profit_collected_month: initiationCollected + adminCollected + interestCollected,
+          principal_collected_month: principalPaid,
+          overpayment_collected_month: overpaymentCollected,
           
           payment_received: totalPaidThisMonth
         });
         
-        // Move to next month
         currentDate.setMonth(currentDate.getMonth() + 1);
-        
-        if (monthStr === currentMonthStr) break; 
+        if (monthStr === currentMonthStr) break;
       }
     });
 
@@ -977,7 +977,6 @@ export async function fetchAnalyticsData() {
     return { data: [], error: error.message };
   }
 }
-
 // =================================================================
 // == FINANCIALS REPORT (WITH ANNUALIZATION)
 // =================================================================
@@ -990,7 +989,7 @@ export async function fetchFinancialsData(timeRange = 'YTD') {
     let startDate = new Date();
     let annualizationFactor = 1;
 
-    // 1. Configure Time Window & Annualization
+    // 1. Configure Time Window
     switch (timeRange) {
         case '1M':
             startDate.setMonth(now.getMonth() - 1);
@@ -1019,40 +1018,40 @@ export async function fetchFinancialsData(timeRange = 'YTD') {
     
     const startStr = startDate.toISOString().slice(0, 7);
 
-    // 2. Filter Rows for Income Statement (Flows)
+    // 2. Filter Rows
     const relevantRows = rawData.filter(row => row.month >= startStr);
     
-    // 3. Get Snapshots for Balance Sheet (Stocks)
-    // We group by loan_id and take the VERY LAST row to see "Current Status"
+    // 3. Get Snapshots (Current Status)
     const latestLoanStatus = {};
     rawData.forEach(row => {
         latestLoanStatus[row.loan_id] = row;
     });
     const snapshotRows = Object.values(latestLoanStatus);
 
-    // 4. Calculate Totals
-    const interestIncome = relevantRows.reduce((sum, row) => sum + (row.interest_earned_month || 0), 0);
-    const feeIncome = relevantRows.reduce((sum, row) => sum + (row.fees_earned_month || 0), 0);
+    // 4. Calculate Totals (USING CASH COLLECTED)
+    // We now sum up the "collected" columns instead of "earned"
+    const interestIncome = relevantRows.reduce((sum, row) => sum + (row.interest_collected_month || 0), 0);
+    const feeIncome = relevantRows.reduce((sum, row) => sum + (row.fees_collected_month || 0), 0);
     const totalRevenue = interestIncome + feeIncome;
 
     const totalLoanBookValue = snapshotRows.reduce((sum, row) => sum + (row.principal_outstanding || 0), 0);
     
-    // 5. Corrected Ratio Calculations
-    // Yield = (Revenue / Book) * AnnualizationFactor
+    // 5. Ratios
     let annualizedYield = 0;
     if (totalLoanBookValue > 0) {
         const rawYield = (totalRevenue / totalLoanBookValue);
         annualizedYield = rawYield * annualizationFactor * 100;
     }
     
-    const clientsInArrearsCount = snapshotRows.filter(row => (row.arrears_amount || 0) > 10).length;
     const totalActiveClients = snapshotRows.filter(r => r.principal_outstanding > 0).length || 1;
+    
+    // Arrears > 10 ZAR considered "In Arrears"
+    const clientsInArrearsCount = snapshotRows.filter(row => (row.arrears_amount || 0) > 10).length;
     const arrearsPercentage = (clientsInArrearsCount / totalActiveClients) * 100;
 
-    // Simulated CLR (Credit Loss Ratio) - typically annualized write-offs / book
-    // For now, we assume arrears > 90 days (approx 3 missed payments worth) is "at risk"
+    // Estimated Credit Loss (Proxy: Arrears > 15% of Principal)
     const atRiskValue = snapshotRows
-        .filter(r => r.arrears_amount > (r.principal_outstanding * 0.15)) // Crude proxy for deep arrears
+        .filter(r => r.arrears_amount > (r.principal_outstanding * 0.15))
         .reduce((sum, r) => sum + r.principal_outstanding, 0);
     
     const clr = totalLoanBookValue > 0 ? (atRiskValue / totalLoanBookValue) * 100 : 0;
@@ -1062,11 +1061,11 @@ export async function fetchFinancialsData(timeRange = 'YTD') {
             period: timeRange,
             incomeStatement: {
                 interestIncome,
-                nii: interestIncome,
+                nii: interestIncome, // Net Interest Income
                 feeIncome,
                 commissionIncome: 0,
                 penaltyIncome: 0,
-                nir: feeIncome,
+                nir: feeIncome,      // Non-Interest Revenue
                 totalRevenue
             },
             ratios: {
@@ -1078,7 +1077,7 @@ export async function fetchFinancialsData(timeRange = 'YTD') {
                 totalLoanBook: totalLoanBookValue,
                 activeClients: totalActiveClients,
                 avgLoanPerClient: totalActiveClients > 0 ? totalLoanBookValue / totalActiveClients : 0,
-                avgInterestRate: annualizedYield, // Now correctly annualized
+                avgInterestRate: annualizedYield,
                 arrearsPercentage: arrearsPercentage
             }
         },

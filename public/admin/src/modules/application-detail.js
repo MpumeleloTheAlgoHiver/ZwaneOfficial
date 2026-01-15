@@ -840,35 +840,34 @@ const closeModal = () => {
 const approveApplication = async () => {
   const { data: { user } } = await supabase.auth.getUser();
 
+  // 1. The status update now calculates and populates the financial columns in the background
+  const { data: updatedApp, error } = await updateApplicationStatus(currentApplication.id, 'READY_TO_DISBURSE');
+  
+  if (error) {
+    showFeedback(error.message, 'error');
+    closeModal();
+    return;
+  }
+
+  // 2. Create the Payout record using the calculated amount
   const payoutData = {
     application_id: currentApplication.id,
     user_id: currentApplication.user_id,
-    amount: currentApplication.amount,
+    amount: updatedApp.amount,
     status: 'pending_disbursement'
   };
 
   const { error: payoutError } = await createPayout(payoutData);
+  
   if (payoutError) {
-    showFeedback(payoutError.message, 'error');
-    closeModal();
-    return;
-  }
-  
-  const { error } = await supabase
-    .from('loan_applications')
-    .update({ status: 'READY_TO_DISBURSE', reviewed_by_admin: user?.id })
-    .eq('id', currentApplication.id);
-  
-  if (error) {
-    await deletePayout(currentApplication.id);
-    showFeedback(error.message, 'error');
+    showFeedback("Status updated but payout creation failed: " + payoutError.message, 'error');
   } else {
-    showFeedback('Application approved. Sent to disbursement queue.', 'success');
-    loadApplicationData();
+    // The loan is NOT in the loans table yet. It only goes there once 'DISBURSED' is called.
+    showFeedback('Application approved & financial values locked.', 'success');
+    loadApplicationData(); 
   }
   closeModal();
 };
-
 const declineApplication = async () => {
   const { error } = await updateApplicationStatus(currentApplication.id, 'DECLINED');
   if (error) {
