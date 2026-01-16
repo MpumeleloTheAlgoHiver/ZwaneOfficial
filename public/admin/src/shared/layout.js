@@ -337,32 +337,46 @@ async function initNotifications(role, userId) {
     const notifList = document.getElementById('notif-list');
     const markAllReadBtn = document.getElementById('mark-all-read');
     
-    // 1. Extract the user's branch from the profile loaded earlier
     const branchId = userProfile?.branch_id || null;
 
     const fetchNotifications = async () => {
-        // 2. Call the smart RPC instead of a direct table query
-        const { data, error } = await supabase.rpc('get_filtered_notifications', {
-            p_user_id: userId,
-            p_role: role,
-            p_branch_id: branchId
-        });
+        // 1. FETCH: Use the table directly since the RPC was dropped
+        const { data: rawData, error } = await supabase
+            .from('admin_notifications')
+            .select('*');
 
-        if (data) {
-            // 3. Filter out items already read by THIS specific user
-            const unreadNotifications = data.filter(n => !(n.read_by || []).includes(userId));
-            updateNotifUI(unreadNotifications);
-        } else if (error) {
-            console.error("Hierarchy Fetch Error:", error);
+        if (error) {
+            console.error("Notification Fetch Error:", error);
+            return;
         }
+
+        // 2. FILTER & SORT: Handle logic in JS for speed and reliability
+        const processed = rawData.filter(n => {
+            // Role Match
+            let roleMatch = false;
+            if (role === 'super_admin') roleMatch = true;
+            else if (role === 'admin') roleMatch = ['admin', 'base_admin'].includes(n.target_role);
+            else if (role === 'base_admin') roleMatch = n.target_role === 'base_admin';
+
+            // Branch Match (Branch-specific or system-wide)
+            const branchMatch = n.branch_id === null || n.branch_id === branchId;
+
+            // Read Check (Is this user NOT in the read_by array?)
+            const isUnread = !(n.read_by || []).includes(userId);
+
+            return roleMatch && branchMatch && isUnread;
+        }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)); // Sort newest first
+
+        updateNotifUI(processed);
     };
 
     const updateNotifUI = (notifications) => {
         const unreadCount = notifications.length;
+        
+        // Update Badge UI
         if (unreadCount > 0) {
             notifBadge.classList.remove('hidden');
             notifBadge.textContent = unreadCount > 9 ? '9+' : unreadCount;
-            // Pulsing badge for attention
             notifBadge.className = "absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-[8px] font-bold text-white border-2 border-white animate-bounce";
         } else {
             notifBadge.classList.add('hidden');
@@ -370,7 +384,7 @@ async function initNotifications(role, userId) {
 
         if (unreadCount === 0) {
           notifList.innerHTML = `
-            <div class="flex flex-col items-center justify-center p-10 text-center animate-fade-in">
+            <div class="flex flex-col items-center justify-center p-10 text-center">
                 <div class="w-12 h-12 bg-green-50 text-green-500 rounded-full flex items-center justify-center mb-3">
                     <i class="fa-solid fa-check-double text-xl"></i>
                 </div>
@@ -379,17 +393,13 @@ async function initNotifications(role, userId) {
           return;
         }
 
-        // Render each notification item with role-based icons
         notifList.innerHTML = notifications.map(n => {
             const isUrgent = n.title.toLowerCase().includes('failed') || n.title.toLowerCase().includes('overdue');
-            const iconClass = isUrgent ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600';
-            const icon = isUrgent ? 'fa-triangle-exclamation' : 'fa-bolt';
-
             return `
                 <div class="p-4 border-b border-gray-50 hover:bg-gray-50 transition-all relative group" data-id="${n.id}">
                     <div class="flex gap-4 pr-6">
-                        <div class="shrink-0 w-10 h-10 rounded-xl ${iconClass} flex items-center justify-center shadow-sm">
-                            <i class="fa-solid ${icon} text-sm"></i>
+                        <div class="shrink-0 w-10 h-10 rounded-xl ${isUrgent ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'} flex items-center justify-center shadow-sm">
+                            <i class="fa-solid ${isUrgent ? 'fa-triangle-exclamation' : 'fa-bolt'} text-sm"></i>
                         </div>
                         <div class="flex-1 min-w-0">
                             <a href="${n.link || '#'}" class="block">
@@ -408,29 +418,38 @@ async function initNotifications(role, userId) {
             `;
         }).join('');
 
-        // Attach listeners for dismissing individual items
+        // Re-attach listeners after rendering
         notifList.querySelectorAll('.dismiss-notif').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 const id = e.currentTarget.closest('[data-id]').dataset.id;
-                // Calls RPC to mark single item read
-                const { error } = await supabase.rpc('mark_notification_read_single', { p_notif_id: id });
-                if (!error) fetchNotifications();
+                // FIX: Ensure ID is an integer for the bigint RPC
+                const { error } = await supabase.rpc('mark_notification_read_single', { p_notif_id: parseInt(id) });
+                if (!error) await fetchNotifications();
             });
         });
+    };
+
+    const formatRelativeTime = (date) => {
+        const diff = Math.floor((new Date() - new Date(date)) / 1000);
+        if (diff < 60) return 'Just now';
+        if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+        return `${Math.floor(diff / 86400)}d ago`;
     };
 
     // Initial Fetch
     await fetchNotifications();
 
-    // Realtime Listeners
+    // Realtime Listener
     supabase.channel('admin_notif_channel')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'admin_notifications' }, () => fetchNotifications())
       .subscribe();
 
     if(markAllReadBtn) {
         markAllReadBtn.addEventListener('click', async () => {
+            // Marks all for current role read by the current user
             const { error } = await supabase.rpc('mark_notifications_read', { p_target_role: role });
-            if(!error) fetchNotifications();
+            if(!error) await fetchNotifications();
         });
     }
 }

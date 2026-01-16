@@ -692,6 +692,17 @@ window.updateStatus = async (newStatus) => {
     closeModal();
 };
 
+window.declineApplication = async () => {
+  const { error } = await updateApplicationStatus(currentApplication.id, 'DECLINED');
+  if (error) {
+    showFeedback(error.message, 'error');
+  } else {
+    showFeedback('Application declined.', 'success');
+    loadApplicationData();
+  }
+  closeModal();
+};
+
 // --- Save Notes Logic (NEW) ---
 window.saveNotes = async () => {
     const noteText = document.getElementById('detail-notes').value;
@@ -840,7 +851,20 @@ const closeModal = () => {
 const approveApplication = async () => {
   const { data: { user } } = await supabase.auth.getUser();
 
-  // 1. The status update now calculates and populates the financial columns in the background
+  // 1. GUARD: Check if a payout already exists to prevent database duplication
+  const { data: existingPayout } = await supabase
+    .from('payouts')
+    .select('id')
+    .eq('application_id', currentApplication.id)
+    .maybeSingle();
+
+  if (existingPayout) {
+    showFeedback('A payout record already exists for this application.', 'error');
+    closeModal();
+    return; // STOP: Do not create a duplicate record
+  }
+
+  // 2. The status update calculates financial columns in the background
   const { data: updatedApp, error } = await updateApplicationStatus(currentApplication.id, 'READY_TO_DISBURSE');
   
   if (error) {
@@ -849,7 +873,7 @@ const approveApplication = async () => {
     return;
   }
 
-  // 2. Create the Payout record using the calculated amount
+  // 3. Create the Payout record using the calculated amount
   const payoutData = {
     application_id: currentApplication.id,
     user_id: currentApplication.user_id,
@@ -862,12 +886,12 @@ const approveApplication = async () => {
   if (payoutError) {
     showFeedback("Status updated but payout creation failed: " + payoutError.message, 'error');
   } else {
-    // The loan is NOT in the loans table yet. It only goes there once 'DISBURSED' is called.
     showFeedback('Application approved & financial values locked.', 'success');
     loadApplicationData(); 
   }
   closeModal();
 };
+
 const declineApplication = async () => {
   const { error } = await updateApplicationStatus(currentApplication.id, 'DECLINED');
   if (error) {
@@ -920,6 +944,10 @@ const renderComplianceDetails = async (userId) => {
     const container = document.getElementById('personal-tab');
     if (!container || !userId) return;
 
+    // FIX: Remove existing compliance sections to prevent stacking
+    const existingCompliance = container.querySelector('.compliance-section');
+    if (existingCompliance) existingCompliance.remove();
+
     // Fetch the declarations data for this specific user
     const { data: decl } = await supabase
         .from('declarations')
@@ -931,7 +959,8 @@ const renderComplianceDetails = async (userId) => {
 
     // Create the Compliance section
     const complianceDiv = document.createElement('div');
-    complianceDiv.className = "mt-8 pt-8 border-t border-gray-100";
+    // FIX: Added 'compliance-section' class for targeting during cleanup
+    complianceDiv.className = "mt-8 pt-8 border-t border-gray-100 compliance-section";
     complianceDiv.innerHTML = `
         <h4 class="text-md font-bold text-gray-900 mb-4 flex items-center gap-2">
             <i class="fa-solid fa-file-shield text-gray-400"></i> Compliance & Statutory Data
@@ -1377,8 +1406,6 @@ const renderSidePanel = (app) => {
   const monthlyPayment = totalRepayment / term;
 
   // --- 2. FETCH FIRST REPAYMENT DATE (Refined) ---
-  // Priority 1: offer_details.first_payment_date
-  // Priority 2: app.repayment_start_date
   const scheduledDate = offer.first_payment_date || app.repayment_start_date;
 
   // --- 3. UPDATE PRIMARY SIDEBAR FIELDS ---
@@ -1419,7 +1446,6 @@ const renderSidePanel = (app) => {
     <div class="mt-4">
         <label class="text-[10px] text-gray-400 uppercase font-bold tracking-widest mb-1 block">Scheduled Payout Info</label>
         <div class="p-3 bg-orange-50 border border-orange-100 rounded-xl transition-all">
-            
             <div id="date-view-mode" class="flex items-center justify-between">
                 <span class="text-xs text-orange-800 font-medium">First Repayment:</span>
                 <div class="flex items-center gap-2">
@@ -1432,13 +1458,11 @@ const renderSidePanel = (app) => {
                     </button>` : ''}
                 </div>
             </div>
-
             <div id="date-edit-mode" class="hidden mt-1">
                 <div class="flex items-center gap-2">
                     <input type="date" id="new-repayment-date" 
                            class="flex-1 text-xs p-1.5 rounded-lg border border-orange-300 bg-white focus:ring-2 focus:ring-orange-500 outline-none"
                            value="${scheduledDate ? new Date(scheduledDate).toISOString().split('T')[0] : ''}">
-                    
                     <button id="btn-save-date" onclick="window.saveRepaymentDate()" class="px-3 py-1.5 bg-orange-600 text-white text-xs font-bold rounded-lg hover:bg-orange-700 shadow-sm">
                         Save
                     </button>
@@ -1447,19 +1471,15 @@ const renderSidePanel = (app) => {
                     </button>
                 </div>
             </div>
-
         </div>
     </div>
   `;
 
-  // --- 5. STATUS BADGE & MANUAL OVERRIDE (Keep existing functionality) ---
+  // --- 5. STATUS BADGE & MANUAL OVERRIDE ---
   if (statusEl) {
       statusEl.textContent = status.replace('_', ' ');
       statusEl.className = `mt-2 text-lg font-bold uppercase tracking-wide ${getBadgeColor(status).split(' ')[0].replace('bg-', 'text-').replace('-100', '-600')}`;
   }
-
-  const statusSelect = document.getElementById('status-override-select');
-  if (statusSelect) statusSelect.value = status;
 
   const manualSelect = document.getElementById('status-override-select');
   const manualBtn = document.getElementById('manual-update-btn');
@@ -1478,7 +1498,7 @@ const renderSidePanel = (app) => {
       if (manualBtn) { manualBtn.disabled = false; manualBtn.innerText = "Update"; }
   }
 
-  // --- 5. ALERTS & DYNAMIC ACTION BUTTONS ---
+  // --- 6. ALERTS & DYNAMIC ACTION BUTTONS ---
   if (alertEl) {
       alertEl.className = 'mt-3 p-3 rounded-lg text-xs font-medium leading-relaxed hidden';
       if (status === 'OFFERED') {
@@ -1487,9 +1507,6 @@ const renderSidePanel = (app) => {
       } else if (status === 'READY_TO_DISBURSE') {
           alertEl.textContent = "Application is queued for disbursement.";
           alertEl.classList.add('bg-green-50', 'text-green-700', 'block');
-      } else if (status.includes('BUREAU')) {
-          alertEl.textContent = "System is performing automated checks.";
-          alertEl.classList.add('bg-blue-50', 'text-blue-700', 'block');
       }
   }
 
@@ -1506,7 +1523,10 @@ const renderSidePanel = (app) => {
             <h4 class="text-xs font-bold text-gray-400 uppercase mb-2">Assessment</h4>
             <button onclick="updateStatus('AFFORD_OK')" class="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-xl mb-2 shadow-lg"><i class="fa-solid fa-check-circle mr-2"></i> Confirm Affordability</button>
             ${!status.includes('REFER') ? `<button onclick="updateStatus('AFFORD_REFER')" class="w-full py-3 bg-white border border-orange-200 text-orange-600 text-sm font-bold rounded-xl mb-2"><i class="fa-solid fa-magnifying-glass mr-2"></i> Refer</button>` : ''}
-            <button onclick="updateStatus('DECLINED')" class="w-full py-3 bg-white border border-red-200 text-red-600 text-sm font-bold rounded-xl"><i class="fa-solid fa-xmark mr-2"></i> Decline</button>
+            
+            <button onclick="openModal('Decline', 'Are you sure you want to decline this application?', declineApplication)" class="w-full py-3 bg-white border border-red-200 text-red-600 text-sm font-bold rounded-xl">
+                <i class="fa-solid fa-xmark mr-2"></i> Decline
+            </button>
           `;
       } 
       else if (status === 'AFFORD_OK') {
@@ -1518,33 +1538,16 @@ const renderSidePanel = (app) => {
           document.getElementById('action-send-contract')?.addEventListener('click', (event) => handleSendContract(event.currentTarget));
           document.getElementById('action-preview-contract')?.addEventListener('click', handlePreviewContract);
       }
-      else if (status === 'OFFERED') {
-          actionsContainer.innerHTML = `
-            <div class="flex flex-col items-center justify-center p-6 bg-gray-50 border border-gray-200 rounded-xl text-center">
-                <div class="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-500 mb-2"><i class="fa-solid fa-clock"></i></div>
-                <p class="text-sm font-bold text-gray-800">Waiting for Client</p>
-                <p class="text-xs text-gray-500 mt-1">Contract sent. Actions locked until client signs.</p>
-            </div>
-          `;
-      }
       else if (status === 'OFFER_ACCEPTED') {
           actionsContainer.innerHTML = `
              <div class="p-3 bg-purple-50 border border-purple-100 rounded-lg mb-3 text-xs text-purple-700"><i class="fa-solid fa-signature mr-1"></i> Client Signed.</div>
              <button id="btn-approve-contract" class="w-full py-3 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-xl shadow-lg"><i class="fa-solid fa-file-signature mr-2"></i> Approve & Queue Payout</button>
           `;
+          // Confirmation modal for approval
           document.getElementById('btn-approve-contract').onclick = () => openModal('Approve', 'Mark contract as valid and ready for payout?', approveApplication);
       }
       else if (status === 'READY_TO_DISBURSE') {
           actionsContainer.innerHTML = `<div class="p-4 bg-green-50 border border-green-100 rounded-xl text-center"><p class="text-sm font-bold text-green-800">Queued for Payout</p></div>`;
-      }
-      else if (status === 'DECLINED') {
-          actionsContainer.innerHTML = `
-            <div class="p-3 bg-red-50 border border-red-100 rounded-lg mb-3 text-xs text-red-700"><i class="fa-solid fa-circle-xmark mr-1"></i> Application Declined</div>
-            <button onclick="updateStatus('AFFORD_OK')" class="w-full py-3 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm font-bold rounded-xl shadow-sm"><i class="fa-solid fa-rotate-right mr-2"></i> Draft New Offer</button>
-          `;
-      }
-      else if (status.includes('BUREAU')) {
-          actionsContainer.innerHTML = `<div class="p-4 bg-blue-50 border border-blue-100 rounded-xl text-center"><p class="text-sm font-bold text-blue-800"><i class="fa-solid fa-robot mr-2"></i> System Processing</p></div>`;
       }
       else if (status === 'DISBURSED') {
           actionsContainer.innerHTML = `<div class="p-4 bg-gray-50 border border-gray-100 rounded-xl text-center"><p class="text-sm font-bold text-gray-600">Loan Active / Completed</p></div>`;
