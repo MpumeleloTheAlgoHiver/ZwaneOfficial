@@ -523,8 +523,11 @@ export async function fetchPayouts() {
     .select(`
       *, 
       profile:user_id(full_name, email), 
-      bank_account:user_id(*),
-      application:loan_applications(status, branch_id)
+      application:loan_applications(
+        status, 
+        branch_id, 
+        bank_account:bank_account_id(*) 
+      )
     `)
     .order('created_at', { ascending: false });
 }
@@ -1182,3 +1185,26 @@ export const fetchFullUserProfile = async (userId) => {
         financials: financials || null
     };
 };
+
+/**
+ * Fetches all notifications from the table. 
+ * Sorting and filtering will be handled in layout.js.
+ */
+export async function fetchAllNotifications() {
+  return supabase
+    .from('admin_notifications')
+    .select('*');
+}
+
+/**
+ * Updates the status of a specific notification (e.g., marking it as 'read')
+ */
+export async function updateNotificationStatus(notificationId, newStatus = 'read') {
+  const { data, error } = await supabase
+    .from('admin_notifications')
+    .update({ status: newStatus })
+    .eq('id', notificationId)
+    .select();
+    
+  return { data, error };
+}

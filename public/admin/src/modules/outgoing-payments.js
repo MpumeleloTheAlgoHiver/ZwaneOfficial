@@ -123,37 +123,33 @@ function renderPageContent() {
   attachEventListeners();
 }
 
-/**
- * Filter Logic: 
- * 1. Checks Status (Ready vs Disbursed) based on active Tab
- * 2. Checks Text Search
- * 3. Checks Branch ID (Security)
- */
 const filterAndSearch = (resetPage = true) => { 
     if (resetPage) currentPagePayouts = 1;
     searchTerm = document.getElementById('payout-search-input')?.value.toLowerCase().trim() || ''; 
     
+    // FIX: Track Application IDs to ignore duplicates in the list
+    const seenApplications = new Set();
+
     const filtered = allPayouts.filter(p => {
-        // 1. Status Check: Joined application status
-        const appStatus = p.application?.status || p.status;
-        const statusMatch = (activeTab === 'pending') 
-            ? (appStatus === 'READY_TO_DISBURSE' || appStatus === 'pending_disbursement') 
-            : (appStatus === 'DISBURSED' || appStatus === 'disbursed');
+        // 1. Status Check: Only look at the payout record's status
+        const isPending = p.status === 'pending_disbursement';
+        const isPaid = p.status === 'disbursed';
+        const statusMatch = (activeTab === 'pending') ? isPending : isPaid;
 
         // 2. Text Match
         const textMatch = !searchTerm || 
             (p.profile?.full_name || '').toLowerCase().includes(searchTerm) || 
-            String(p.id).includes(searchTerm) ||
-            String(p.application_id).includes(searchTerm);
+            String(p.id).includes(searchTerm);
 
-        // 3. Branch Security (Non-Super Admins see only their branch)
-        let branchMatch = true;
-        if (userRole !== 'super_admin' && currentAdminProfile?.branch_id) {
-             branchMatch = (p.application?.branch_id === currentAdminProfile.branch_id);
+        const isMatch = statusMatch && textMatch;
+
+        // 3. DUPLICATE GUARD: If we match, but already saw this App ID, skip it
+        if (isMatch && !seenApplications.has(p.application_id)) {
+            seenApplications.add(p.application_id);
+            return true;
         }
-
-        return statusMatch && textMatch && branchMatch;
-    }); 
+        return false;
+    });
 
     const totalPages = Math.ceil(filtered.length / itemsPerPagePayouts) || 1;
     const start = (currentPagePayouts - 1) * itemsPerPagePayouts;
@@ -162,7 +158,6 @@ const filterAndSearch = (resetPage = true) => {
     renderPayoutTable(paginatedData); 
     renderPayoutPaginationControls(totalPages, filtered.length);
     
-    // Update visible count
     const countEl = document.getElementById('visible-count');
     if(countEl) countEl.textContent = filtered.length;
 };
@@ -389,6 +384,7 @@ function handleBulkExport() {
 
 function downloadCSV(items) {
     const headers = ["Payout ID", "Recipient", "Amount", "Status", "Date", "Application ID", "Bank", "Account"];
+    
     const rows = items.map(p => [
         p.id,
         `"${p.profile?.full_name || 'N/A'}"`,
@@ -396,8 +392,9 @@ function downloadCSV(items) {
         activeTab === 'pending' ? 'Pending' : 'Paid',
         formatDate(p.created_at),
         p.application_id,
-        `"${p.bank_account?.bank_name || 'N/A'}"`,
-        `"${p.bank_account?.account_number || 'N/A'}"`
+        // FIX: Reaching through 'application' to get the specific bank account
+        `"${p.application?.bank_account?.bank_name || 'N/A'}"`,
+        `"${p.application?.bank_account?.account_number || 'N/A'}"`
     ]);
 
     const csvContent = [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
@@ -411,7 +408,6 @@ function downloadCSV(items) {
     link.click();
     document.body.removeChild(link);
 }
-
 // --- Data Loading ---
 
 async function loadData() {
