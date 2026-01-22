@@ -693,6 +693,18 @@ app.post('/api/docuseal/webhook', async (req, res) => {
 // --- 5. ADMIN & PUBLIC STATIC FILE SERVING (THE FIX) ---
 // =================================================================
 
+// Runtime client config (no hardcoded fallbacks)
+app.get('/config.js', (req, res) => {
+    const clientConfig = {
+        VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
+        VITE_SUPABASE_ANON_KEY: process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
+    };
+
+    res.set('Content-Type', 'application/javascript');
+    res.set('Cache-Control', 'no-store');
+    res.send(`window.__ENV__ = ${JSON.stringify(clientConfig)};`);
+});
+
 // 5a. Define the path to your *BUILT* admin app's 'dist' folder
 const adminDistPath = path.join(__dirname, 'public', 'admin', 'dist');
 const adminAssetsPath = path.join(adminDistPath, 'assets');
