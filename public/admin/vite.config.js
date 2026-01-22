@@ -11,6 +11,7 @@ export default {
   },
   build: {
     rollupOptions: {
+      external: ['/config.js'],
       input: {
         // Core
         main: resolve(__dirname, 'index.html'),
