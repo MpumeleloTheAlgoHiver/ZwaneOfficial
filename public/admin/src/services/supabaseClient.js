@@ -1,8 +1,7 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/+esm';
 
-const runtimeEnv = typeof window !== 'undefined' ? window.__ENV__ || {} : {};
-const supabaseUrl = import.meta?.env?.VITE_SUPABASE_URL || runtimeEnv.VITE_SUPABASE_URL || runtimeEnv.SUPABASE_URL;
-const supabaseAnonKey = import.meta?.env?.VITE_SUPABASE_ANON_KEY || runtimeEnv.VITE_SUPABASE_ANON_KEY || runtimeEnv.SUPABASE_ANON_KEY;
+const supabaseUrl = import.meta?.env?.VITE_SUPABASE_URL || "https://jmnjkxfxenrudpvjprcu.supabase.co";
+const supabaseAnonKey = import.meta?.env?.VITE_SUPABASE_ANON_KEY || "REMOVED_ANON_KEY";
 
 // --- Sanity Check ---
 // This check ensures the variables are filled.
