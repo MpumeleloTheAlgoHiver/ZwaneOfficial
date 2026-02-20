@@ -319,6 +319,25 @@ function closeModule() {
   overlay.classList.add("hidden");
 }
 
+function showMinimalNotice(title, message) {
+  const existing = document.getElementById('minimalNotice');
+  if (existing) {
+    existing.remove();
+  }
+
+  const notice = document.createElement('div');
+  notice.id = 'minimalNotice';
+  notice.className = 'minimal-notice';
+  notice.innerHTML = `<strong>${title}</strong><span>${message}</span>`;
+  document.body.appendChild(notice);
+
+  window.setTimeout(() => notice.classList.add('visible'), 10);
+  window.setTimeout(() => {
+    notice.classList.remove('visible');
+    window.setTimeout(() => notice.remove(), 250);
+  }, 2600);
+}
+
 // Navigation function for step buttons
 window.goToStep = function(step) {
   // Guard: Cannot proceed to step 2+ without consent and all documents
@@ -327,7 +346,7 @@ window.goToStep = function(step) {
       if (typeof window.showToast === 'function') {
         window.showToast('Consent Required', 'Please consent to the Privacy Policy first', 'warning');
       } else {
-        alert('Please consent to the Privacy Policy first');
+        showMinimalNotice('Consent required', 'Please consent to the Privacy Policy first.');
       }
       return;
     }
@@ -350,7 +369,7 @@ window.goToStep = function(step) {
       if (typeof window.showToast === 'function') {
         window.showToast('Documents Required', `Please complete: ${pendingNames}`, 'warning');
       } else {
-        alert(`Please complete all required items first: ${pendingNames}`);
+        showMinimalNotice('Documents required', `Please complete: ${pendingNames}`);
       }
       return;
     }
@@ -418,7 +437,7 @@ function renderModuleStatus() {
 
   const completed = REQUIRED_DOCUMENTS.filter(doc => documentState[doc] === 'complete').length;
   if (completed === REQUIRED_DOCUMENTS.length) {
-    moduleStatusRef.innerHTML = '<i class="fas fa-check-circle" style="color:#0f9158;"></i> All required documents are uploaded.';
+    moduleStatusRef.innerHTML = '<i class="fas fa-check-circle" style="color:#6b7280;"></i> All required items are complete.';
   } else {
     moduleStatusRef.innerHTML = `<i class="fas fa-info-circle" style="color:#7a7a7a;"></i> ${completed}/${REQUIRED_DOCUMENTS.length} documents ready.`;
   }
@@ -467,7 +486,7 @@ function updateDocumentButtonState(key, state) {
 
   switch (state) {
     case 'complete':
-      chip.textContent = key === 'bankstatement' ? 'Connected' : 'Uploaded';
+      chip.textContent = key === 'bankstatement' ? 'Captured' : 'Uploaded';
       chip.classList.add('ready');
       if (button) {
         button.disabled = true;

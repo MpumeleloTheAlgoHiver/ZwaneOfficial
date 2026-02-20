@@ -34,23 +34,33 @@ async function initBankStatementModule() {
   console.log('✅ Ready for TruID bank statement connection', { applicationId: applicationId || 'none', userId });
 
   const applyVerifiedState = (details = {}) => {
+    const normalizedStatus = (details.status || '').toString().toLowerCase();
+    const isCaptured = Boolean(
+      details.capturedAt
+      || details.captured_at
+      || details.source === 'truid_collections'
+      || ['captured', 'data_ready', 'ready', 'completed'].includes(normalizedStatus)
+    );
+
     if (checkmark) checkmark.classList.add('visible');
     if (connectBtn) {
       connectBtn.disabled = true;
       connectBtn.style.opacity = '0.5';
       connectBtn.style.cursor = 'not-allowed';
-      connectBtn.textContent = 'Bank Connected ✓';
+      connectBtn.textContent = isCaptured ? 'Statement Captured ✓' : 'Bank Connected ✓';
     }
 
     if (statusChip) {
-      statusChip.textContent = 'Connected';
+      statusChip.textContent = isCaptured ? 'Captured' : 'Connected';
       statusChip.classList.add('success');
     }
 
     if (existingInfo) {
-      const connectedDate = new Date(details.last_updated || details.connected_at || Date.now()).toLocaleDateString();
+      const connectedDate = new Date(details.capturedAt || details.captured_at || details.last_updated || details.updatedAt || Date.now()).toLocaleDateString();
       existingInfo.style.color = '#1f8c5c';
-      existingInfo.innerHTML = `✅ Bank connected via TruID on ${connectedDate}`;
+      existingInfo.innerHTML = isCaptured
+        ? `✓ TruID data captured on ${connectedDate}`
+        : `✓ Bank connected via TruID on ${connectedDate}`;
     }
 
     if (statusPollInterval) {
@@ -69,7 +79,9 @@ async function initBankStatementModule() {
 
     if (data.verified) {
       applyVerifiedState(data);
-      status.textContent = '✅ Bank statement verified via TruID.';
+      status.textContent = (data.statusLabel === 'Captured' || data.capturedAt)
+        ? 'TruID capture completed.'
+        : 'Bank statement verified via TruID.';
       status.style.color = '#28a745';
 
       if (typeof window !== 'undefined') {
