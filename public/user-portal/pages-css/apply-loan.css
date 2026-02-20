@@ -853,12 +853,12 @@ body {
 
 .step.completed {
   background: #ffffff;
-  box-shadow: inset 0 -2px 0 #9ca3af;
+  box-shadow: inset 0 -2px 0 #9ccfb5;
 }
 
 .step.completed .step-number,
 .step.completed span:not(.step-number) {
-  color: #374151;
+  color: #3f6b56;
   font-weight: 500;
 }
 
@@ -895,8 +895,8 @@ body {
 }
 
 .document-status.ready {
-  background: #eef2f7;
-  color: #4b5563;
+  background: #edf7f1;
+  color: #3f6b56;
 }
 
 .document-status.partial {
