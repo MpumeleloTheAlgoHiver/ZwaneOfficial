@@ -1,157 +1,160 @@
-import { getDocumentInfoByUser } from '/user-portal/Services/documentService.js';
 import { supabase } from '/Services/supabaseClient.js';
 
 async function initBankStatementModule() {
-  const form = document.getElementById('bankstatementForm');
-  const status = document.getElementById('uploadStatus');
-  const uploadBtn = document.getElementById('bankstatementUploadBtn');
-  const fileInput = document.getElementById('bankstatementFile');
+  const status = document.getElementById('truidStatusMessage');
+  const connectBtn = document.getElementById('truidConnectBtn');
   const checkmark = document.getElementById('bankstatementCheckmark');
   const existingInfo = document.getElementById('existingFileInfo');
   const statusChip = document.getElementById('bankstatementStatusChip');
-  const selectedFileDisplay = document.getElementById('bankstatementSelectedFile');
+  let statusPollInterval = null;
 
-  if (!form || !status || !uploadBtn || !fileInput) {
+  if (!status || !connectBtn) {
     console.warn('⚠️ Bank statement module DOM not ready');
     return;
   }
 
-  if (form.dataset.bound === 'true') {
+  if (connectBtn.dataset.bound === 'true') {
     return;
   }
-  form.dataset.bound = 'true';
+  connectBtn.dataset.bound = 'true';
 
   const applicationId = sessionStorage.getItem('currentApplicationId') || sessionStorage.getItem('lastApplicationId');
   const { data: { session } } = await supabase.auth.getSession();
   const userId = session?.user?.id;
-  const authToken = session?.access_token;
 
-  if (!userId || !authToken) {
+  if (!userId) {
     console.warn('⚠️ User not logged in');
     status.textContent = '⚠️ Please log in first';
     status.style.color = '#ff9800';
-    uploadBtn.disabled = true;
-    uploadBtn.textContent = 'Please Log In';
+    connectBtn.disabled = true;
+    connectBtn.textContent = 'Please Log In';
     return;
   }
 
-  console.log('✅ Ready to upload bank statement', { applicationId: applicationId || 'none', userId });
+  console.log('✅ Ready for TruID bank statement connection', { applicationId: applicationId || 'none', userId });
 
-  // Display selected file name
-  fileInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (file && selectedFileDisplay) {
-      const fileSize = (file.size / 1024).toFixed(1);
-      selectedFileDisplay.innerHTML = `<i class="fas fa-file"></i> <strong>${file.name}</strong> <span>(${fileSize} KB)</span>`;
-      selectedFileDisplay.style.display = 'block';
-    }
-  });
-
-  await hydrateExistingDocument();
-
-  async function hydrateExistingDocument() {
-    const docInfo = await getDocumentInfoByUser(userId, 'bank_statement');
-    if (!docInfo) {
-      if (statusChip) {
-        statusChip.textContent = 'Pending';
-        statusChip.classList.remove('success');
-      }
-      return;
-    }
-
+  const applyVerifiedState = (details = {}) => {
     if (checkmark) checkmark.classList.add('visible');
-    uploadBtn.disabled = true;
-    uploadBtn.style.opacity = '0.5';
-    uploadBtn.style.cursor = 'not-allowed';
-    uploadBtn.textContent = 'Already Uploaded ✓';
-    fileInput.disabled = true;
+    if (connectBtn) {
+      connectBtn.disabled = true;
+      connectBtn.style.opacity = '0.5';
+      connectBtn.style.cursor = 'not-allowed';
+      connectBtn.textContent = 'Bank Connected ✓';
+    }
 
     if (statusChip) {
-      statusChip.textContent = 'Uploaded';
+      statusChip.textContent = 'Connected';
       statusChip.classList.add('success');
     }
 
     if (existingInfo) {
+      const connectedDate = new Date(details.last_updated || details.connected_at || Date.now()).toLocaleDateString();
       existingInfo.style.color = '#1f8c5c';
-      const uploadDate = new Date(docInfo.uploaded_at || docInfo.created_at || Date.now()).toLocaleDateString();
-      existingInfo.innerHTML = `✅ File uploaded: <b>${docInfo.file_name}</b> on ${uploadDate}`;
+      existingInfo.innerHTML = `✅ Bank connected via TruID on ${connectedDate}`;
     }
-  }
 
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
+    if (statusPollInterval) {
+      clearInterval(statusPollInterval);
+      statusPollInterval = null;
+    }
+  };
 
-    const file = fileInput.files[0];
-    if (!file) {
-      status.textContent = 'Please select a file first.';
-      status.style.color = '#ff9800';
+  const fetchTruidStatus = async () => {
+    const response = await fetch(`/api/banking/status?userId=${encodeURIComponent(userId)}`);
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Unable to check TruID status');
+    }
+
+    if (data.verified) {
+      applyVerifiedState(data);
+      status.textContent = '✅ Bank statement verified via TruID.';
+      status.style.color = '#28a745';
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('document:uploaded', { detail: { fileType: 'bank_statement' } }));
+      }
       return;
     }
 
-    console.log('📁 Bank statement selected', {
-      name: file.name,
-      size: `${(file.size / 1024).toFixed(2)}KB`,
-      type: file.type,
-    });
-
-    const formData = new FormData();
-    formData.append('file', file);
-    if (applicationId) {
-      formData.append('applicationId', applicationId);
+    if (statusChip) {
+      statusChip.textContent = data.statusLabel || 'Pending';
+      statusChip.classList.remove('success');
     }
 
-    status.textContent = 'Uploading... ⏳';
-    status.style.color = '';
-    uploadBtn.disabled = true;
+    if (data.statusLabel) {
+      status.textContent = `TruID status: ${data.statusLabel}`;
+      status.style.color = '#7a7a7a';
+    }
+  };
+
+  await fetchTruidStatus();
+
+  connectBtn.addEventListener('click', async () => {
+    status.textContent = 'Launching TruID secure connection...';
+    status.style.color = '#7a7a7a';
+    connectBtn.disabled = true;
+
+    const redirectUrl = `${window.location.origin}/user-portal/?page=apply-loan`;
+    const payload = {
+      userId,
+      name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || null,
+      idNumber: session.user.user_metadata?.id_number || session.user.user_metadata?.idNumber || null,
+      idType: 'id',
+      email: session.user.email,
+      mobile: session.user.phone || session.user.user_metadata?.phone || session.user.user_metadata?.phone_number,
+      correlation: {
+        userId,
+        applicationId: applicationId || null
+      },
+      redirectUrl
+    };
 
     try {
-      const res = await fetch('/api/bankstatement/upload', {
+      const res = await fetch('/api/banking/initiate', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
         },
-        body: formData,
+        body: JSON.stringify(payload)
       });
 
       const data = await res.json();
 
       if (res.ok) {
-        status.innerHTML = `✅ Bank statement uploaded successfully!<br><small><b>${data.filename}</b> received.</small>`;
-        status.style.color = '#28a745';
-        if (checkmark) checkmark.classList.add('visible');
-        uploadBtn.style.opacity = '0.5';
-        uploadBtn.style.cursor = 'not-allowed';
-        uploadBtn.textContent = 'Already Uploaded ✓';
-        fileInput.disabled = true;
+        const consumerUrl = data.consumerUrl || data.connect_url;
+        if (consumerUrl) {
+          window.open(consumerUrl, '_blank', 'width=900,height=700');
+        }
+
+        status.textContent = 'TruID launched. Complete bank linking to continue.';
+        status.style.color = '#7a7a7a';
+
         if (statusChip) {
-          statusChip.textContent = 'Uploaded';
-          statusChip.classList.add('success');
+          statusChip.textContent = 'In Progress';
+          statusChip.classList.remove('success');
         }
 
-        if (existingInfo) {
-          const uploadDate = new Date(data.uploadedAt || Date.now()).toLocaleDateString();
-          existingInfo.innerHTML = `✅ File uploaded: <b>${data.filename}</b> on ${uploadDate}`;
-          existingInfo.style.color = '#1f8c5c';
+        if (statusPollInterval) {
+          clearInterval(statusPollInterval);
         }
-
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('document:uploaded', { detail: { fileType: 'bank_statement' } }));
-        }
+        statusPollInterval = setInterval(fetchTruidStatus, 5000);
       } else {
-        console.error('❌ Upload failed', data);
-        status.textContent = `❌ Upload failed: ${data.message || data.error}`;
+        console.error('❌ TruID launch failed', data);
+        status.textContent = `❌ TruID start failed: ${data.message || data.error}`;
         status.style.color = '#dc3545';
-        uploadBtn.disabled = false;
+        connectBtn.disabled = false;
         if (statusChip) {
           statusChip.textContent = 'Pending';
           statusChip.classList.remove('success');
         }
       }
     } catch (err) {
-      console.error('⚠️ Network or parsing error', err);
-      status.textContent = '⚠️ Something went wrong during upload.';
+      console.error('⚠️ TruID request error', err);
+      status.textContent = '⚠️ Something went wrong while starting TruID.';
       status.style.color = '#ff9800';
-      uploadBtn.disabled = false;
+      connectBtn.disabled = false;
       if (statusChip) {
         statusChip.textContent = 'Pending';
         statusChip.classList.remove('success');

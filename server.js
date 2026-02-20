@@ -24,6 +24,7 @@ const tillSlipRoute = require('./public/user/routes/tillSlipRoute');
 const bankStatementRoute = require('./public/user/routes/bankStatementRoute');
 const idcardRoute = require('./public/user/routes/idcardRoute');
 const kyc = require(path.join(__dirname, 'public', 'user-portal', 'Services', 'kycService'));
+const truid = require('./services/truidService');
 const creditCheckService = require('./services/creditCheckService');
 const { supabase, supabaseService } = require('./config/supabaseServer');
 const { startNotificationScheduler } = require('./services/notificationScheduler');
@@ -295,6 +296,124 @@ app.get('/api/kyc/user/:userId/status', async (req, res) => {
     } catch (error) {
         console.error('KYC status error:', error);
         return res.status(500).json({ error: 'Unable to fetch KYC status' });
+    }
+});
+
+// TruID API routes
+app.post('/api/truid/create-session', async (req, res) => {
+    try {
+        const payload = req.body || {};
+        const result = await truid.initiateCollection({
+            ...payload,
+            name: payload.name || payload.metadata?.full_name,
+            idNumber: payload.idNumber || payload.metadata?.id_number || payload.metadata?.idNumber,
+            email: payload.email,
+            mobile: payload.phone,
+            correlation: {
+                userId: payload.userId,
+                applicationId: payload.metadata?.applicationId || null
+            }
+        });
+
+        return res.json({
+            success: true,
+            session_id: result.collectionId,
+            connect_url: result.consumerUrl,
+            status: result.status
+        });
+    } catch (error) {
+        console.error('TruID create-session error:', error.message || error);
+        if (error.code === 'TRUID_CONFIG_MISSING') {
+            return res.status(503).json({ error: error.message });
+        }
+        return res.status(error.status || 500).json({ error: error.message || 'Unable to start TruID session' });
+    }
+});
+
+app.get('/api/truid/session/:sessionId', async (req, res) => {
+    try {
+        const result = await truid.getCollectionStatus(req.params.sessionId);
+        return res.json(result);
+    } catch (error) {
+        console.error('TruID session lookup error:', error.message || error);
+        return res.status(error.status || 500).json({ error: 'Unable to fetch session status' });
+    }
+});
+
+app.get('/api/truid/user/:userId/status', async (req, res) => {
+    try {
+        const result = await truid.getUserStatus(req.params.userId);
+        return res.json(result);
+    } catch (error) {
+        console.error('TruID status error:', error.message || error);
+        return res.status(500).json({ error: error.message || 'Unable to fetch TruID status' });
+    }
+});
+
+app.post('/api/truid/webhook', async (req, res) => {
+    try {
+        const payload = req.body || {};
+        const result = await truid.captureCollectionData({
+            collectionId: payload.collectionId || payload.collection_id || payload.id,
+            userId: payload.userId || payload.user_id || payload.correlation?.userId,
+            applicationId: payload.applicationId || payload.correlation?.applicationId
+        });
+        return res.status(200).json(result);
+    } catch (error) {
+        console.error('TruID webhook error:', error.message || error);
+        return res.status(error.status || 500).json({ error: 'Webhook processing failed' });
+    }
+});
+
+// Banking API endpoints
+app.post('/api/banking/initiate', async (req, res) => {
+    try {
+        const result = await truid.initiateCollection(req.body || {});
+        return res.json(result);
+    } catch (error) {
+        console.error('Banking initiate error:', error.message || error);
+        return res.status(error.status || 500).json({ success: false, error: error.message || 'Failed to initiate banking collection' });
+    }
+});
+
+app.get('/api/banking/status', async (req, res) => {
+    try {
+        const { collectionId, userId } = req.query;
+
+        if (collectionId) {
+            const result = await truid.getCollectionStatus(collectionId);
+            return res.json(result);
+        }
+
+        if (userId) {
+            const result = await truid.getUserStatus(userId);
+            return res.json(result);
+        }
+
+        return res.status(400).json({ success: false, error: 'Provide collectionId or userId' });
+    } catch (error) {
+        console.error('Banking status error:', error.message || error);
+        return res.status(error.status || 500).json({ success: false, error: error.message || 'Failed to fetch banking status' });
+    }
+});
+
+app.get('/api/banking/all', async (req, res) => {
+    try {
+        const result = await truid.getAllSessions();
+        return res.json(result);
+    } catch (error) {
+        console.error('Banking all error:', error.message || error);
+        return res.status(error.status || 500).json({ success: false, error: error.message || 'Failed to list banking sessions' });
+    }
+});
+
+app.post('/api/banking/capture', async (req, res) => {
+    try {
+        const result = await truid.captureCollectionData(req.body || {});
+        return res.json(result);
+    } catch (error) {
+        console.error('Banking capture error:', error.message || error);
+        return res.status(error.status || 500).json({ success: false, error: error.message || 'Failed to capture banking data' });
     }
 });
 
