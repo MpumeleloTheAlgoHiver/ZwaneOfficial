@@ -838,13 +838,17 @@ body {
 }
 
 .step.active {
-  background: #ffffff;
-  color: #1f2937;
-  box-shadow: inset 0 -2px 0 #d1d5db;
+  background: #22c55e;
+  color: #ffffff;
+  box-shadow: inset 0 -2px 0 #16a34a;
 }
 
 .step.active .step-number,
-.step.active span:not(.step-number),
+.step.active span:not(.step-number) {
+  color: #ffffff;
+  font-weight: 600;
+}
+
 .step.inactive .step-number,
 .step.inactive span:not(.step-number) {
   color: #6b7280;
@@ -852,14 +856,14 @@ body {
 }
 
 .step.completed {
-  background: #ffffff;
-  box-shadow: inset 0 -2px 0 #9ccfb5;
+  background: #dcfce7;
+  box-shadow: inset 0 -2px 0 #22c55e;
 }
 
 .step.completed .step-number,
 .step.completed span:not(.step-number) {
-  color: #3f6b56;
-  font-weight: 500;
+  color: #15803d;
+  font-weight: 600;
 }
 
 .step:hover {
@@ -895,8 +899,9 @@ body {
 }
 
 .document-status.ready {
-  background: #edf7f1;
-  color: #3f6b56;
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #86efac;
 }
 
 .document-status.partial {
