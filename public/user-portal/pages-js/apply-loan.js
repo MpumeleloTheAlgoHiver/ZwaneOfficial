@@ -467,7 +467,7 @@ function updateDocumentButtonState(key, state) {
 
   switch (state) {
     case 'complete':
-      chip.textContent = 'Uploaded';
+      chip.textContent = key === 'bankstatement' ? 'Connected' : 'Uploaded';
       chip.classList.add('ready');
       if (button) {
         button.disabled = true;
@@ -507,13 +507,23 @@ async function refreshDocumentStatuses(showSpinner = false) {
     setModuleStatusLoading();
   }
 
-  const [tillSlipExists, bankStatementExists] = await Promise.all([
+  const [tillSlipExists, bankStatementExists, truidStatus] = await Promise.all([
     documentServices.checkDocumentExistsByUser(activeUserId, 'till_slip'),
-    documentServices.checkDocumentExistsByUser(activeUserId, 'bank_statement')
+    documentServices.checkDocumentExistsByUser(activeUserId, 'bank_statement'),
+    fetch(`/api/truid/user/${activeUserId}/status`)
+      .then(async (res) => {
+        if (!res.ok) {
+          return { verified: false };
+        }
+        return res.json();
+      })
+      .catch(() => ({ verified: false }))
   ]);
 
+  const bankStatementReady = bankStatementExists || !!truidStatus?.verified;
+
   updateDocumentButtonState('tillslip', tillSlipExists ? 'complete' : 'pending');
-  updateDocumentButtonState('bankstatement', bankStatementExists ? 'complete' : 'pending');
+  updateDocumentButtonState('bankstatement', bankStatementReady ? 'complete' : 'pending');
 
   renderModuleStatus();
   updateNextButtonState();
