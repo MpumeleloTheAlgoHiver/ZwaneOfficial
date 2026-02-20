@@ -328,7 +328,7 @@ async function resolveProfileIdentity(userId) {
 
   const { data, error } = await supabaseService
     .from('profiles')
-    .select('full_name, first_name, last_name, identity_number, id_number, email, contact_number, phone, mobile')
+    .select('full_name, identity_number, email, contact_number')
     .eq('id', userId)
     .maybeSingle();
 
@@ -336,10 +336,10 @@ async function resolveProfileIdentity(userId) {
     throw new Error(error.message || 'Unable to resolve profile identity');
   }
 
-  const name = data?.full_name || buildNameFromParts(data?.first_name, data?.last_name);
-  const idNumber = data?.identity_number || data?.id_number || null;
+  const name = data?.full_name || null;
+  const idNumber = data?.identity_number || null;
   const email = data?.email || null;
-  const mobile = data?.mobile || data?.phone || data?.contact_number || null;
+  const mobile = data?.contact_number || null;
 
   return { name, idNumber, email, mobile };
 }
