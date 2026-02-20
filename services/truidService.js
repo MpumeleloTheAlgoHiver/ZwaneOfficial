@@ -550,6 +550,19 @@ async function getUserStatus(userId) {
     throw err;
   }
 
+  const latestRecord = await getLatestCollectionForUser(userId);
+  if (latestRecord?.collection_id) {
+    latestCollectionByUser.set(userId, latestRecord.collection_id);
+    sessionsByCollectionId.set(latestRecord.collection_id, {
+      collectionId: latestRecord.collection_id,
+      userId,
+      applicationId: latestRecord.application_id || null,
+      status: latestRecord.status || 'pending',
+      updatedAt: latestRecord.updated_at || new Date().toISOString(),
+      createdAt: latestRecord.created_at || new Date().toISOString()
+    });
+  }
+
   const { data: uploadedDoc, error } = await supabaseService
     .from('document_uploads')
     .select('id, uploaded_at')
@@ -563,6 +576,22 @@ async function getUserStatus(userId) {
     throw new Error(error.message || 'Unable to fetch bank statement status');
   }
 
+  if (latestRecord?.verified) {
+    const normalized = normalizeStatus(latestRecord.status || '');
+    const captured = !!latestRecord.captured_at || ['data_ready', 'ready', 'captured', 'completed'].includes(normalized);
+
+    return {
+      success: true,
+      verified: true,
+      status: captured ? 'captured' : (latestRecord.status || 'connected'),
+      statusLabel: captured ? 'Captured' : formatStatusLabel(latestRecord.status || 'Connected'),
+      source: 'truid_collections',
+      collectionId: latestRecord.collection_id,
+      capturedAt: latestRecord.captured_at || null,
+      updatedAt: latestRecord.updated_at || uploadedDoc?.uploaded_at || new Date().toISOString()
+    };
+  }
+
   if (uploadedDoc) {
     return {
       success: true,
@@ -574,22 +603,7 @@ async function getUserStatus(userId) {
     };
   }
 
-  let collectionId = latestCollectionByUser.get(userId);
-  if (!collectionId) {
-    const latestRecord = await getLatestCollectionForUser(userId);
-    collectionId = latestRecord?.collection_id || null;
-    if (collectionId) {
-      latestCollectionByUser.set(userId, collectionId);
-      sessionsByCollectionId.set(collectionId, {
-        collectionId,
-        userId,
-        applicationId: latestRecord?.application_id || null,
-        status: latestRecord?.status || 'pending',
-        updatedAt: latestRecord?.updated_at || new Date().toISOString(),
-        createdAt: latestRecord?.created_at || new Date().toISOString()
-      });
-    }
-  }
+  const collectionId = latestCollectionByUser.get(userId);
 
   if (!collectionId) {
     return {

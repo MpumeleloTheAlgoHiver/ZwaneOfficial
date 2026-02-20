@@ -7,9 +7,10 @@
 
 .upload-card {
   background: #fff;
-  border-radius: 20px;
+  border-radius: 18px;
   padding: 28px;
-  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
+  border: 1px solid #ebeef3;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
   animation: fadeIn 0.3s ease;
 }
 
@@ -35,21 +36,21 @@
 }
 
 .upload-status-chip {
-  background: #fff5eb;
-  color: var(--color-primary);
+  background: #f3f4f6;
+  color: #6b7280;
   padding: 0.35rem 1rem;
   border-radius: 999px;
   font-size: 0.85rem;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .upload-status-chip.success {
-  background: #e7f7f0;
-  color: #0f9158;
+  background: #eef2f7;
+  color: #4b5563;
 }
 
 .upload-dropzone {
-  border: 2px dashed #dadada;
+  border: 1px dashed #d1d5db;
   border-radius: 16px;
   padding: 1.75rem;
   text-align: center;
@@ -59,11 +60,11 @@
 
 .upload-dropzone i {
   font-size: 2rem;
-  color: var(--color-primary);
+  color: #6b7280;
 }
 
 .dropzone-title {
-  font-weight: 600;
+  font-weight: 500;
   margin: 0.5rem 0 0;
   color: #1f1f1f;
 }
@@ -131,20 +132,20 @@
 
 .upload-btn {
   width: 100%;
-  background-color: #eb5a0c;
-  color: white;
-  border: none;
+  background-color: #111827;
+  color: #f9fafb;
+  border: 1px solid #111827;
   padding: 14px 20px;
   border-radius: 12px;
   cursor: pointer;
   margin-top: 1.25rem;
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: 500;
   transition: 0.2s;
 }
 
 .upload-btn:hover {
-  background-color: #ff6d1b;
+  background-color: #1f2937;
 }
 
 .upload-btn:disabled {
