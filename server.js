@@ -891,7 +891,11 @@ app.post('/api/suresystems/activate-application', async (req, res) => {
             at: new Date().toISOString()
         });
 
-        console.error('Manual SureSystems activation error:', error.message || error);
+        console.error('Manual SureSystems activation error:', {
+            message: error?.message || 'Unknown error',
+            status: error?.status || 500,
+            details: error?.details || null
+        });
         return res.status(error.status || 500).json({
             success: false,
             error: error.message || 'Unable to activate SureSystems mandate',

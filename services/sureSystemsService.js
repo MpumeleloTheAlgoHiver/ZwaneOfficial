@@ -149,7 +149,15 @@ function normalizeError(error, fallback) {
   const message = body?.message || body?.error || error.message || fallback;
   const normalized = new Error(message || fallback);
   normalized.status = status;
-  normalized.details = body || error.details || null;
+  normalized.details = error.details || {
+    status,
+    code: error.code || error.response?.status || null,
+    endpoint: error.endpoint || error.config?.url || null,
+    method: error.config?.method?.toUpperCase?.() || 'POST',
+    timeout: error.config?.timeout || null,
+    providerResponse: body || null,
+    networkMessage: error.message || null
+  };
   return normalized;
 }
 
@@ -174,7 +182,13 @@ async function request(endpoint, payload) {
     if (response.status < 200 || response.status >= 300) {
       const error = new Error(response.data?.message || 'SureSystems request failed');
       error.status = response.status;
-      error.details = response.data;
+      error.endpoint = url;
+      error.details = {
+        status: response.status,
+        endpoint: url,
+        method: 'POST',
+        providerResponse: response.data || null
+      };
       throw error;
     }
 
