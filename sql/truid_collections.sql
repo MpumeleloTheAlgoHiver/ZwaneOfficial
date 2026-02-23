@@ -38,7 +38,7 @@ begin
       and tablename = 'truid_collections'
       and policyname = 'service role full access on truid_collections'
   ) then
-    create policy "service role full access on truid_collections"
+    create policy "service role full access on truid_collections.."
       on public.truid_collections
       for all
       to service_role
