@@ -814,12 +814,42 @@ window.manualStatusChange = async () => {
     }
 
     if(confirm(`Are you sure you want to manually force status to "${newStatus}"?`)) {
-        const { error } = await updateApplicationStatus(currentApplication.id, newStatus);
-        if(error) showFeedback(error.message, 'error');
-        else {
-            showFeedback('Status manually updated.', 'success');
-            loadApplicationData();
+      const { error } = await updateApplicationStatus(currentApplication.id, newStatus);
+      if(error) {
+        showFeedback(error.message, 'error');
+        return;
+      }
+
+      if (newStatus === 'OFFER_ACCEPTED') {
+        showFeedback('Status manually updated. Activating SureSystems mandate...', 'success');
+        try {
+          const response = await fetch('/api/suresystems/activate-application', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ applicationId: currentApplication.id })
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok || payload?.success === false) {
+            throw new Error(payload?.error || payload?.message || 'SureSystems mandate activation failed');
+          }
+
+          alert(
+            `✅ SureSystems mandate activated successfully.\n\nApplication ID: ${currentApplication.id}` +
+            `${payload?.contractReference ? `\nContract Reference: ${payload.contractReference}` : ''}` +
+            `${payload?.activatedAt ? `\nActivated At: ${new Date(payload.activatedAt).toLocaleString()}` : ''}`
+          );
+        } catch (activationError) {
+          alert(
+            `⚠️ Status changed to OFFER_ACCEPTED, but mandate activation failed.\n\n` +
+            `${activationError?.message || 'Unknown activation error'}`
+          );
+          showFeedback(activationError?.message || 'SureSystems mandate activation failed', 'error');
         }
+      } else {
+        showFeedback('Status manually updated.', 'success');
+      }
+
+      await loadApplicationData();
     }
 };
 
