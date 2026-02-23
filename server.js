@@ -26,6 +26,7 @@ const idcardRoute = require('./public/user/routes/idcardRoute');
 const kyc = require(path.join(__dirname, 'public', 'user-portal', 'Services', 'kycService'));
 const truid = require('./services/truidService');
 const creditCheckService = require('./services/creditCheckService');
+const sureSystemsService = require('./services/sureSystemsService');
 const { supabase, supabaseService } = require('./config/supabaseServer');
 const { startNotificationScheduler } = require('./services/notificationScheduler');
 
@@ -39,6 +40,51 @@ const docuSealHeaders = {
     'Content-Type': 'application/json',
     'X-Auth-Token': DOCUSEAL_API_KEY || ''
 };
+
+const sureSystemsActivationStore = {
+    byApplication: new Map(),
+    history: []
+};
+
+function recordSureSystemsActivation(entry = {}) {
+    if (!entry.applicationId) {
+        return;
+    }
+
+    const normalized = {
+        applicationId: entry.applicationId,
+        status: entry.status || 'unknown',
+        contractReference: entry.contractReference || null,
+        message: entry.message || null,
+        at: entry.at || new Date().toISOString()
+    };
+
+    sureSystemsActivationStore.byApplication.set(normalized.applicationId, normalized);
+    sureSystemsActivationStore.history.unshift(normalized);
+    if (sureSystemsActivationStore.history.length > 200) {
+        sureSystemsActivationStore.history = sureSystemsActivationStore.history.slice(0, 200);
+    }
+}
+
+function getSureSystemsActivationStatus() {
+    const configStatus = sureSystemsService.getConfigStatus();
+    const recentWindow = sureSystemsActivationStore.history.slice(0, 50);
+    const successCount = recentWindow.filter((item) => item.status === 'success').length;
+    const failureCount = recentWindow.filter((item) => item.status === 'failed').length;
+
+    return {
+        ...configStatus,
+        recent: {
+            total: recentWindow.length,
+            success: successCount,
+            failed: failureCount,
+            lastAttemptAt: recentWindow[0]?.at || null
+        },
+        applications: Array.from(sureSystemsActivationStore.byApplication.values())
+            .sort((a, b) => new Date(b.at) - new Date(a.at))
+            .slice(0, 20)
+    };
+}
 
 const DEFAULT_AUTH_OVERLAY_COLOR = '#EA580C';
 const DEFAULT_COMPANY_NAME = 'Your Company';
@@ -227,6 +273,66 @@ function handleDocuSealError(error, res) {
 
     console.error('DocuSeal API error:', message, error.response?.data || '');
     return res.status(status).json({ error: message, details: error.response?.data });
+}
+
+function toSureSystemsDate(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+async function triggerSureSystemsMandateForApplication(applicationId) {
+    if (!applicationId) return null;
+
+    const { data: application, error: appError } = await supabaseService
+        .from('loan_applications')
+        .select('id, user_id, amount, repayment_start_date, bank_account_id')
+        .eq('id', applicationId)
+        .maybeSingle();
+
+    if (appError || !application) {
+        throw new Error(`Unable to load application ${applicationId} for SureSystems mandate`);
+    }
+
+    if (!application.bank_account_id) {
+        throw new Error(`Application ${applicationId} has no bank_account_id`);
+    }
+
+    const { data: bankAccount, error: bankError } = await supabaseService
+        .from('bank_accounts')
+        .select('account_holder, account_number, branch_code')
+        .eq('id', application.bank_account_id)
+        .maybeSingle();
+
+    if (bankError || !bankAccount) {
+        throw new Error(`Unable to load bank account for application ${applicationId}`);
+    }
+
+    const { data: profile } = await supabaseService
+        .from('profiles')
+        .select('*')
+        .eq('id', application.user_id)
+        .maybeSingle();
+
+    const collectionDate = toSureSystemsDate(application.repayment_start_date) || sureSystemsService.getToday();
+    const debtorIdentificationNo = profile?.id_number || profile?.idNumber || application.user_id;
+
+    const result = await sureSystemsService.loadMandate({
+        clientNo: String(application.user_id || application.id).slice(0, 20),
+        frontEndUserName: profile?.email || 'webuser',
+        debtorAccountName: bankAccount.account_holder || profile?.full_name || '',
+        debtorIdentificationNo: String(debtorIdentificationNo || ''),
+        debtorAccountNumber: bankAccount.account_number,
+        debtorBranchNumber: bankAccount.branch_code,
+        debtorEmail: profile?.email || '',
+        amount: Number(application.amount || 0),
+        collectionDate,
+        dateList: collectionDate,
+        userReference: `APP-${application.id}`
+    });
+
+    return result?.contractReference || null;
 }
 
 app.use('/api/tillslip', tillSlipRoute);
@@ -509,6 +615,145 @@ app.post('/api/calculate-affordability', (req, res) => {
     }
 });
 
+// SureSystems API proxy endpoints
+app.get('/api/suresystems/config', (req, res) => {
+    try {
+        return res.json(sureSystemsService.getConfigStatus());
+    } catch (error) {
+        console.error('SureSystems config status error:', error);
+        return res.status(500).json({ configured: false, error: 'Unable to read SureSystems configuration' });
+    }
+});
+
+app.post('/api/suresystems/mandates/load', async (req, res) => {
+    try {
+        const payload = req.body || {};
+        const result = await sureSystemsService.loadMandate(payload);
+        return res.json({ success: true, contractReference: result.contractReference, ...result.response });
+    } catch (error) {
+        console.error('SureSystems mandate load error:', error.message || error);
+        return res.status(error.status || 500).json({
+            success: false,
+            error: error.message || 'SureSystems mandate load failed',
+            details: error.details || null
+        });
+    }
+});
+
+app.post('/api/suresystems/mandates/finalfate', async (req, res) => {
+    try {
+        const payload = req.body || {};
+        const result = await sureSystemsService.checkFinalFate(payload);
+        return res.json({ success: true, ...result.response });
+    } catch (error) {
+        console.error('SureSystems final fate error:', error.message || error);
+        return res.status(error.status || 500).json({
+            success: false,
+            error: error.message || 'SureSystems final fate check failed',
+            details: error.details || null
+        });
+    }
+});
+
+app.post('/api/suresystems/payments/download', async (req, res) => {
+    try {
+        const payload = req.body || {};
+        const result = await sureSystemsService.downloadPayments(payload);
+        return res.json({ success: true, ...result.response });
+    } catch (error) {
+        console.error('SureSystems payments download error:', error.message || error);
+        return res.status(error.status || 500).json({
+            success: false,
+            error: error.message || 'SureSystems payment download failed',
+            details: error.details || null
+        });
+    }
+});
+
+app.post('/api/suresystems/mandates/batch/mandateenquiry', async (req, res) => {
+    try {
+        const payload = req.body || {};
+        const result = await sureSystemsService.mandateEnquiry(payload);
+        return res.json({ success: true, ...result.response });
+    } catch (error) {
+        console.error('SureSystems mandate enquiry error:', error.message || error);
+        return res.status(error.status || 500).json({
+            success: false,
+            error: error.message || 'SureSystems mandate enquiry failed',
+            details: error.details || null
+        });
+    }
+});
+
+app.post('/api/suresystems/mandates/cancel', async (req, res) => {
+    try {
+        const payload = req.body || {};
+        const result = await sureSystemsService.cancelMandate(payload);
+        return res.json({ success: true, ...result.response });
+    } catch (error) {
+        console.error('SureSystems cancel mandate error:', error.message || error);
+        return res.status(error.status || 500).json({
+            success: false,
+            error: error.message || 'SureSystems cancel mandate failed',
+            details: error.details || null
+        });
+    }
+});
+
+app.post('/api/suresystems/installments/batch/installment', async (req, res) => {
+    try {
+        const payload = req.body || {};
+        const result = await sureSystemsService.createInstallmentRequest(payload);
+        return res.json({ success: true, ...result.response });
+    } catch (error) {
+        console.error('SureSystems installment request error:', error.message || error);
+        return res.status(error.status || 500).json({
+            success: false,
+            error: error.message || 'SureSystems installment request failed',
+            details: error.details || null
+        });
+    }
+});
+
+app.post('/api/suresystems/installments/batch/update', async (req, res) => {
+    try {
+        const payload = req.body || {};
+        const result = await sureSystemsService.updateInstallmentRequest(payload);
+        return res.json({ success: true, ...result.response });
+    } catch (error) {
+        console.error('SureSystems update installment error:', error.message || error);
+        return res.status(error.status || 500).json({
+            success: false,
+            error: error.message || 'SureSystems update installment failed',
+            details: error.details || null
+        });
+    }
+});
+
+app.post('/api/suresystems/installments/cancel', async (req, res) => {
+    try {
+        const payload = req.body || {};
+        const result = await sureSystemsService.cancelInstallment(payload);
+        return res.json({ success: true, ...result.response });
+    } catch (error) {
+        console.error('SureSystems cancel installment error:', error.message || error);
+        return res.status(error.status || 500).json({
+            success: false,
+            error: error.message || 'SureSystems cancel installment failed',
+            details: error.details || null
+        });
+    }
+});
+
+app.get('/api/suresystems/activation-status', (req, res) => {
+    try {
+        return res.json(getSureSystemsActivationStatus());
+    } catch (error) {
+        console.error('SureSystems activation status error:', error);
+        return res.status(500).json({ error: 'Unable to load SureSystems activation status' });
+    }
+});
+
 // DocuSeal proxy endpoints
 app.get('/api/docuseal/config', (req, res) => {
     return res.json({
@@ -701,6 +946,28 @@ app.post('/api/docuseal/webhook', async (req, res) => {
                             .update({ status: 'OFFER_ACCEPTED', contract_signed_at: now })
                             .eq('id', applicationId);
                         console.log('DocuSeal: set application', applicationId, 'to OFFER_ACCEPTED');
+
+                        try {
+                            const contractReference = await triggerSureSystemsMandateForApplication(applicationId);
+                            recordSureSystemsActivation({
+                                applicationId,
+                                status: 'success',
+                                contractReference,
+                                message: 'Mandate loaded after DocuSeal completion',
+                                at: now
+                            });
+                            if (contractReference) {
+                                console.log('SureSystems: mandate loaded for application', applicationId, 'contractReference:', contractReference);
+                            }
+                        } catch (sureSystemsError) {
+                            recordSureSystemsActivation({
+                                applicationId,
+                                status: 'failed',
+                                message: sureSystemsError?.message || 'SureSystems activation failed',
+                                at: now
+                            });
+                            console.warn('SureSystems mandate activation failed for application', applicationId, sureSystemsError?.message || sureSystemsError);
+                        }
                     }
                 } catch (err) {
                     console.error('Error updating application status after DocuSeal completed:', err);

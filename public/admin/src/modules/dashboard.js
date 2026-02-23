@@ -29,6 +29,19 @@ const getThemeColors = () => {
   return { primary, secondary };
 };
 
+async function fetchSureSystemsActivationStatus() {
+  try {
+    const response = await fetch('/api/suresystems/activation-status');
+    if (!response.ok) {
+      throw new Error(`SureSystems status fetch failed (${response.status})`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.warn('SureSystems activation status unavailable:', error.message || error);
+    return null;
+  }
+}
+
 // ---------- Bootstrap ----------
 document.addEventListener('DOMContentLoaded', async () => {
   try {
@@ -87,14 +100,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Fetch data
   let systemStatus = { text: 'Operational', color: '#10b981', dot: 'bg-emerald-500' };
   let dashData, pipelineData, perfData, finData, advancedStats, trendsData;
+  let sureSystemsActivation = null;
   try {
-    [dashData, pipelineData, perfData, finData, advancedStats, trendsData] = await Promise.all([
+    [dashData, pipelineData, perfData, finData, advancedStats, trendsData, sureSystemsActivation] = await Promise.all([
       fetchDashboardData().catch(() => ({ financials: {}, portfolioStatus: [] })),
       fetchPipelineApplications().catch(() => ({ data: [] })),
       fetchMonthlyLoanPerformance().catch(() => ({ data: [] })),
       fetchFinancialsData().catch(() => ({ data: {} })),
       fetchPortfolioAnalytics().catch(() => ({ data: null })),
-      fetchFinancialTrends().catch(() => ({ data: [] }))
+      fetchFinancialTrends().catch(() => ({ data: [] })),
+      fetchSureSystemsActivationStatus()
     ]);
   } catch (error) {
     console.error('System Fetch Error:', error);
@@ -108,6 +123,32 @@ document.addEventListener('DOMContentLoaded', async () => {
   const detailedFin = finData?.data || {};
   const analytics = advancedStats?.data || calculateFallbackStats(pipeline, perf);
   const { primary: primaryColor, secondary: secondaryColor } = getThemeColors();
+  const sureSystemsState = (() => {
+    if (!sureSystemsActivation?.configured) {
+      return {
+        text: 'SureSystems: Not Configured',
+        color: '#f59e0b',
+        dot: 'bg-amber-500'
+      };
+    }
+
+    const failed = Number(sureSystemsActivation?.recent?.failed || 0);
+    const success = Number(sureSystemsActivation?.recent?.success || 0);
+
+    if (failed > 0 && success === 0) {
+      return {
+        text: 'SureSystems: Activation Errors',
+        color: '#ef4444',
+        dot: 'bg-red-500'
+      };
+    }
+
+    return {
+      text: `SureSystems: ${success} recent successes`,
+      color: '#10b981',
+      dot: 'bg-emerald-500'
+    };
+  })();
 
   // Render layout (same structure as your draft but with theme colors)
   mainContent.innerHTML = `
@@ -126,9 +167,15 @@ document.addEventListener('DOMContentLoaded', async () => {
               </div>
             ` : ''}
           </div>
-          <div class="status-badge">
-            <span class="status-dot ${systemStatus.dot}" style="background-color:${systemStatus.color};"></span>
-            <span style="color:${systemStatus.color};">${systemStatus.text}</span>
+          <div class="flex flex-col items-end gap-2">
+            <div class="status-badge">
+              <span class="status-dot ${systemStatus.dot}" style="background-color:${systemStatus.color};"></span>
+              <span style="color:${systemStatus.color};">${systemStatus.text}</span>
+            </div>
+            <div class="status-badge">
+              <span class="status-dot ${sureSystemsState.dot}" style="background-color:${sureSystemsState.color};"></span>
+              <span style="color:${sureSystemsState.color};">${sureSystemsState.text}</span>
+            </div>
           </div>
         </div>
       </div>
