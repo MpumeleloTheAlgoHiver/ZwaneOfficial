@@ -830,7 +830,9 @@ window.manualStatusChange = async () => {
           });
           const payload = await response.json().catch(() => ({}));
           if (!response.ok || payload?.success === false) {
-            throw new Error(payload?.error || payload?.message || 'SureSystems mandate activation failed');
+            const activationError = new Error(payload?.error || payload?.message || 'SureSystems mandate activation failed');
+            activationError.details = payload?.details || null;
+            throw activationError;
           }
 
           alert(
@@ -839,9 +841,17 @@ window.manualStatusChange = async () => {
             `${payload?.activatedAt ? `\nActivated At: ${new Date(payload.activatedAt).toLocaleString()}` : ''}`
           );
         } catch (activationError) {
+          const detailText = activationError?.details
+            ? `\n\nDetails:\n${JSON.stringify(activationError.details, null, 2)}`
+            : '';
+          console.error('SureSystems activation failed:', {
+            message: activationError?.message || 'Unknown activation error',
+            details: activationError?.details || null
+          });
           alert(
             `⚠️ Status changed to OFFER_ACCEPTED, but mandate activation failed.\n\n` +
-            `${activationError?.message || 'Unknown activation error'}`
+            `${activationError?.message || 'Unknown activation error'}` +
+            detailText
           );
           showFeedback(activationError?.message || 'SureSystems mandate activation failed', 'error');
         }
