@@ -23,6 +23,8 @@ async function initPaymentsDashboard() {
       loadPaymentHistory(supabase, session.user.id)
     ]);
 
+    await loadSureSystemsPaymentHistory(session);
+
     calculateMetrics();
     renderAll();
     bindEventListeners();
@@ -36,6 +38,110 @@ async function initPaymentsDashboard() {
 
   } catch (error) {
     console.error('Error initializing payments dashboard:', error);
+  }
+}
+
+function flattenSureSystemsRecords(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  const possibleKeys = [
+    'payments',
+    'paymentHistory',
+    'paymenthistory',
+    'results',
+    'records',
+    'data',
+    'items',
+    'transactions'
+  ];
+
+  for (const key of possibleKeys) {
+    if (Array.isArray(payload[key])) {
+      return payload[key];
+    }
+  }
+
+  for (const value of Object.values(payload)) {
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+
+  return [];
+}
+
+function normalizeSureSystemsPayment(item = {}) {
+  const amount = Number(
+    item.amount
+    ?? item.collectionAmount
+    ?? item.instalmentAmount
+    ?? item.installmentAmount
+    ?? item.paidAmount
+    ?? 0
+  );
+
+  const dateValue = item.paymentDate
+    || item.collectionDate
+    || item.transactionDate
+    || item.date
+    || item.processedDate
+    || null;
+
+  return {
+    id: item.paymentId || item.transactionId || item.id || item.contractReference || `sure-${Math.random().toString(36).slice(2)}`,
+    loanId: item.loanId || null,
+    applicationId: item.userReference || item.contractReference || null,
+    amount: Number.isFinite(amount) ? amount : 0,
+    date: dateValue,
+    status: (item.status || item.paymentStatus || 'completed').toString().toLowerCase(),
+    method: 'SureSystems',
+    source: 'suresystems'
+  };
+}
+
+async function loadSureSystemsPaymentHistory(session) {
+  try {
+    const response = await fetch('/api/suresystems/payments/download', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        frontEndUserName: session?.user?.email || 'webuser'
+      })
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.success === false) {
+      console.warn('SureSystems payments download failed:', payload?.error || response.status);
+      return;
+    }
+
+    const records = flattenSureSystemsRecords(payload);
+    if (!records.length) {
+      return;
+    }
+
+    const normalized = records
+      .map((item) => normalizeSureSystemsPayment(item))
+      .filter((item) => item.amount > 0 || item.date || item.applicationId);
+
+    if (!normalized.length) {
+      return;
+    }
+
+    const existingIds = new Set(paymentHistory.map((item) => `${item.source || 'internal'}:${item.id}`));
+    for (const item of normalized) {
+      const uniqueKey = `${item.source}:${item.id}`;
+      if (!existingIds.has(uniqueKey)) {
+        paymentHistory.push(item);
+      }
+    }
+
+    paymentHistory.sort((left, right) => new Date(right.date || 0) - new Date(left.date || 0));
+    console.log('✅ SureSystems payment history merged:', normalized.length);
+  } catch (error) {
+    console.warn('SureSystems payment history unavailable:', error?.message || error);
   }
 }
 
@@ -127,7 +233,8 @@ async function loadPaymentHistory(supabase, userId) {
       amount: parseFloat(payment.amount),
       date: payment.payment_date,
       status: 'completed', // Default to completed for now
-      method: 'Card' // Will be updated when payment methods are added
+      method: 'Card', // Will be updated when payment methods are added
+      source: 'internal'
     }));
 
     console.log('✅ Loaded payment history:', paymentHistory);
@@ -337,6 +444,41 @@ function bindEventListeners() {
 
   // Download statement
   document.getElementById('downloadStatementBtn')?.addEventListener('click', downloadStatement);
+
+  // Manual SureSystems sync
+  document.getElementById('syncSureSystemsBtn')?.addEventListener('click', syncSureSystemsNow);
+}
+
+async function syncSureSystemsNow() {
+  const button = document.getElementById('syncSureSystemsBtn');
+
+  try {
+    if (button) {
+      button.disabled = true;
+      button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Syncing...';
+    }
+
+    const { supabase } = await import('/Services/supabaseClient.js');
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session) {
+      showPaymentStatus('Your session expired. Please sign in again.', 'error');
+      return;
+    }
+
+    await loadSureSystemsPaymentHistory(session);
+    calculateMetrics();
+    renderPaymentHistory();
+    showPaymentStatus('SureSystems transactions synced.', 'success');
+  } catch (error) {
+    console.error('Manual SureSystems sync failed:', error);
+    showPaymentStatus('SureSystems sync failed. Please try again.', 'error');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = '<i class="fas fa-arrows-rotate"></i> Sync SureSystems';
+    }
+  }
 }
 
 // Initialize collapsible sections for mobile
