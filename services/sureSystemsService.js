@@ -44,6 +44,21 @@ const config = {
   caPath: readEnv('SURESYSTEMS_CA_PATH', './certs/ca.crt')
 };
 
+const isPlaceholderValue = (value) => {
+  if (value === null || value === undefined) return true;
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) return true;
+  return [
+    'your_client_id',
+    'your_client_secret',
+    'your_username',
+    'your_password',
+    '<host>',
+    'changeme',
+    'replace_me'
+  ].includes(normalized);
+};
+
 let cachedAgent = null;
 
 function resolveCertPath(filePath) {
@@ -81,7 +96,14 @@ function getMissingConfig() {
   ];
 
   return required
-    .filter(([, value]) => value === null || value === undefined || value === '' || value === 0)
+    .filter(([key, value]) => {
+      if (typeof value === 'number') return value === 0;
+      if (isPlaceholderValue(value)) return true;
+      if (key === 'SURESYSTEMS_BASE_URL') {
+        return !String(value).includes('/api/sssdswitchuadsrest/v3');
+      }
+      return false;
+    })
     .map(([key]) => key);
 }
 
