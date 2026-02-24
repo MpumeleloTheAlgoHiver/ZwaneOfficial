@@ -1,6 +1,6 @@
 const axios = require('axios');
 const crypto = require('crypto');
-const BASE_URL = 'https://verification.didit.me';
+const BASE_URL = process.env.DIDIT_BASE_URL || 'https://verification.didit.me';
 
 // In-memory session storage (use database in production)
 const sessions = new Map();
@@ -23,28 +23,65 @@ function verifyWebhookSignature(payload, signature) {
 async function createSession({ userId, email, phone, metadata }) {
   const API_KEY = process.env.DIDIT_API_KEY;
   const WORKFLOW_ID = process.env.DIDIT_WORKFLOW_ID;
+
+  if (!API_KEY || !WORKFLOW_ID) {
+    const configError = new Error('KYC configuration missing: DIDIT_API_KEY and DIDIT_WORKFLOW_ID are required');
+    configError.status = 503;
+    configError.details = {
+      missing: [
+        !API_KEY ? 'DIDIT_API_KEY' : null,
+        !WORKFLOW_ID ? 'DIDIT_WORKFLOW_ID' : null
+      ].filter(Boolean)
+    };
+    throw configError;
+  }
+
   if (!userId || !email) {
     throw new Error('userId and email are required');
   }
-  const response = await axios.post(
-    `${BASE_URL}/v2/session/`,
-    {
-      workflow_id: WORKFLOW_ID,
-      vendor_data: userId,
-      metadata: metadata || {},
-      contact_details: {
-        email: email,
-        email_lang: 'en',
-        phone: phone || undefined
+
+  let response;
+  try {
+    response = await axios.post(
+      `${BASE_URL}/v2/session/`,
+      {
+        workflow_id: WORKFLOW_ID,
+        vendor_data: userId,
+        metadata: metadata || {},
+        contact_details: {
+          email: email,
+          email_lang: 'en',
+          phone: phone || undefined
+        }
+      },
+      {
+        headers: {
+          'X-Api-Key': API_KEY,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
       }
-    },
-    {
-      headers: {
-        'X-Api-Key': API_KEY,
-        'Content-Type': 'application/json'
-      }
-    }
-  );
+    );
+  } catch (error) {
+    const status = error?.response?.status || error?.status || 500;
+    const providerData = error?.response?.data || null;
+    const providerMessage =
+      providerData?.message
+      || providerData?.error
+      || providerData?.detail
+      || error?.message
+      || 'Unable to create KYC session';
+
+    const normalized = new Error(providerMessage);
+    normalized.status = status;
+    normalized.details = {
+      providerStatus: status,
+      providerResponse: providerData,
+      endpoint: `${BASE_URL}/v2/session/`
+    };
+    throw normalized;
+  }
+
   const sessionData = response.data;
   
   // Store in memory

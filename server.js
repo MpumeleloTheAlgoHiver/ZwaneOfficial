@@ -461,8 +461,15 @@ app.post('/api/kyc/create-session', async (req, res) => {
         const result = await kyc.createSession(req.body);
         return res.json(result);
     } catch (error) {
-        console.error('KYC session error:', error);
-        return res.status(500).json({ error: error.message || 'Unable to create KYC session' });
+        console.error('KYC session error:', {
+            message: error?.message || 'Unknown KYC error',
+            status: error?.status || 500,
+            details: error?.details || null
+        });
+        return res.status(error?.status || 500).json({
+            error: error?.message || 'Unable to create KYC session',
+            details: error?.details || null
+        });
     }
 });
 
