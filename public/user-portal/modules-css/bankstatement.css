@@ -155,6 +155,18 @@
   opacity: 0.8;
 }
 
+.upload-btn-secondary {
+  margin-top: 0.65rem;
+  background-color: #ffffff;
+  color: #111827;
+  border-color: #d1d5db;
+}
+
+.upload-btn-secondary:hover {
+  background-color: #f9fafb;
+  border-color: #9ca3af;
+}
+
 .status-text {
   font-size: 0.95rem;
   margin-top: 1rem;

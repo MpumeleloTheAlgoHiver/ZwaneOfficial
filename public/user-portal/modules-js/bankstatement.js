@@ -1,8 +1,12 @@
 import { supabase } from '/Services/supabaseClient.js';
+import { getDocumentInfoByUser } from '/user-portal/Services/documentService.js';
 
 async function initBankStatementModule() {
   const status = document.getElementById('truidStatusMessage');
   const connectBtn = document.getElementById('truidConnectBtn');
+  const manualUploadBtn = document.getElementById('manualBankUploadBtn');
+  const manualFileInput = document.getElementById('manualBankFile');
+  const manualSelectedFile = document.getElementById('manualBankSelectedFile');
   const checkmark = document.getElementById('bankstatementCheckmark');
   const existingInfo = document.getElementById('existingFileInfo');
   const statusChip = document.getElementById('bankstatementStatusChip');
@@ -28,6 +32,10 @@ async function initBankStatementModule() {
     status.style.color = '#ff9800';
     connectBtn.disabled = true;
     connectBtn.textContent = 'Please Log In';
+    if (manualUploadBtn) {
+      manualUploadBtn.disabled = true;
+      manualUploadBtn.textContent = 'Please Log In';
+    }
     return;
   }
 
@@ -50,6 +58,17 @@ async function initBankStatementModule() {
       connectBtn.textContent = isCaptured ? 'Statement Captured ✓' : 'Bank Connected ✓';
     }
 
+    if (manualUploadBtn) {
+      manualUploadBtn.disabled = true;
+      manualUploadBtn.style.opacity = '0.5';
+      manualUploadBtn.style.cursor = 'not-allowed';
+      manualUploadBtn.textContent = 'Uploaded/Connected ✓';
+    }
+
+    if (manualFileInput) {
+      manualFileInput.disabled = true;
+    }
+
     if (statusChip) {
       statusChip.textContent = isCaptured ? 'Captured' : 'Connected';
       statusChip.classList.add('success');
@@ -66,6 +85,23 @@ async function initBankStatementModule() {
     if (statusPollInterval) {
       clearInterval(statusPollInterval);
       statusPollInterval = null;
+    }
+  };
+
+  const setManualUploadedState = (filename, uploadedAt) => {
+    applyVerifiedState({
+      capturedAt: uploadedAt || new Date().toISOString(),
+      status: 'captured',
+      source: 'manual_upload'
+    });
+
+    status.textContent = 'Bank statement uploaded successfully.';
+    status.style.color = '#28a745';
+
+    if (existingInfo) {
+      const uploadDate = new Date(uploadedAt || Date.now()).toLocaleDateString();
+      existingInfo.innerHTML = `✓ Manual upload received: <b>${filename}</b> on ${uploadDate}`;
+      existingInfo.style.color = '#1f8c5c';
     }
   };
 
@@ -101,7 +137,84 @@ async function initBankStatementModule() {
     }
   };
 
-  await fetchTruidStatus();
+  const existingManualDoc = await getDocumentInfoByUser(userId, 'bank_statement');
+  if (existingManualDoc?.file_name) {
+    setManualUploadedState(existingManualDoc.file_name, existingManualDoc.uploaded_at);
+  } else {
+    await fetchTruidStatus();
+  }
+
+  if (manualFileInput && manualSelectedFile) {
+    manualFileInput.addEventListener('change', (event) => {
+      const file = event.target.files?.[0];
+      if (!file) {
+        manualSelectedFile.style.display = 'none';
+        manualSelectedFile.innerHTML = '';
+        return;
+      }
+
+      const fileSize = (file.size / 1024).toFixed(1);
+      manualSelectedFile.innerHTML = `<i class="fas fa-file"></i> <strong>${file.name}</strong> <span>(${fileSize} KB)</span>`;
+      manualSelectedFile.style.display = 'block';
+    });
+  }
+
+  if (manualUploadBtn && manualFileInput) {
+    manualUploadBtn.addEventListener('click', async () => {
+      if (!manualFileInput.files?.length) {
+        manualFileInput.click();
+        return;
+      }
+
+      const file = manualFileInput.files[0];
+      const authToken = session?.access_token;
+      if (!authToken) {
+        status.textContent = '⚠️ Please log in again before uploading.';
+        status.style.color = '#ff9800';
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', file);
+      if (applicationId) {
+        formData.append('applicationId', applicationId);
+      }
+
+      status.textContent = 'Uploading manual bank statement...';
+      status.style.color = '#7a7a7a';
+      manualUploadBtn.disabled = true;
+      manualUploadBtn.textContent = 'Uploading...';
+
+      try {
+        const response = await fetch('/api/bankstatement/upload', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${authToken}`
+          },
+          body: formData
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data?.message || data?.error || 'Manual upload failed');
+        }
+
+        setManualUploadedState(data?.filename || file.name, data?.uploadedAt || new Date().toISOString());
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('document:uploaded', { detail: { fileType: 'bank_statement' } }));
+        }
+
+        manualUploadBtn.textContent = 'Uploaded/Connected ✓';
+      } catch (error) {
+        console.error('❌ Manual bank statement upload failed', error);
+        status.textContent = `❌ Manual upload failed: ${error.message || 'Unknown error'}`;
+        status.style.color = '#dc3545';
+        manualUploadBtn.disabled = false;
+        manualUploadBtn.textContent = 'Manual Bank Upload';
+      }
+    });
+  }
 
   connectBtn.addEventListener('click', async () => {
     status.textContent = 'Launching TruID secure connection...';

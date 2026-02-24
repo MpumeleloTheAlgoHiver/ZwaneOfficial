@@ -15,10 +15,13 @@
         <i class="fas fa-landmark"></i>
         <p class="dropzone-title">Connect with TruID</p>
         <p class="dropzone-subtext">You'll be redirected to your bank's secure consent screen.</p>
-        <span class="file-hint">No manual upload required</span>
+        <span class="file-hint">Prefer manual upload? Use the option below.</span>
       </div>
 
       <button type="button" class="upload-btn" id="truidConnectBtn">Connect Bank via TruID</button>
+      <button type="button" class="upload-btn upload-btn-secondary" id="manualBankUploadBtn">Manual Bank Upload</button>
+      <input type="file" id="manualBankFile" accept=".pdf,.png,.jpg,.jpeg" hidden>
+      <div id="manualBankSelectedFile" class="selected-file-name"></div>
     </div>
 
     <div class="upload-feedback">
