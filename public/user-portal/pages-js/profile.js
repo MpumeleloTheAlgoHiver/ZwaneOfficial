@@ -232,6 +232,10 @@ function renderProfileTab() {
             <input type="text" id="contact_number" value="${currentUserProfile.contact_number || ''}" placeholder="+27 XX XXX XXXX">
           </div>
           <div class="form-group">
+            <label for="identity_number">ID Number</label>
+            <input type="text" id="identity_number" value="${currentUserProfile.identity_number || ''}" placeholder="Enter your SA ID number" maxlength="20" autocomplete="off">
+          </div>
+          <div class="form-group">
             <label for="user_id">User ID</label>
             <input type="text" id="user_id" value="${currentUserProfile.id || ''}" disabled>
           </div>
@@ -1252,6 +1256,7 @@ async function handleProfileUpdate(e) {
   const profileData = {
     full_name: document.getElementById('full_name').value.trim(),
     contact_number: document.getElementById('contact_number').value.trim(),
+    identity_number: document.getElementById('identity_number')?.value.trim() || null,
     updated_at: new Date().toISOString()
   };
   
@@ -1279,6 +1284,7 @@ async function handleProfileUpdate(e) {
     // Update local state
     currentUserProfile.full_name = profileData.full_name;
     currentUserProfile.contact_number = profileData.contact_number;
+    currentUserProfile.identity_number = profileData.identity_number;
     
     // Create notification for account update
     const { notifyAccountUpdated } = await import('/Services/notificationService.js');
