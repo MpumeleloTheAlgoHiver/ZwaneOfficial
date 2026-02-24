@@ -942,7 +942,7 @@ async function loadDashboardData() {
                         dueDateObj = candidate;
                     }
                 }
-                const totalRepayment = Number(loan.total_repayment || 0);
+                const totalRepayment = Number(loan.total_repayment) || (monthlyPayment * (termMonths || 1)) || 0;
                 const paidToDate = paymentsByLoan[loan.id] || 0;
                 const totalDue = totalRepayment || principal;
                 const outstandingBalance = Math.max(totalDue - paidToDate, 0);
@@ -956,7 +956,7 @@ async function loadDashboardData() {
                     nextDueAmount,
                     dueDateObj,
                     outstandingBalance,
-                    totalRepayment: totalRepayment || monthlyPayment * (termMonths || 1),
+                    totalRepayment,
                     paidToDate
                 };
             });
@@ -1013,7 +1013,7 @@ async function loadDashboardData() {
                 return {
                     id: `LOAN-${loan.id}`,
                     amount: formatCurrency(loan.totalRepayment || loan.principal),
-                    remaining: formatCurrency(loan.outstandingBalance || loan.totalRepayment || loan.principal),
+                    remaining: formatCurrency((loan.outstandingBalance ?? (loan.totalRepayment || loan.principal))),
                     nextPayment: formatCurrency(loan.nextDueAmount),
                     dueDate: loan.dueDateObj 
                         ? loan.dueDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -1178,12 +1178,12 @@ function parseRandToNumber(val) {
 function buildLoansModalContent(loans) {
         const activeLoans = loans.filter(l => l.status === 'Active' || l.status === 'Offered');
         const count = activeLoans.length;
-        const totalPrincipal = activeLoans.reduce((sum, l) => sum + parseRandToNumber(l.amount), 0);
+        const totalRepayment = activeLoans.reduce((sum, l) => sum + parseRandToNumber(l.amount), 0);
         const totalRemaining = activeLoans.reduce((sum, l) => sum + (parseRandToNumber(l.remaining || l.amount)), 0);
 
         const statsHtml = `
             <div class="stat-card"><div class="stat-label">Active / Offered</div><div class="stat-value">${count}</div></div>
-            <div class="stat-card"><div class="stat-label">Total Principal</div><div class="stat-value">${formatCurrencySafe(totalPrincipal)}</div></div>
+            <div class="stat-card"><div class="stat-label">Total Repayment</div><div class="stat-value">${formatCurrencySafe(totalRepayment)}</div></div>
             <div class="stat-card"><div class="stat-label">Total Outstanding</div><div class="stat-value">${formatCurrencySafe(totalRemaining)}</div></div>
         `;
 

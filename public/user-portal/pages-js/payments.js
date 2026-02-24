@@ -157,18 +157,27 @@ async function loadActiveLoans(supabase, userId) {
 
     if (error) throw error;
 
-    activeLoans = (data || []).map(loan => ({
-      id: loan.id,
-      applicationId: loan.application_id,
-      principal: parseFloat(loan.principal_amount),
-      outstanding: parseFloat(loan.outstanding_balance || loan.principal_amount),
-      monthlyPayment: parseFloat(loan.monthly_payment || 0),
-      nextPaymentDate: loan.next_payment_date,
-      interestRate: parseFloat(loan.interest_rate),
-      termMonths: loan.term_months,
-      status: loan.status,
-      startDate: loan.start_date
-    }));
+    activeLoans = (data || []).map(loan => {
+      const principal = parseFloat(loan.principal_amount) || 0;
+      const termMonths = parseInt(loan.term_months, 10) || 0;
+      const monthlyPayment = parseFloat(loan.monthly_payment || 0) || 0;
+      const totalRepayment = parseFloat(loan.total_repayment) || (monthlyPayment * (termMonths || 1)) || principal;
+      const outstandingRaw = parseFloat(loan.outstanding_balance);
+
+      return {
+        id: loan.id,
+        applicationId: loan.application_id,
+        principal,
+        totalRepayment,
+        outstanding: Number.isFinite(outstandingRaw) && outstandingRaw > 0 ? outstandingRaw : totalRepayment,
+        monthlyPayment,
+        nextPaymentDate: loan.next_payment_date,
+        interestRate: parseFloat(loan.interest_rate),
+        termMonths,
+        status: loan.status,
+        startDate: loan.start_date
+      };
+    });
 
     console.log('✅ Loaded active loans:', activeLoans);
   } catch (error) {
@@ -246,6 +255,26 @@ async function loadPaymentHistory(supabase, userId) {
 
 // Calculate metrics
 function calculateMetrics() {
+  const paidByLoan = paymentHistory.reduce((acc, payment) => {
+    if (!payment?.loanId) return acc;
+    const key = Number(payment.loanId);
+    const amount = Number(payment.amount) || 0;
+    if (!Number.isFinite(key) || amount <= 0) return acc;
+    acc[key] = (acc[key] || 0) + amount;
+    return acc;
+  }, {});
+
+  activeLoans = activeLoans.map((loan) => {
+    const totalDue = Number(loan.totalRepayment) || Number(loan.principal) || 0;
+    const paidToDate = paidByLoan[Number(loan.id)] || 0;
+    const derivedOutstanding = Math.max(totalDue - paidToDate, 0);
+    const fallbackOutstanding = Number(loan.outstanding) || totalDue;
+    return {
+      ...loan,
+      outstanding: paidToDate > 0 ? derivedOutstanding : Math.max(fallbackOutstanding, totalDue)
+    };
+  });
+
   const totalOutstanding = activeLoans.reduce((sum, loan) => sum + loan.outstanding, 0);
   const nextPayment = activeLoans.length > 0
     ? Math.min(...activeLoans.map(l => l.monthlyPayment))
@@ -311,8 +340,8 @@ function renderActiveLoans() {
         </div>
         <div class="loan-details">
           <div class="loan-detail-item">
-            <span class="loan-detail-label">Principal:</span>
-            <span class="loan-detail-value">${formatCurrency(loan.principal)}</span>
+            <span class="loan-detail-label">Total Repayment:</span>
+            <span class="loan-detail-value">${formatCurrency(loan.totalRepayment || loan.principal)}</span>
           </div>
           <div class="loan-detail-item">
             <span class="loan-detail-label">Outstanding:</span>
