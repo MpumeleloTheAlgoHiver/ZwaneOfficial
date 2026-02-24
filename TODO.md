@@ -4,7 +4,7 @@
 - [x] Add messaging feature
 - [x] disclimer on calculator 
 - [x] Logout button working 
-- [ ] transactions enabled
+- [x] transactions enabled
 - [x] Mobile version 
 - [x] guards on steps
 - [x] enable webhook for didit response 
