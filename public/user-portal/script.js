@@ -30,6 +30,10 @@ let cachedSystemTheme = null;
 let systemThemeFetchedAt = 0;
 let systemThemePromise = null;
 
+function isApplyLoanFlowPage(pageName = '') {
+  return ['apply-loan', 'apply-loan-2', 'apply-loan-3', 'confirmation'].includes(pageName);
+}
+
 function getProfileState() {
   if (window.globalUserProfile) {
     globalUserProfile = window.globalUserProfile;
@@ -172,14 +176,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   globalUserProfile = userProfile;
   window.globalUserProfile = userProfile;
   
-  if (userProfile && !userProfile.isProfileComplete) { 
-    const currentPage = getPageFromURL() || 'dashboard'; 
-    if (currentPage !== 'profile') { 
-      window.location.replace('/user-portal/?page=profile'); 
-      return; 
-    }
-  }
-  
   // Load navbar & sidebar
   await loadNavbar(); 
   setNavbarOffset(); 
@@ -281,10 +277,6 @@ async function loadSidebar() {
     // Setup logout button after sidebar is loaded (if present in sidebar)
     setupLogout();
     
-    const profileState = getProfileState();
-    if (profileState && !profileState.isProfileComplete) {
-      lockSidebar();
-    }
   } catch (error) {
     console.error('Error loading sidebar:', error);
   }
@@ -294,14 +286,15 @@ async function loadSidebar() {
 async function loadPage(pageName) {
   try {
     const profileState = getProfileState();
+    const applyingForLoan = isApplyLoanFlowPage(pageName);
 
-    if (profileState && !profileState.isProfileComplete && pageName !== 'profile') {
+    if (profileState && !profileState.isProfileComplete && applyingForLoan) {
       showProfileIncompleteToast();
       window.history.replaceState({}, '', '/user-portal/?page=profile');
       pageName = 'profile';
     }
     
-    if (profileState && profileState.needsPhoneNumber && pageName !== 'profile') {
+    if (profileState && profileState.needsPhoneNumber && applyingForLoan) {
       showPhoneNumberRequiredToast();
       return;
     }
