@@ -30,6 +30,15 @@ let cachedSystemTheme = null;
 let systemThemeFetchedAt = 0;
 let systemThemePromise = null;
 
+function getProfileState() {
+  if (window.globalUserProfile) {
+    globalUserProfile = window.globalUserProfile;
+  } else if (globalUserProfile) {
+    window.globalUserProfile = globalUserProfile;
+  }
+  return globalUserProfile;
+}
+
 // Measure the navbar height and expose it as a CSS variable
 function setNavbarOffset() {
   try {
@@ -160,7 +169,8 @@ setInterval(async () => {
 document.addEventListener('DOMContentLoaded', async () => {
   // Check authentication first
   const userProfile = await checkAuth(); 
-  globalUserProfile = userProfile; 
+  globalUserProfile = userProfile;
+  window.globalUserProfile = userProfile;
   
   if (userProfile && !userProfile.isProfileComplete) { 
     const currentPage = getPageFromURL() || 'dashboard'; 
@@ -271,7 +281,8 @@ async function loadSidebar() {
     // Setup logout button after sidebar is loaded (if present in sidebar)
     setupLogout();
     
-    if (globalUserProfile && !globalUserProfile.isProfileComplete) {
+    const profileState = getProfileState();
+    if (profileState && !profileState.isProfileComplete) {
       lockSidebar();
     }
   } catch (error) {
@@ -282,13 +293,15 @@ async function loadSidebar() {
 // Load Page Logic
 async function loadPage(pageName) {
   try {
-    if (globalUserProfile && !globalUserProfile.isProfileComplete && pageName !== 'profile') {
+    const profileState = getProfileState();
+
+    if (profileState && !profileState.isProfileComplete && pageName !== 'profile') {
       showProfileIncompleteToast();
       window.history.replaceState({}, '', '/user-portal/?page=profile');
       pageName = 'profile';
     }
     
-    if (globalUserProfile && globalUserProfile.needsPhoneNumber && pageName !== 'profile') {
+    if (profileState && profileState.needsPhoneNumber && pageName !== 'profile') {
       showPhoneNumberRequiredToast();
       return;
     }
@@ -310,22 +323,18 @@ async function loadPage(pageName) {
     }
     const cssUrl = `/user-portal/pages-css/${cssPageName}.css`;
 
+    const mainContent = document.getElementById('main-content');
+    mainContent.style.visibility = 'hidden';
+
     try {
-      const cssResponse = await fetchWithTimeout(cssUrl, 2000);
-      if (cssResponse.ok) {
-        const link = document.createElement('link');
-        link.id = 'page-specific-css';
-        link.rel = 'stylesheet';
-        link.href = `${cssUrl}?t=${Date.now()}`;
-        document.head.appendChild(link);
-      }
+      await loadPageStylesheet(cssUrl);
     } catch (e) {
-      console.warn(`Could not fetch CSS for ${pageName}.`);
+      console.warn(`Could not load CSS for ${pageName}.`);
     }
 
-    const mainContent = document.getElementById('main-content');
     mainContent.innerHTML = htmlContent;
     mainContent.classList.add('fade-in');
+    mainContent.style.visibility = 'visible';
 
     setNavbarOffset();
     if (typeof initOffsetObservers === 'function') initOffsetObservers();
@@ -395,7 +404,10 @@ async function loadPage(pageName) {
   } catch (error) {
     console.error('Error loading page:', error);
     showLoading(false);
-    document.getElementById('main-content').innerHTML = `
+    const mainContent = document.getElementById('main-content');
+    if (mainContent) {
+      mainContent.style.visibility = 'visible';
+      mainContent.innerHTML = `
       <div class="page-content">
         <div class="card">
           <h2>⚠ Error Loading Page</h2>
@@ -403,7 +415,31 @@ async function loadPage(pageName) {
         </div>
       </div>
     `;
+    }
   }
+}
+
+async function loadPageStylesheet(cssUrl) {
+  return new Promise((resolve, reject) => {
+    const link = document.createElement('link');
+    link.id = 'page-specific-css';
+    link.rel = 'stylesheet';
+    link.href = `${cssUrl}?v=${Date.now()}`;
+
+    let settled = false;
+    const complete = (ok) => {
+      if (settled) return;
+      settled = true;
+      if (ok) resolve(true);
+      else reject(new Error('Stylesheet failed to load'));
+    };
+
+    link.onload = () => complete(true);
+    link.onerror = () => complete(false);
+
+    document.head.appendChild(link);
+    setTimeout(() => complete(true), 1200);
+  });
 }
 
 async function loadPageScript(pageName) {
@@ -1158,6 +1194,7 @@ function unlockNavigation() {
 window.unlockNavigation = unlockNavigation;
 
 function showProfileIncompleteToast() {
+  const profileState = getProfileState();
   const existingToast = document.querySelector('.profile-incomplete-toast');
   if (existingToast) {
     existingToast.style.animation = 'none';
@@ -1175,8 +1212,8 @@ function showProfileIncompleteToast() {
   `;
   
   const missingItems = [];
-  if (!globalUserProfile?.hasFinancialProfile) missingItems.push('Financial Information');
-  if (!globalUserProfile?.hasDeclarations) missingItems.push('Declarations');
+  if (!profileState?.hasFinancialProfile) missingItems.push('Financial Information');
+  if (!profileState?.hasDeclarations) missingItems.push('Declarations');
   
   toast.innerHTML = `
     <div style="display: flex; align-items: start; gap: 12px;">
