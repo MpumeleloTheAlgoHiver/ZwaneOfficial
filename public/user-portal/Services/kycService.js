@@ -449,6 +449,47 @@ async function getSessionStatus(sessionId) {
   };
 }
 
+function normalizeKycStatusValue(value) {
+  return (value || '').toString().trim().toLowerCase();
+}
+
+function isVerifiedStatus(value) {
+  const normalized = normalizeKycStatusValue(value);
+  return [
+    'approved',
+    'verified',
+    'completed',
+    'complete',
+    'success',
+    'successful',
+    'passed',
+    'pass'
+  ].includes(normalized);
+}
+
+function extractDecisionStatus(details = {}) {
+  const candidates = [
+    details?.status,
+    details?.decision,
+    details?.result,
+    details?.verification_status,
+    details?.session_status,
+    details?.session?.status,
+    details?.data?.status,
+    details?.data?.decision,
+    details?.decision_result,
+    details?.outcome
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return '';
+}
+
 async function getUserKycStatus(userId) {
   // Check database first
   try {
@@ -478,19 +519,37 @@ async function getUserKycStatus(userId) {
       });
       
       const statusStr = (data.status || '').toString().trim();
-      const isApproved = statusStr === 'Approved' || 
-                        statusStr === 'approved' || 
-                        statusStr === 'APPROVED' ||
-                        statusStr.toLowerCase() === 'approved';
+      let isApproved = isVerifiedStatus(statusStr);
+      let resolvedStatus = statusStr;
+
+      if (!isApproved && data.session_id) {
+        try {
+          const decision = await getSessionStatus(data.session_id);
+          const decisionStatus = extractDecisionStatus(decision?.details || {});
+          if (decisionStatus) {
+            resolvedStatus = decisionStatus;
+            isApproved = isVerifiedStatus(decisionStatus);
+
+            if (isApproved) {
+              await supabase
+                .from('kyc_sessions')
+                .update({ status: decisionStatus, last_updated: new Date().toISOString() })
+                .eq('session_id', data.session_id);
+            }
+          }
+        } catch (decisionErr) {
+          console.warn('Could not fetch live Didit decision status:', decisionErr?.message || decisionErr);
+        }
+      }
       
       console.log(`✅ Is Approved: ${isApproved}`);
       
       // Return normalized status for frontend
-      const normalizedStatus = statusStr.toLowerCase();
+      const normalizedStatus = normalizeKycStatusValue(resolvedStatus);
       
       return {
         verified: isApproved,
-        status: data.status, // Raw status from DB
+        status: resolvedStatus,
         normalizedStatus: normalizedStatus, // Lowercase for easier comparison
         sessionId: data.session_id,
         updatedAt: data.last_updated || data.created_at,
@@ -514,7 +573,7 @@ async function getUserKycStatus(userId) {
     new Date(b.createdAt) - new Date(a.createdAt)
   )[0];
   return {
-    verified: latestSession.status === 'Approved',
+    verified: isVerifiedStatus(latestSession.status),
     status: latestSession.status,
     sessionId: latestSession.sessionId,
     updatedAt: latestSession.lastUpdated || latestSession.createdAt
