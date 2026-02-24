@@ -113,7 +113,7 @@ async function refreshKycStatus() {
     
     // Check for approved status
     if (data.verified) {
-      setKycStatus('ready', 'Approved');
+      setKycStatus('ready', 'Verified');
       kycButtonRef.disabled = true;
       kycButtonRef.classList.add('completed');
       kycButtonRef.setAttribute('aria-disabled', 'true');
@@ -150,10 +150,14 @@ async function refreshKycStatus() {
       } else if (data.normalizedStatus === 'started' || data.normalizedStatus.includes('progress')) {
         setKycStatus('partial', displayStatus);
         documentState.kyc = 'partial';
+      } else {
+        setKycStatus('partial', displayStatus);
+        documentState.kyc = 'partial';
       }
       
       updateNextButtonState();
       renderModuleStatus();
+      return;
     }
     
     // Not verified, so KYC is not complete
