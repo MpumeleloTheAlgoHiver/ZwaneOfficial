@@ -1194,7 +1194,14 @@ async function handleDeclarationsSave(e) {
     handleProfileCompletionUnlock(hasFinancial, hasDeclarations);
 
     showNotification('✅ Declarations saved successfully!', 'success');
-    setTimeout(() => renderDeclarationsTab(), 400);
+    
+    setTimeout(() => {
+      if (!currentUserProfile.isProfileComplete) {
+        renderDeclarationsTab();
+      }
+    }, 800);
+
+
   } catch (err) {
     console.error('Error saving declarations:', err);
     showNotification('❌ Failed to save declarations', 'error');
@@ -1244,6 +1251,14 @@ function attachTabListeners() {
   });
   
   console.log('✅ Tab listeners attached');
+}
+
+function switchToTab(tabName) {
+  const targetTab = document.querySelector(`.tab-button[data-tab="${tabName}"]`);
+  if (targetTab) {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    targetTab.click();
+  }
 }
 
 async function handleProfileUpdate(e) {
@@ -1314,6 +1329,8 @@ async function handleProfileUpdate(e) {
     
     // Show success message
     showNotification('✅ Profile updated successfully!', 'success');
+
+    setTimeout(() => switchToTab('financial'), 800);
     
     // Refresh the tab to show updated info
     setTimeout(() => renderProfileTab(), 500);
@@ -1483,8 +1500,11 @@ async function handleFinancialUpdate(e) {
     
     showNotification('✅ Financial information saved successfully!', 'success');
     
-    // Refresh the tab to show updated info
-    setTimeout(() => renderFinancialTab(), 500);
+    setTimeout(() => {
+      if (!currentUserProfile.isProfileComplete) {
+        switchToTab('declarations');
+      }
+    }, 800);
     
   } catch (error) {
     console.error('Financial update error:', error);
