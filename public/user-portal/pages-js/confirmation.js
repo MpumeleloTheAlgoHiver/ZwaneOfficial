@@ -465,8 +465,7 @@ async function handleBankFormSubmit() {
       offer_total_admin_fees: Number(summary?.totalMonthlyFees) || 0,
       offer_total_initiation_fees: Number(summary?.totalInitiationFees) || 0,
       offer_monthly_repayment: Number(summary?.monthlyPayment) || 0,
-      offer_total_repayment: Number(summary?.totalRepayment) || 0,
-      offer_credit_life_monthly: Number(summary?.creditLifeMonthly) || 0
+      offer_total_repayment: Number(summary?.totalRepayment) || 0
     };
     
     if (applicationId) {

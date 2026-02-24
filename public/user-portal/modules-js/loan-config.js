@@ -376,7 +376,6 @@ function getLoanSummary() {
   const interestRate = Number(loanConfig.interestRate) || 0;
   const MONTHLY_FEE = 60; // R60 admin fee per 30-day period
   const INITIATION_FEE_RATE = 0.15; // 15% of loan amount per month
-  const CREDIT_LIFE_RATE = 0.0045; // 0.45% of initial loan amount
   const DAYS_PER_MONTH = 30; // Standard 30-day month for calculations
   
   // Calculate prorated admin fee based on repayment schedule
@@ -425,12 +424,11 @@ function getLoanSummary() {
   
   // Combined total fees
   const totalFees = totalMonthlyFees + totalInitiationFees;
-  // Credit life is 0.45% of principal, spread evenly across the term
-  const totalCreditLife = Number((amount * CREDIT_LIFE_RATE).toFixed(2));
-  const creditLifeMonthly = Number((totalCreditLife / period).toFixed(2));
-  const combinedFees = totalFees + totalCreditLife;
+  const totalCreditLife = 0;
+  const creditLifeMonthly = 0;
+  const combinedFees = totalFees;
   
-  // Total repayment = principal + total interest + all fees (incl. credit life)
+  // Total repayment = principal + total interest + all fees
   const totalRepayment = amount + totalInterest + combinedFees;
   
   // Monthly payment = (principal + total interest + total fees) / number of months
@@ -511,19 +509,6 @@ function calculateAndUpdateSummary() {
     initiationFeeElement.textContent = `R ${formatCurrency(summary.totalInitiationFees)}`;
   }
 
-  // Update credit life premium display
-  const creditLifeElement = document.getElementById('summaryCreditLife');
-  if (creditLifeElement) {
-    creditLifeElement.textContent = `R ${formatCurrency(summary.totalCreditLife)}`;
-    const creditLifeLabel = creditLifeElement.previousElementSibling;
-    if (creditLifeLabel && creditLifeLabel.classList.contains('summary-label')) {
-      creditLifeLabel.innerHTML = `
-        Credit Life Premium (0.45% of principal)
-        <i class="fas fa-info-circle" style="color: var(--color-primary); font-size: 0.8rem; margin-left: 4px;" title="Calculated at 0.45% of the approved loan amount and spread across ${loanConfig.period} month${loanConfig.period > 1 ? 's' : ''}."></i>
-      `;
-    }
-  }
-  
   document.getElementById('summaryMonthly').textContent = `R ${formatCurrency(summary.monthlyPayment)}`;
   document.getElementById('summaryTotal').textContent = `R ${formatCurrency(summary.totalRepayment)}`;
 
@@ -674,7 +659,6 @@ window.prepareLoanApplication = function() {
     offer_total_initiation_fees: Number(summary.totalInitiationFees) || 0,
     offer_monthly_repayment: Number(summary.monthlyPayment) || 0,
     offer_total_repayment: Number(summary.totalRepayment) || 0,
-    offer_credit_life_monthly: Number(summary.creditLifeMonthly) || 0,
     stagedAt: new Date().toISOString()
   };
 
