@@ -194,15 +194,43 @@ async function handleKycButtonClick() {
       return;
     }
 
+    const { data: profileData } = await supabase
+      .from('profiles')
+      .select('full_name, identity_number, contact_number')
+      .eq('id', session.user.id)
+      .maybeSingle();
+
+    const resolvedFullName =
+      profileData?.full_name
+      || session.user.user_metadata?.full_name
+      || session.user.user_metadata?.name
+      || '';
+
+    const resolvedIdentityNumber =
+      profileData?.identity_number
+      || session.user.user_metadata?.identity_number
+      || session.user.user_metadata?.id_number
+      || session.user.user_metadata?.idNumber
+      || null;
+
     const payload = {
       userId: session.user.id,
       email: session.user.email,
       metadata: {
-        full_name: session.user.user_metadata?.full_name
+        full_name: resolvedFullName
       }
     };
 
-    const phone = session.user.phone || session.user.user_metadata?.phone || session.user.user_metadata?.phone_number;
+    if (resolvedIdentityNumber) {
+      payload.metadata.identity_number = resolvedIdentityNumber;
+      payload.metadata.id_number = resolvedIdentityNumber;
+    }
+
+    const phone =
+      profileData?.contact_number
+      || session.user.phone
+      || session.user.user_metadata?.phone
+      || session.user.user_metadata?.phone_number;
     if (phone) {
       payload.phone = phone;
     }
@@ -215,9 +243,12 @@ async function handleKycButtonClick() {
       body: JSON.stringify(payload)
     });
 
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.verification_url) {
-      throw new Error(data.error || 'Unable to start verification');
+      const detailsText = data?.details?.providerResponse
+        ? ` (${typeof data.details.providerResponse === 'string' ? data.details.providerResponse : JSON.stringify(data.details.providerResponse)})`
+        : '';
+      throw new Error((data.error || 'Unable to start verification') + detailsText);
     }
 
     window.open(data.verification_url, '_blank', 'width=900,height=700');
