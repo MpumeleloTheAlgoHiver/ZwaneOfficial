@@ -235,6 +235,7 @@ async function initBankStatementModule() {
       },
       redirectUrl
     };
+    console.log('[TruID] Sending payload to backend:', JSON.stringify(payload, null, 2));
 
     try {
       const res = await fetch('/api/banking/initiate', {
