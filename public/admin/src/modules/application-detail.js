@@ -344,6 +344,38 @@ window.viewBureauReport = (base64Data) => {
     }
 };
 
+window.viewTruidReport = () => {
+    if (!currentApplication?.truid_info) {
+        showFeedback("No TruID data available for this applicant.", "error");
+        return;
+    }
+    
+    // Extracts the capture data (summary_payload is usually the most readable)
+    const displayData = currentApplication.truid_info.summary_payload || currentApplication.truid_info;
+    
+    const x = window.open('', '_blank');
+    x.document.write(`
+        <html>
+            <head>
+                <title>TruID Digital Report</title>
+                <style>
+                    body { font-family: 'Courier New', monospace; background: #f4f7f6; padding: 30px; color: #333; line-height: 1.6; }
+                    .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #ddd; }
+                    h2 { color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 10px; }
+                    pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 5px; overflow-x: auto; font-size: 13px; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h2>TruID Verification Payload</h2>
+                    <p><strong>Collection ID:</strong> ${currentApplication.truid_info.collection_id}</p>
+                    <pre>${JSON.stringify(displayData, null, 2)}</pre>
+                </div>
+            </body>
+        </html>
+    `);
+    x.document.close();
+};
 //Toast Feedback
 
 const showFeedback = (message, type = 'success') => {
@@ -1044,7 +1076,7 @@ const renderFinancials = (financials, creditChecks) => {
   if (!creditContainer) return;
 
   // --- NEW: Detailed Affordability Table (Step 3 Data) ---
-  // We inject this before the Credit Bureau section
+  
   let breakdownContainer = document.getElementById('affordability-breakdown-list');
   if (!breakdownContainer) {
       const grid = document.querySelector('#financial-tab .grid');
@@ -1153,7 +1185,7 @@ const renderFinancials = (financials, creditChecks) => {
 /**
  * Renders Document List with Admin Upload/Replace capability
  */
-const renderDocuments = (docs) => {
+const renderDocuments = (docs, truidInfo) => {
   const docList = document.getElementById('documents-list');
   const docCount = document.getElementById('doc-count');
   if (!docList || !docCount) return;
@@ -1165,11 +1197,12 @@ const renderDocuments = (docs) => {
       { key: 'bank_statement', label: 'Bank Statement' }
   ];
   
-  docCount.textContent = docs?.length || 0;
+  // Update count to include manual docs + the TruID record if it exists
+  docCount.textContent = (docs?.length || 0) + (truidInfo ? 1 : 0);
   docList.innerHTML = '';
 
+  // 1. Render Manual Uploads
   docTypes.forEach(type => {
-      // Check if a document of this type already exists
       const existing = docs.find(d => d.file_type === type.key);
       const statusColor = existing ? 'text-green-600 bg-green-100' : 'text-gray-400 bg-gray-100';
       const icon = existing ? 'fa-check-circle' : 'fa-upload';
@@ -1202,7 +1235,35 @@ const renderDocuments = (docs) => {
       docList.appendChild(div);
   });
 
-  // Attach upload handlers to the new inputs
+  // 2. NEW: Render TruID Card
+  if (truidInfo) {
+    const isVerified = truidInfo.verified === true;
+    const truidStatus = truidInfo.normalized_status || truidInfo.status || 'Linked';
+    
+    const truidDiv = document.createElement('div');
+    // We use a distinct blue background to separate Digital Data from manual PDF uploads
+    truidDiv.className = 'flex items-center justify-between p-4 bg-blue-50/50 border border-blue-200 rounded-xl hover:border-blue-400 transition-all mt-4';
+    
+    truidDiv.innerHTML = `
+        <div class="flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl ${isVerified ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-600'} flex items-center justify-center shadow-sm">
+                <i class="fa-solid fa-shield-halved text-xl"></i>
+            </div>
+            <div class="flex-grow min-w-0">
+                <p class="text-sm font-bold text-gray-900">TruID Digital Verification</p>
+                <div class="flex items-center gap-2">
+                    <span class="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-blue-100 text-blue-700">${truidStatus}</span>
+                    <p class="text-[10px] text-gray-400 font-medium">Ref: ${truidInfo.collection_id.slice(0,8)}</p>
+                </div>
+            </div>
+        </div>
+        <button onclick="window.viewTruidReport()" class="px-4 py-2 bg-white border border-blue-600 text-blue-600 rounded-lg text-xs font-bold hover:bg-blue-50 transition-all">
+            Inspect Data
+        </button>
+    `;
+    docList.appendChild(truidDiv);
+  }
+
   attachAdminUploadListeners();
 };
 
@@ -1421,39 +1482,26 @@ const renderSidePanel = (app) => {
   const alertEl = document.getElementById('status-alert');
   const actionsContainer = document.getElementById('action-buttons-container');
 
-  // --- 1. CORE FINANCIAL LOGIC (Synchronized with Wizard) ---
-  const historyCount = app.loan_history?.length || 0;
-  const principal = parseFloat(app.amount || 0);
+  // --- 1. DATABASE-DRIVEN FINANCIAL LOGIC ---
+  // We prioritize the 'offer_' columns which are pre-calculated and stored in Supabase
+  const principal = parseFloat(app.offer_principal || app.amount || 0);
   const term = parseInt(app.term_months || 1);
-  
-  // Get Offer Details for specific date and rate overrides
-  const offer = app.offer_details || {};
-  
-  // Constants from Business Logic
-  const MONTHLY_FEE = 60.00;
-  const INITIATION_FEE_RATE = 0.15; 
-  
-  // Tiered Interest: 20% for first 3 loans, 18% thereafter
-  const totalAnnualRate = (historyCount < 3) ? 0.20 : 0.18;
-  const interestPortionRate = totalAnnualRate - INITIATION_FEE_RATE; 
+  const totalInterest = parseFloat(app.offer_total_interest || 0);
+  const totalInitiationFees = parseFloat(app.offer_total_initiation_fees || 0);
+  const totalMonthlyFees = parseFloat(app.offer_total_admin_fees || 0);
+  const totalRepayment = parseFloat(app.offer_total_repayment || 0);
+  const monthlyPayment = parseFloat(app.offer_monthly_repayment || 0);
+  const annualRate = parseFloat(app.offer_interest_rate || 0);
 
-  // Calculations
-  const totalInterest = principal * interestPortionRate * (term / 12);
-  const totalInitiationFees = (principal * INITIATION_FEE_RATE) * term;
-  const totalMonthlyFees = MONTHLY_FEE * term;
-  
-  const totalRepayment = principal + totalInterest + totalMonthlyFees + totalInitiationFees;
-  const monthlyPayment = totalRepayment / term;
-
-  // --- 2. FETCH FIRST REPAYMENT DATE (Refined) ---
-  const scheduledDate = offer.first_payment_date || app.repayment_start_date;
+  // --- 2. FETCH REPAYMENT DATE FROM DB ---
+  const scheduledDate = app.repayment_start_date || (app.offer_details?.first_payment_date);
 
   // --- 3. UPDATE PRIMARY SIDEBAR FIELDS ---
   document.getElementById('sidebar-amount').textContent = formatCurrency(principal);
   document.getElementById('sidebar-term').textContent = `${term} Month${term > 1 ? 's' : ''}`;
   document.getElementById('sidebar-payment').textContent = formatCurrency(monthlyPayment);
 
-  // --- 4. INJECT DETAILED BREAKDOWN & REPAYMENT INFO ---
+  // --- 4. INJECT DETAILED BREAKDOWN FROM DB ---
   let breakdown = document.getElementById('financial-breakdown');
   if (!breakdown) {
       const paymentBlock = document.getElementById('sidebar-payment').parentElement.parentElement;
@@ -1466,11 +1514,11 @@ const renderSidePanel = (app) => {
   breakdown.innerHTML = `
     <div class="space-y-3 bg-gray-50 p-4 rounded-xl border border-gray-200">
         <div class="flex justify-between items-center text-xs">
-            <span class="text-gray-500">Tiered Interest (${(interestPortionRate * 100).toFixed(1)}%)</span>
+            <span class="text-gray-500">Tiered Interest (${(annualRate * 100).toFixed(1)}%)</span>
             <span class="font-bold text-gray-900">${formatCurrency(totalInterest)}</span>
         </div>
         <div class="flex justify-between items-center text-xs">
-            <span class="text-gray-500">Initiation Fee (15%)</span>
+            <span class="text-gray-500">Initiation Fee</span>
             <span class="font-bold text-gray-900">${formatCurrency(totalInitiationFees)}</span>
         </div>
         <div class="flex justify-between items-center text-xs">
@@ -1637,10 +1685,11 @@ const loadApplicationData = async () => {
       // Part 3: Financials & Bureau PDF (Steps 2 & 3)
       renderFinancials(data.financial_profiles, data.credit_checks); 
 
-      // Part 4b: Documents with Admin Replacement (Step 6)
-      renderDocuments(data.documents); 
+      // --- UPDATED: Passing both manual documents and truid_info ---
+      renderDocuments(data.documents, data.truid_info); 
       
       await renderLoanHistory(data.loan_history, data.application_history, data);
+      
       // Part 1: Side Panel with Tiered Rates (Step 5)
       renderSidePanel(data); 
 
@@ -1655,6 +1704,7 @@ const loadApplicationData = async () => {
       showFeedback("Failed to load full application data.", "error");
   }
 };
+
 document.addEventListener('DOMContentLoaded', async () => {
   await initLayout();
   let mainContent = document.getElementById('main-content');
