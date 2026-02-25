@@ -31,7 +31,7 @@ const toNumber = (value, fallback = 0) => {
 const SURESYSTEMS_API_PREFIX = '/api/sssdswitchuadsrest/v3';
 
 const config = {
-  baseUrl: readEnv('SURESYSTEMS_BASE_URL', 'https://uat.suredebit.co.za'),
+  baseUrl: 'https://uat.suredebit.co.za',
   basicAuthUsername: readEnv('SURESYSTEMS_BASIC_AUTH_USERNAME'),
   basicAuthPassword: readEnv('SURESYSTEMS_BASIC_AUTH_PASSWORD'),
   headerPrefix: readEnv('SURESYSTEMS_HEADER_PREFIX', 'SS'),
@@ -305,30 +305,29 @@ function isExactMandatePayload(input = {}) {
 }
 
 async function loadMandate(input = {}) {
-  // Hardcoded payload for testing
-  const payload = {
+  const mandateRequest = {
     messageInfo: {
       merchantGid: 18109,
       remoteGid: 27,
-      messageDate: "20260225",
-      messageTime: "075442",
-      systemUserName: "rhinusl",
-      frontEndUserName: "rhinuslapi"
+      messageDate: '20260225',
+      messageTime: '075442',
+      systemUserName: 'rhinusl',
+      frontEndUserName: 'rhinuslapi'
     },
     mandate: {
-      userReference: "PMA",
+      userReference: 'PMA',
       frequencyCode: 4,
       installmentAmount: 600,
       noOfInstallments: 3,
       origin: 15,
-      binNumber: "",
-      panTrailer: "",
-      contractReference: "46BD3900210898",
+      binNumber: '',
+      panTrailer: '',
+      contractReference: '46BD3900210898',
       magId: 45,
       debitValueType: 1,
       typeOfAuthorizationRequired: 3,
       initialAmount: 0,
-      firstCollectionDate: "20260403",
+      firstCollectionDate: '20260403',
       maximumCollectionAmount: 150,
       adjustmentCategory: 1,
       adjustmentAmount: 0,
@@ -337,25 +336,26 @@ async function loadMandate(input = {}) {
       dateAdjustmentRuleIndicator: 1,
       trackingIndicator: 1,
       numberOfTrackingDays: 3,
-      debitSequenceType: "RCUR",
-      debtorAccountName: "Tyme ABC",
+      debitSequenceType: 'RCUR',
+      debtorAccountName: 'Tyme ABC',
       debtorIdentificationType: 1,
-      debtorIdentificationNo: "8612257442083",
-      debtorAccountNumber: "51000716346",
+      debtorIdentificationNo: '8612257442083',
+      debtorAccountNumber: '51000716346',
       debtorAccountType: 1,
-      debtorBranchNumber: "678910",
-      entryClass: "0033",
-      mandateInitiationDate: "20260225",
-      authorizationIndicator: "0229",
-      clientNo: "000001",
-      debtorTelephone: "0704227326",
-      debtorEmail: "",
-      dateList: ""
+      debtorBranchNumber: '678910',
+      entryClass: '0033',
+      mandateInitiationDate: '20260225',
+      authorizationIndicator: '0229',
+      clientNo: '000001',
+      debtorTelephone: '0704227326',
+      debtorEmail: '',
+      dateList: ''
     }
   };
-  const response = await request('/mandates/load', payload);
+
+  const response = await request('/mandates/load', mandateRequest);
   return {
-    contractReference: payload.mandate.contractReference || null,
+    contractReference: mandateRequest?.mandate?.contractReference || null,
     response
   };
 }
