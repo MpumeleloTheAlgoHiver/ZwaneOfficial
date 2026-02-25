@@ -222,10 +222,26 @@ async function initBankStatementModule() {
     connectBtn.disabled = true;
 
     const redirectUrl = `${window.location.origin}/user-portal/?page=apply-loan`;
+    // Fetch latest profile from DB before launching TruID
+    let profile = null;
+    try {
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      if (profileError) {
+        console.warn('⚠️ Could not fetch latest profile from DB, falling back to session metadata', profileError);
+      }
+      profile = profileData;
+    } catch (e) {
+      console.warn('⚠️ Exception fetching profile from DB, falling back to session metadata', e);
+    }
+
     const payload = {
       userId,
-      name: session.user.user_metadata?.full_name || session.user.user_metadata?.name || null,
-      idNumber: session.user.user_metadata?.id_number || session.user.user_metadata?.idNumber || null,
+      name: profile?.full_name || session.user.user_metadata?.full_name || session.user.user_metadata?.name || null,
+      idNumber: profile?.identity_number || session.user.user_metadata?.id_number || session.user.user_metadata?.idNumber || null,
       idType: 'id',
       email: session.user.email,
       mobile: session.user.phone || session.user.user_metadata?.phone || session.user.user_metadata?.phone_number,
