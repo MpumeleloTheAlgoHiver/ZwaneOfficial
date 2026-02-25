@@ -286,7 +286,31 @@ function buildMandatePayload(input = {}) {
   };
 }
 
+function isExactMandatePayload(input = {}) {
+  return Boolean(
+    input
+    && typeof input === 'object'
+    && input.messageInfo
+    && typeof input.messageInfo === 'object'
+    && input.mandate
+    && typeof input.mandate === 'object'
+  );
+}
+
 async function loadMandate(input = {}) {
+  if (isExactMandatePayload(input)) {
+    const payload = {
+      messageInfo: { ...input.messageInfo },
+      mandate: { ...input.mandate }
+    };
+
+    const response = await request('/mandates/load', payload);
+    return {
+      contractReference: payload.mandate.contractReference || null,
+      response
+    };
+  }
+
   const { contractReference, payload } = buildMandatePayload(input);
   const response = await request('/mandates/load', payload);
   return {
