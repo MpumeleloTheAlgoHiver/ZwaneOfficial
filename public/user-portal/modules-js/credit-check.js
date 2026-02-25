@@ -393,10 +393,7 @@ async function runCreditCheck() {
       sessionStorage.setItem('creditCheckPassed', 'true');
       sessionStorage.setItem('creditData', JSON.stringify(creditData));
       
-      // Download ZIP file if available
-      if (result.zipData) {
-        downloadZipFile(result.zipData, applicationId);
-      }
+      // Auto-download disabled: keep flow manual-only for report retrieval
       
       // Show result with detailed information
       document.getElementById('credit-loading').style.display = 'none';
