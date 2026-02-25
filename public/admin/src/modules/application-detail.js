@@ -497,6 +497,7 @@ const handleContractCompleted = async () => {
   hasAutoAdvancedToSigned = true;
   stopContractStatusPolling();
   try {
+    let statusChangedToOfferAccepted = false;
     if (currentApplication.status !== 'OFFER_ACCEPTED') {
       const { error } = await updateApplicationStatus(currentApplication.id, 'OFFER_ACCEPTED');
       if (error) {
@@ -506,7 +507,31 @@ const handleContractCompleted = async () => {
       }
       currentApplication.status = 'OFFER_ACCEPTED';
       currentApplication.contract_signed_at = new Date().toISOString();
+      statusChangedToOfferAccepted = true;
     }
+
+    if (statusChangedToOfferAccepted) {
+      try {
+        const activationResponse = await fetch('/api/suresystems/activate-application', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ applicationId: currentApplication.id })
+        });
+        const activationPayload = await activationResponse.json().catch(() => ({}));
+        if (!activationResponse.ok || activationPayload?.success === false) {
+          const activationError = new Error(activationPayload?.error || activationPayload?.message || 'SureSystems mandate activation failed');
+          activationError.details = activationPayload?.details || null;
+          throw activationError;
+        }
+      } catch (activationError) {
+        console.error('SureSystems activation failed during contract auto-complete:', {
+          message: activationError?.message || 'Unknown activation error',
+          details: activationError?.details || null
+        });
+        showFeedback(activationError?.message || 'SureSystems mandate activation failed', 'error');
+      }
+    }
+
     renderSidePanel(currentApplication);
     updateHeaderStatusBadge('OFFER_ACCEPTED');
     showFeedback('Contract signed! Advanced to approval phase.', 'success');
