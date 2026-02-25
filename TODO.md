@@ -8,7 +8,7 @@
 - [x] Mobile version 
 - [x] guards on steps
 - [x] enable webhook for didit response 
-- [ ] add documents , disclamers , privacy policy, user guide 
+- [x] add documents , disclamers , privacy policy, user guide 
 - [x] fix calculations 
 - [ ] get correct company details 
 - [ ] show file on upload screen 
