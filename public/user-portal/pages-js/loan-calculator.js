@@ -2,6 +2,7 @@
 
 // Initialize calculator on page load
 function initCalculator() {
+  const FIXED_ANNUAL_RATE = 0.20;
   // Sync sliders with inputs
   const loanAmountInput = document.getElementById('loanAmount');
   const loanAmountSlider = document.getElementById('loanAmountSlider');
@@ -46,22 +47,15 @@ function initCalculator() {
     });
   }
 
-  // Add listener for interest rate select
-  const interestRateSelect = document.getElementById('interestRateSelect');
-  if (interestRateSelect) {
-    interestRateSelect.addEventListener('change', calculateLoan);
-  }
-
   // Calculate on initial load
-  calculateLoan();
+  calculateLoan(FIXED_ANNUAL_RATE);
 }
 
 // Calculate loan
-window.calculateLoan = function() {
+window.calculateLoan = function(fixedAnnualRate = 0.20) {
   const principal = parseFloat(document.getElementById('loanAmount').value) || 0;
   const termMonths = parseInt(document.getElementById('loanTerm').value) || 0;
-  const interestRateSelect = document.getElementById('interestRateSelect');
-  const annualRate = interestRateSelect ? parseFloat(interestRateSelect.value) : 0.20;
+  const annualRate = fixedAnnualRate;
 
   if (principal <= 0 || termMonths <= 0) {
     return;
