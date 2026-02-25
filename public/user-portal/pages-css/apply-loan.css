@@ -290,6 +290,9 @@ body {
 .right-section {
   flex: 1;
   padding-left: 2rem;
+  max-height: calc(100vh - (var(--navbar-offset, 64px) + 220px));
+  overflow-y: auto;
+  padding-right: 0.5rem;
 }
 
 .document-list {
