@@ -183,6 +183,7 @@ function normalizeError(error, fallback) {
 }
 
 async function request(endpoint, payload) {
+
   assertConfigured();
 
   const safeEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
@@ -192,6 +193,12 @@ async function request(endpoint, payload) {
     Authorization: buildBasicAuthHeader(),
     ...buildSignatureHeaders()
   };
+
+  // Log outbound SureSystems request
+  console.log('[SureSystems] Outbound Request:', {
+    url,
+    payload
+  });
 
   try {
     const response = await axios.post(url, payload, {
