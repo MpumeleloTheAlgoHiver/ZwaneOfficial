@@ -28,8 +28,10 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const SURESYSTEMS_API_PREFIX = '/api/sssdswitchuadsrest/v3';
+
 const config = {
-  baseUrl: readEnv('SURESYSTEMS_BASE_URL'),
+  baseUrl: readEnv('SURESYSTEMS_BASE_URL', 'https://uat.suredebit.co.za'),
   basicAuthUsername: readEnv('SURESYSTEMS_BASIC_AUTH_USERNAME'),
   basicAuthPassword: readEnv('SURESYSTEMS_BASIC_AUTH_PASSWORD'),
   headerPrefix: readEnv('SURESYSTEMS_HEADER_PREFIX', 'SS'),
@@ -99,9 +101,6 @@ function getMissingConfig() {
     .filter(([key, value]) => {
       if (typeof value === 'number') return value === 0;
       if (isPlaceholderValue(value)) return true;
-      if (key === 'SURESYSTEMS_BASE_URL') {
-        return !String(value).includes('/api/sssdswitchuadsrest/v3');
-      }
       return false;
     })
     .map(([key]) => key);
@@ -186,7 +185,8 @@ function normalizeError(error, fallback) {
 async function request(endpoint, payload) {
   assertConfigured();
 
-  const url = `${config.baseUrl.replace(/\/$/, '')}${endpoint}`;
+  const safeEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const url = `${config.baseUrl.replace(/\/$/, '')}${SURESYSTEMS_API_PREFIX}${safeEndpoint}`;
   const headers = {
     'Content-Type': 'application/json',
     Authorization: buildBasicAuthHeader(),
