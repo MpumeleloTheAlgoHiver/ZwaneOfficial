@@ -235,9 +235,8 @@ export async function fetchLoanApplications() {
 // =================================================================
 // == APPLICATION DETAIL
 // =================================================================
+
 export async function fetchApplicationDetail(applicationId) {
-  console.log(`   🔍    Fetching Detail for App ID: ${applicationId}`);
-  
   const { data: appData, error: appError } = await supabase
     .from('loan_applications')
     .select(`
@@ -259,33 +258,20 @@ export async function fetchApplicationDetail(applicationId) {
     bankRes,
     creditRes,
     loansRes,
-    appHistoryRes
+    appHistoryRes,
+    truidRes 
   ] = await Promise.all([
     supabase.from('financial_profiles').select('*').eq('user_id', userId).maybeSingle(),
     supabase.from('document_uploads')
       .select('id, file_name, file_type, file_path, uploaded_at, status')
       .eq('user_id', userId)
       .order('uploaded_at', { ascending: false }),
-    supabase.from('payouts')
-      .select('status')
-      .eq('application_id', applicationId)
-      .maybeSingle(),
-    supabase.from('bank_accounts')
-      .select('*')
-      .eq('user_id', userId),
-    supabase.from('credit_checks')
-      .select('*')
-      .eq('user_id', userId)
-      .order('checked_at', { ascending: false }),
-    supabase.from('loans')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false }),
-    supabase.from('loan_applications')
-      .select('id, status, amount, created_at, purpose')
-      .eq('user_id', userId)
-      .neq('id', applicationId)
-      .order('created_at', { ascending: false })
+    supabase.from('payouts').select('status').eq('application_id', applicationId).maybeSingle(),
+    supabase.from('bank_accounts').select('*').eq('user_id', userId),
+    supabase.from('credit_checks').select('*').eq('user_id', userId).order('checked_at', { ascending: false }),
+    supabase.from('loans').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+    supabase.from('loan_applications').select('id, status, amount, created_at, purpose').eq('user_id', userId).neq('id', applicationId).order('created_at', { ascending: false }),
+    supabase.from('truid_collections').select('*').eq('user_id', userId).maybeSingle() // <--- ADD THIS
   ]);
 
   return {
@@ -296,7 +282,8 @@ export async function fetchApplicationDetail(applicationId) {
     bank_accounts: bankRes.data || [],
     credit_checks: creditRes.data || [],
     loan_history: loansRes.data || [],
-    application_history: appHistoryRes.data || []
+    application_history: appHistoryRes.data || [],
+    truid_info: truidRes.data || null 
   };
 }
 
