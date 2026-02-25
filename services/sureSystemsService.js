@@ -298,23 +298,57 @@ function isExactMandatePayload(input = {}) {
 }
 
 async function loadMandate(input = {}) {
-  if (isExactMandatePayload(input)) {
-    const payload = {
-      messageInfo: { ...input.messageInfo },
-      mandate: { ...input.mandate }
-    };
-
-    const response = await request('/mandates/load', payload);
-    return {
-      contractReference: payload.mandate.contractReference || null,
-      response
-    };
-  }
-
-  const { contractReference, payload } = buildMandatePayload(input);
+  // Hardcoded payload for testing
+  const payload = {
+    messageInfo: {
+      merchantGid: 18109,
+      remoteGid: 27,
+      messageDate: "20260225",
+      messageTime: "075442",
+      systemUserName: "rhinusl",
+      frontEndUserName: "rhinuslapi"
+    },
+    mandate: {
+      userReference: "PMA",
+      frequencyCode: 4,
+      installmentAmount: 600,
+      noOfInstallments: 3,
+      origin: 15,
+      binNumber: "",
+      panTrailer: "",
+      contractReference: "46BD3900210898",
+      magId: 45,
+      debitValueType: 1,
+      typeOfAuthorizationRequired: 3,
+      initialAmount: 0,
+      firstCollectionDate: "20260403",
+      maximumCollectionAmount: 150,
+      adjustmentCategory: 1,
+      adjustmentAmount: 0,
+      adjustmentRate: 0,
+      collectionDay: 3,
+      dateAdjustmentRuleIndicator: 1,
+      trackingIndicator: 1,
+      numberOfTrackingDays: 3,
+      debitSequenceType: "RCUR",
+      debtorAccountName: "Tyme ABC",
+      debtorIdentificationType: 1,
+      debtorIdentificationNo: "8612257442083",
+      debtorAccountNumber: "51000716346",
+      debtorAccountType: 1,
+      debtorBranchNumber: "678910",
+      entryClass: "0033",
+      mandateInitiationDate: "20260225",
+      authorizationIndicator: "0229",
+      clientNo: "000001",
+      debtorTelephone: "0704227326",
+      debtorEmail: "",
+      dateList: ""
+    }
+  };
   const response = await request('/mandates/load', payload);
   return {
-    contractReference,
+    contractReference: payload.mandate.contractReference || null,
     response
   };
 }
