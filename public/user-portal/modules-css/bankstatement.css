@@ -207,3 +207,74 @@
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.15); }
 }
+
+.manual-disclaimer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.38);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2200;
+  padding: 1rem;
+}
+
+.manual-disclaimer-card {
+  width: 100%;
+  max-width: 520px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 18px;
+  padding: 1.5rem;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.2);
+}
+
+.manual-disclaimer-card h3 {
+  margin: 0 0 0.6rem;
+  color: #111827;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.manual-disclaimer-card p {
+  margin: 0;
+  color: #4b5563;
+  line-height: 1.55;
+  font-size: 0.95rem;
+}
+
+.manual-disclaimer-actions {
+  margin-top: 1.2rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.manual-disclaimer-btn {
+  border-radius: 10px;
+  padding: 0.65rem 1rem;
+  font-size: 0.92rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.manual-disclaimer-btn.secondary {
+  background: #ffffff;
+  color: #111827;
+  border-color: #d1d5db;
+}
+
+.manual-disclaimer-btn.secondary:hover {
+  background: #f9fafb;
+}
+
+.manual-disclaimer-btn.primary {
+  background: #111827;
+  color: #f9fafb;
+  border-color: #111827;
+}
+
+.manual-disclaimer-btn.primary:hover {
+  background: #1f2937;
+}

@@ -7,9 +7,14 @@ async function initBankStatementModule() {
   const manualUploadBtn = document.getElementById('manualBankUploadBtn');
   const manualFileInput = document.getElementById('manualBankFile');
   const manualSelectedFile = document.getElementById('manualBankSelectedFile');
+  const disclaimerModal = document.getElementById('manualUploadDisclaimerModal');
+  const disclaimerAcceptBtn = document.getElementById('manualUploadDisclaimerAccept');
+  const disclaimerCancelBtn = document.getElementById('manualUploadDisclaimerCancel');
   const checkmark = document.getElementById('bankstatementCheckmark');
   const existingInfo = document.getElementById('existingFileInfo');
   const statusChip = document.getElementById('bankstatementStatusChip');
+  const DISCLAIMER_ACCEPTED_KEY = 'manualBankUploadDisclaimerAccepted';
+  let manualDisclaimerAccepted = sessionStorage.getItem(DISCLAIMER_ACCEPTED_KEY) === 'true';
   let statusPollInterval = null;
 
   if (!status || !connectBtn) {
@@ -181,7 +186,40 @@ async function initBankStatementModule() {
   }
 
   if (manualUploadBtn && manualFileInput) {
-    manualUploadBtn.addEventListener('click', async () => {
+    const showManualUploadDisclaimer = () => new Promise((resolve) => {
+      if (!disclaimerModal || !disclaimerAcceptBtn || !disclaimerCancelBtn) {
+        resolve(true);
+        return;
+      }
+
+      const closeModal = () => {
+        disclaimerModal.classList.add('hidden');
+      };
+
+      const handleAccept = () => {
+        manualDisclaimerAccepted = true;
+        sessionStorage.setItem(DISCLAIMER_ACCEPTED_KEY, 'true');
+        closeModal();
+        resolve(true);
+      };
+
+      const handleCancel = () => {
+        closeModal();
+        resolve(false);
+      };
+
+      disclaimerAcceptBtn.onclick = handleAccept;
+      disclaimerCancelBtn.onclick = handleCancel;
+      disclaimerModal.onclick = (event) => {
+        if (event.target === disclaimerModal) {
+          handleCancel();
+        }
+      };
+
+      disclaimerModal.classList.remove('hidden');
+    });
+
+    const handleManualUpload = async () => {
       if (!manualFileInput.files?.length) {
         manualFileInput.click();
         return;
@@ -234,6 +272,17 @@ async function initBankStatementModule() {
         manualUploadBtn.disabled = false;
         manualUploadBtn.textContent = 'Manual Bank Upload';
       }
+    };
+
+    manualUploadBtn.addEventListener('click', async () => {
+      if (!manualDisclaimerAccepted) {
+        const accepted = await showManualUploadDisclaimer();
+        if (!accepted) {
+          return;
+        }
+      }
+
+      await handleManualUpload();
     });
   }
 
