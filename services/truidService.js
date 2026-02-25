@@ -51,6 +51,8 @@ class TruIDClient {
 
   normalizeConsumerUrl(url) {
     if (!url || typeof url !== 'string') return url;
+    const rewriteEnabled = (readEnv('TRUID_REWRITE_CONSUMER_URL') || '').toLowerCase() === 'true';
+    if (!rewriteEnabled) return url;
     const scheme = readEnv('TRUID_SCHEME') || 'https';
     const domain = readEnv('TRUID_DOMAIN');
     if (!domain) return url;
@@ -170,8 +172,10 @@ class TruIDClient {
       ...(Array.isArray(services) && services.length ? { services } : {}),
       ...(correlation && Object.keys(correlation).length ? { correlation } : {}),
       ...(force ? { force: true } : {}),
-      ...(this.redirectUrl && { redirectUrl: this.redirectUrl }),
-      ...(this.webhookUrl && { webhookUrl: this.webhookUrl })
+      ...(options.redirectUrl && { redirectUrl: options.redirectUrl }),
+      ...(!options.redirectUrl && this.redirectUrl && { redirectUrl: this.redirectUrl }),
+      ...(options.webhookUrl && { webhookUrl: options.webhookUrl }),
+      ...(!options.webhookUrl && this.webhookUrl && { webhookUrl: this.webhookUrl })
     };
 
     try {
