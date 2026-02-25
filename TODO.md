@@ -10,7 +10,7 @@
 - [x] enable webhook for didit response 
 - [x] add documents , disclamers , privacy policy, user guide 
 - [x] fix calculations 
-- [ ] get correct company details 
+- [x] get correct company details 
 - [ ] show file on upload screen 
 
 n
