@@ -22,7 +22,7 @@ async function initBankStatementModule() {
   }
   connectBtn.dataset.bound = 'true';
 
-  const applicationId = sessionStorage.getItem('currentApplicationId') || sessionStorage.getItem('lastApplicationId');
+  let applicationId = sessionStorage.getItem('currentApplicationId') || sessionStorage.getItem('lastApplicationId');
   const { data: { session } } = await supabase.auth.getSession();
   const userId = session?.user?.id;
 
@@ -37,6 +37,27 @@ async function initBankStatementModule() {
       manualUploadBtn.textContent = 'Please Log In';
     }
     return;
+  }
+
+  if (!applicationId) {
+    try {
+      const { data: latestApplication, error: latestApplicationError } = await supabase
+        .from('loan_applications')
+        .select('id')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (latestApplicationError) {
+        console.warn('⚠️ Could not resolve latest applicationId from DB', latestApplicationError);
+      } else if (latestApplication?.id) {
+        applicationId = latestApplication.id;
+        sessionStorage.setItem('lastApplicationId', String(applicationId));
+      }
+    } catch (error) {
+      console.warn('⚠️ Failed to fetch latest applicationId for TruID correlation', error);
+    }
   }
 
   console.log('✅ Ready for TruID bank statement connection', { applicationId: applicationId || 'none', userId });
