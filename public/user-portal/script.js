@@ -527,6 +527,15 @@ function setupNavbarInteractions() {
       e.stopPropagation();
       if (mobileOverlay) {
         mobileOverlay.classList.add('open');
+        // Prevent background scroll and hide sticky dashboard header on mobile
+        document.body.classList.add('search-overlay-open');
+        
+        // FIX: Explicitly hide dashboard header when search opens
+        const dashboardHeader = document.querySelector('#main-content .dashboard-header');
+        if (dashboardHeader) {
+          dashboardHeader.style.display = 'none';
+        }
+        
         setTimeout(() => mobileInput?.focus(), 100);
         renderMobileResults(""); 
       }
@@ -542,7 +551,16 @@ function setupNavbarInteractions() {
     mobileInput.addEventListener('input', (e) => renderMobileResults(e.target.value));
   }
   if (closeSearchBtn && mobileOverlay) {
-    closeSearchBtn.addEventListener('click', () => mobileOverlay.classList.remove('open'));
+    closeSearchBtn.addEventListener('click', () => {
+      mobileOverlay.classList.remove('open');
+      document.body.classList.remove('search-overlay-open');
+      
+      // FIX: Restore dashboard header when search closes
+      const dashboardHeader = document.querySelector('#main-content .dashboard-header');
+      if (dashboardHeader) {
+        dashboardHeader.style.display = '';
+      }
+    });
   }
 
 
@@ -864,6 +882,13 @@ window.handleMenuNav = function(pageName) {
   const searchOverlay = document.getElementById('searchOverlay');
   if (searchOverlay) {
     searchOverlay.classList.remove('open');
+    document.body.classList.remove('search-overlay-open');
+    
+    // FIX: Restore dashboard header when navigating away from search
+    const dashboardHeader = document.querySelector('#main-content .dashboard-header');
+    if (dashboardHeader) {
+      dashboardHeader.style.display = '';
+    }
   }
   
   // 3. Navigate
