@@ -10,11 +10,11 @@ async function initBankStatementModule() {
   const disclaimerModal = document.getElementById('manualUploadDisclaimerModal');
   const disclaimerAcceptBtn = document.getElementById('manualUploadDisclaimerAccept');
   const disclaimerCancelBtn = document.getElementById('manualUploadDisclaimerCancel');
+  const disclaimerConsentCheckbox = document.getElementById('manualUploadConsentCheckbox');
   const checkmark = document.getElementById('bankstatementCheckmark');
   const existingInfo = document.getElementById('existingFileInfo');
   const statusChip = document.getElementById('bankstatementStatusChip');
-  const DISCLAIMER_ACCEPTED_KEY = 'manualBankUploadDisclaimerAccepted';
-  let manualDisclaimerAccepted = sessionStorage.getItem(DISCLAIMER_ACCEPTED_KEY) === 'true';
+  let manualDisclaimerAccepted = false;
   let statusPollInterval = null;
 
   if (!status || !connectBtn) {
@@ -43,6 +43,126 @@ async function initBankStatementModule() {
     }
     return;
   }
+
+  const getConsentStateFromDeclarations = async () => {
+    const metadataOnlyFetch = async () => {
+      const { data: declarationData, error: metadataError } = await supabase
+        .from('declarations')
+        .select('metadata')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (metadataError) {
+        throw metadataError;
+      }
+
+      return declarationData?.metadata?.credit_check_consent_accepted === true;
+    };
+
+    try {
+      const { data: declarationData, error } = await supabase
+        .from('declarations')
+        .select('credit_check_consent_accepted, metadata')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (error) {
+        const missingConsentColumn = String(error?.message || '').toLowerCase().includes('column')
+          && String(error?.message || '').toLowerCase().includes('credit_check_consent_');
+
+        if (missingConsentColumn) {
+          return await metadataOnlyFetch();
+        }
+
+        throw error;
+      }
+
+      const consentFromColumn = declarationData?.credit_check_consent_accepted === true;
+      const consentFromMetadata = declarationData?.metadata?.credit_check_consent_accepted === true;
+      return consentFromColumn || consentFromMetadata;
+    } catch (error) {
+      console.warn('⚠️ Could not read declarations consent state', error);
+      return false;
+    }
+  };
+
+  const persistConsentToDeclarations = async () => {
+    const acceptedAt = new Date().toISOString();
+
+    const { data: existingDeclaration } = await supabase
+      .from('declarations')
+      .select('id, metadata')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    const metadata = {
+      ...(existingDeclaration?.metadata || {}),
+      credit_check_consent_accepted: true,
+      credit_check_consent_accepted_at: acceptedAt,
+      credit_check_consent_version: 'v1'
+    };
+
+    try {
+      if (existingDeclaration?.id) {
+        const { error: updateError } = await supabase
+          .from('declarations')
+          .update({
+            credit_check_consent_accepted: true,
+            credit_check_consent_accepted_at: acceptedAt,
+            credit_check_consent_version: 'v1',
+            metadata,
+            updated_at: acceptedAt
+          })
+          .eq('user_id', userId);
+
+        if (updateError) throw updateError;
+        return;
+      }
+
+      const { error: insertError } = await supabase
+        .from('declarations')
+        .insert([{
+          user_id: userId,
+          credit_check_consent_accepted: true,
+          credit_check_consent_accepted_at: acceptedAt,
+          credit_check_consent_version: 'v1',
+          metadata
+        }]);
+
+      if (insertError) throw insertError;
+    } catch (error) {
+      const missingConsentColumn = String(error?.message || '').toLowerCase().includes('column')
+        && String(error?.message || '').toLowerCase().includes('credit_check_consent_');
+
+      if (!missingConsentColumn) {
+        throw error;
+      }
+
+      if (existingDeclaration?.id) {
+        const { error: fallbackUpdateError } = await supabase
+          .from('declarations')
+          .update({
+            metadata,
+            updated_at: acceptedAt
+          })
+          .eq('user_id', userId);
+
+        if (fallbackUpdateError) throw fallbackUpdateError;
+        return;
+      }
+
+      const { error: fallbackInsertError } = await supabase
+        .from('declarations')
+        .insert([{
+          user_id: userId,
+          metadata
+        }]);
+
+      if (fallbackInsertError) throw fallbackInsertError;
+    }
+  };
+
+  manualDisclaimerAccepted = await getConsentStateFromDeclarations();
 
   if (!applicationId) {
     try {
@@ -187,6 +307,11 @@ async function initBankStatementModule() {
 
   if (manualUploadBtn && manualFileInput) {
     const showManualUploadDisclaimer = () => new Promise((resolve) => {
+      if (manualDisclaimerAccepted) {
+        resolve(true);
+        return;
+      }
+
       if (!disclaimerModal || !disclaimerAcceptBtn || !disclaimerCancelBtn) {
         resolve(true);
         return;
@@ -196,17 +321,38 @@ async function initBankStatementModule() {
         disclaimerModal.classList.add('hidden');
       };
 
-      const handleAccept = () => {
-        manualDisclaimerAccepted = true;
-        sessionStorage.setItem(DISCLAIMER_ACCEPTED_KEY, 'true');
-        closeModal();
-        resolve(true);
+      if (disclaimerConsentCheckbox) {
+        disclaimerConsentCheckbox.checked = false;
+      }
+      disclaimerAcceptBtn.disabled = true;
+
+      const handleAccept = async () => {
+        if (disclaimerConsentCheckbox && !disclaimerConsentCheckbox.checked) {
+          return;
+        }
+
+        try {
+          await persistConsentToDeclarations();
+          manualDisclaimerAccepted = true;
+          closeModal();
+          resolve(true);
+        } catch (error) {
+          console.error('❌ Failed to save manual upload consent', error);
+          status.textContent = '❌ Unable to save consent right now. Please try again.';
+          status.style.color = '#dc3545';
+        }
       };
 
       const handleCancel = () => {
         closeModal();
         resolve(false);
       };
+
+      if (disclaimerConsentCheckbox) {
+        disclaimerConsentCheckbox.onchange = () => {
+          disclaimerAcceptBtn.disabled = !disclaimerConsentCheckbox.checked;
+        };
+      }
 
       disclaimerAcceptBtn.onclick = handleAccept;
       disclaimerCancelBtn.onclick = handleCancel;
