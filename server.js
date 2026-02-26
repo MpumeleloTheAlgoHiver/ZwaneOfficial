@@ -1104,12 +1104,89 @@ app.post('/api/docuseal/webhook', async (req, res) => {
         };
 
         const updateBySubmission = async (fields) => {
-            const submissionId = data?.id || data?.submission_id;
+            const submissionId = data?.submission?.id || data?.submission_id || (eventType.startsWith('submission.') ? data?.id : null);
             if (!submissionId) return;
             await supabase
                 .from('docuseal_submissions')
                 .update({ ...fields, updated_at: now })
                 .eq('submission_id', submissionId);
+        };
+
+        const getSubmissionIdFromWebhook = () => {
+            return data?.submission?.id || data?.submission_id || (eventType.startsWith('submission.') ? data?.id : null);
+        };
+
+        const getSlugFromWebhook = (submissionId) => {
+            const slugCandidate = data?.slug
+                || data?.submission?.slug
+                || data?.submission_url
+                || data?.submission?.url
+                || '';
+
+            if (slugCandidate) {
+                try {
+                    const parsed = new URL(String(slugCandidate));
+                    const parts = parsed.pathname.split('/').filter(Boolean);
+                    const maybeSlug = parts[parts.length - 1] || '';
+                    if (maybeSlug) return maybeSlug;
+                } catch (e) {
+                    const asString = String(slugCandidate).trim();
+                    if (asString) return asString;
+                }
+            }
+
+            return submissionId ? `submission-${submissionId}` : `submission-${Date.now()}`;
+        };
+
+        const upsertDocuSealSubmissionRow = async (nextStatus, extraFields = {}) => {
+            const submissionId = getSubmissionIdFromWebhook();
+            if (!submissionId) return;
+
+            const firstSubmitter = Array.isArray(data?.submitters) && data.submitters.length > 0
+                ? data.submitters[0]
+                : null;
+
+            const resolvedApplicationId = normalizeApplicationId(
+                data?.metadata?.application_id
+                || data?.application_id
+                || data?.submission?.metadata?.application_id
+                || data?.submission?.application_id
+                || null
+            );
+
+            const row = {
+                application_id: resolvedApplicationId,
+                submission_id: String(submissionId),
+                slug: getSlugFromWebhook(submissionId),
+                status: nextStatus || data?.status || 'pending',
+                template_id: data?.template?.id ? String(data.template.id) : null,
+                submitters: Array.isArray(data?.submitters) ? data.submitters : (firstSubmitter ? [firstSubmitter] : null),
+                metadata: data?.metadata || {},
+                email: firstSubmitter?.email || data?.email || null,
+                embed_src: firstSubmitter?.embed_src || null,
+                name: firstSubmitter?.name || data?.name || null,
+                role: firstSubmitter?.role || data?.role || null,
+                submitter_id: firstSubmitter?.id ? String(firstSubmitter.id) : (data?.id ? String(data.id) : null),
+                sent_at: firstSubmitter?.sent_at || data?.sent_at || null,
+                opened_at: data?.opened_at || null,
+                completed_at: data?.completed_at || null,
+                declined_at: data?.declined_at || null,
+                archived_at: data?.archived_at || null,
+                updated_at: now,
+                ...extraFields
+            };
+
+            const { error } = await supabase
+                .from('docuseal_submissions')
+                .upsert(row, { onConflict: 'submission_id' });
+
+            if (error) {
+                console.error('DocuSeal submission upsert error:', error, {
+                    eventType,
+                    submissionId,
+                    row
+                });
+            }
         };
 
         const resolveApplicationIdFromWebhook = async () => {
@@ -1210,12 +1287,18 @@ app.post('/api/docuseal/webhook', async (req, res) => {
 
         switch (eventType) {
             case 'form.viewed':
+                await upsertDocuSealSubmissionRow('opened', { opened_at: data.opened_at || now });
                 await updateBySubmitter({ status: 'opened', opened_at: data.opened_at || now });
                 break;
             case 'form.started':
+                await upsertDocuSealSubmissionRow('started');
                 await updateBySubmitter({ status: 'started' });
                 break;
             case 'form.completed':
+                await upsertDocuSealSubmissionRow('completed', {
+                    completed_at: data.completed_at || now,
+                    metadata: data.metadata || {}
+                });
                 await updateBySubmitter({ status: 'completed', completed_at: data.completed_at || now, metadata: data.values || data.metadata || {} });
                 // After a submitter completes the form, mark the related application as Contract Signed (step 5)
                 try {
@@ -1265,6 +1348,10 @@ app.post('/api/docuseal/webhook', async (req, res) => {
                 break;
             case 'form.declined':
                 try {
+                    await upsertDocuSealSubmissionRow('declined', {
+                        declined_at: data.declined_at || now,
+                        metadata: data.metadata || {}
+                    });
                     // Mark the submitter row as declined (use submitter id present in data.id)
                     await updateBySubmitter({ status: 'declined', declined_at: data.declined_at || now, metadata: data.values || data.metadata || {} });
 
@@ -1297,30 +1384,14 @@ app.post('/api/docuseal/webhook', async (req, res) => {
                 }
                 break;
             case 'submission.archived':
+                await upsertDocuSealSubmissionRow('archived', { archived_at: data.archived_at || now });
                 await updateBySubmission({ status: 'archived', archived_at: data.archived_at || now });
                 break;
             case 'submission.created':
                 try {
-                    const submitters = data.submitters || [];
-                    for (const submitter of submitters) {
-                        await supabase
-                            .from('docuseal_submissions')
-                            .upsert({
-                                application_id: data.metadata?.application_id || data.application_id || null,
-                                submission_id: data.id || data.submission_id || null,
-                                submitter_id: submitter.id,
-                                slug: submitter.slug || null,
-                                status: submitter.status || 'pending',
-                                email: submitter.email || null,
-                                name: submitter.name || null,
-                                role: submitter.role || null,
-                                embed_src: submitter.embed_src || null,
-                                sent_at: submitter.sent_at || now,
-                                metadata: submitter.metadata || {},
-                                created_at: submitter.created_at || data.created_at || now,
-                                updated_at: now
-                            }, { onConflict: 'submitter_id' });
-                    }
+                    await upsertDocuSealSubmissionRow(data.status || 'pending', {
+                        created_at: data.created_at || now
+                    });
                 } catch (error) {
                     console.error('DocuSeal webhook upsert error:', error);
                 }
@@ -1332,32 +1403,10 @@ app.post('/api/docuseal/webhook', async (req, res) => {
             case 'submission.declined':
             case 'submitter.declined':
                 try {
-                    // If submitters array provided, upsert each submitter (status may have changed)
-                    const submitters = data.submitters || [];
-                    if (submitters.length > 0) {
-                        for (const submitter of submitters) {
-                            await supabase
-                                .from('docuseal_submissions')
-                                .upsert({
-                                    application_id: data.metadata?.application_id || data.application_id || null,
-                                    submission_id: data.id || data.submission_id || null,
-                                    submitter_id: submitter.id,
-                                    slug: submitter.slug || null,
-                                    status: submitter.status || 'pending',
-                                    email: submitter.email || null,
-                                    name: submitter.name || null,
-                                    role: submitter.role || null,
-                                    embed_src: submitter.embed_src || null,
-                                    sent_at: submitter.sent_at || now,
-                                    metadata: submitter.metadata || {},
-                                    created_at: submitter.created_at || data.created_at || now,
-                                    updated_at: now
-                                }, { onConflict: 'submitter_id' });
-                        }
-                    }
+                    await upsertDocuSealSubmissionRow(data.status || 'pending');
 
                     // If submission-level status provided, update rows by submission_id
-                    const submissionId = data.id || data.submission_id;
+                    const submissionId = getSubmissionIdFromWebhook();
                     if (submissionId && data.status) {
                         await supabase
                             .from('docuseal_submissions')
