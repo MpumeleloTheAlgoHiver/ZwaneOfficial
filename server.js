@@ -1085,6 +1085,102 @@ app.post('/api/docuseal/webhook', async (req, res) => {
                 .eq('submission_id', submissionId);
         };
 
+        const resolveApplicationIdFromWebhook = async () => {
+            const directCandidate =
+                data?.metadata?.application_id
+                || data?.application_id
+                || data?.submission?.metadata?.application_id
+                || data?.submission?.application_id
+                || null;
+
+            if (directCandidate) {
+                return directCandidate;
+            }
+
+            const submissionId = data?.submission?.id || data?.submission_id || null;
+            const submitterId = data?.id || null;
+
+            if (submitterId) {
+                const { data: bySubmitter, error: bySubmitterError } = await supabase
+                    .from('docuseal_submissions')
+                    .select('application_id')
+                    .eq('submitter_id', submitterId)
+                    .order('updated_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+
+                if (!bySubmitterError && bySubmitter?.application_id) {
+                    return bySubmitter.application_id;
+                }
+            }
+
+            if (submissionId) {
+                const { data: bySubmission, error: bySubmissionError } = await supabase
+                    .from('docuseal_submissions')
+                    .select('application_id')
+                    .eq('submission_id', submissionId)
+                    .order('updated_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+
+                if (!bySubmissionError && bySubmission?.application_id) {
+                    return bySubmission.application_id;
+                }
+            }
+
+            // Final weak fallback: look for a field in DocuSeal values that carries application id
+            const valueMatch = Array.isArray(data?.values)
+                ? data.values.find((entry) => {
+                    const fieldName = String(entry?.field || '').toLowerCase();
+                    return fieldName.includes('application') && fieldName.includes('id');
+                })
+                : null;
+
+            if (valueMatch?.value) {
+                return String(valueMatch.value).trim();
+            }
+
+            return null;
+        };
+
+        const updateApplicationStatusFromDocuSeal = async (applicationId, nextStatus, extraFields = {}) => {
+            if (!applicationId) return null;
+
+            const { data: beforeData, error: beforeError } = await supabase
+                .from('loan_applications')
+                .select('id, status, contract_signed_at, updated_at')
+                .eq('id', applicationId)
+                .maybeSingle();
+
+            if (beforeError) {
+                console.warn('DocuSeal: could not fetch current application status before update', {
+                    applicationId,
+                    error: beforeError.message || beforeError
+                });
+            }
+
+            const { data: afterData, error: updateError } = await supabase
+                .from('loan_applications')
+                .update({ status: nextStatus, ...extraFields })
+                .eq('id', applicationId)
+                .select('id, status, contract_signed_at, updated_at')
+                .maybeSingle();
+
+            if (updateError) {
+                throw updateError;
+            }
+
+            console.log('DocuSeal application status transition', {
+                applicationId,
+                eventType,
+                previousStatus: beforeData?.status || null,
+                newStatus: afterData?.status || nextStatus,
+                updatedAt: afterData?.updated_at || now
+            });
+
+            return afterData;
+        };
+
         switch (eventType) {
             case 'form.viewed':
                 await updateBySubmitter({ status: 'opened', opened_at: data.opened_at || now });
@@ -1096,12 +1192,11 @@ app.post('/api/docuseal/webhook', async (req, res) => {
                 await updateBySubmitter({ status: 'completed', completed_at: data.completed_at || now, metadata: data.values || data.metadata || {} });
                 // After a submitter completes the form, mark the related application as Contract Signed (step 5)
                 try {
-                    const applicationId = data?.metadata?.application_id || data?.application_id || data?.submission?.metadata?.application_id || data?.submission?.application_id || null;
+                    const applicationId = await resolveApplicationIdFromWebhook();
                     if (applicationId) {
-                        await supabase
-                            .from('loan_applications')
-                            .update({ status: 'OFFER_ACCEPTED', contract_signed_at: now })
-                            .eq('id', applicationId);
+                        await updateApplicationStatusFromDocuSeal(applicationId, 'OFFER_ACCEPTED', {
+                            contract_signed_at: now
+                        });
                         console.log('DocuSeal: set application', applicationId, 'to OFFER_ACCEPTED');
 
                         try {
@@ -1129,6 +1224,13 @@ app.post('/api/docuseal/webhook', async (req, res) => {
                             });
                             console.warn('SureSystems mandate activation failed for application', applicationId, sureSystemsError?.message || sureSystemsError);
                         }
+                    } else {
+                        console.warn('DocuSeal completed event received but no application_id could be resolved', {
+                            eventType,
+                            submitterId: data?.id || null,
+                            submissionId: data?.submission?.id || data?.submission_id || null,
+                            metadata: data?.metadata || null
+                        });
                     }
                 } catch (err) {
                     console.error('Error updating application status after DocuSeal completed:', err);
@@ -1146,6 +1248,22 @@ app.post('/api/docuseal/webhook', async (req, res) => {
                             .from('docuseal_submissions')
                             .update({ status: 'declined', declined_at: data.declined_at || now, updated_at: now })
                             .eq('submission_id', submissionId);
+                    }
+
+                    // Update linked loan application status when offer signing is declined
+                    const applicationId = await resolveApplicationIdFromWebhook();
+                    if (applicationId) {
+                        await updateApplicationStatusFromDocuSeal(applicationId, 'OFFER_DECLINED', {
+                            updated_at: now
+                        });
+                        console.log('DocuSeal: set application', applicationId, 'to OFFER_DECLINED');
+                    } else {
+                        console.warn('DocuSeal declined event received but no application_id could be resolved', {
+                            eventType,
+                            submitterId: data?.id || null,
+                            submissionId: data?.submission?.id || data?.submission_id || null,
+                            metadata: data?.metadata || null
+                        });
                     }
                 } catch (error) {
                     console.error('DocuSeal form.declined handling error:', error);
@@ -1186,7 +1304,6 @@ app.post('/api/docuseal/webhook', async (req, res) => {
             case 'submission.updated':
             case 'submission.declined':
             case 'submitter.declined':
-            case 'form.declined':
                 try {
                     // If submitters array provided, upsert each submitter (status may have changed)
                     const submitters = data.submitters || [];
