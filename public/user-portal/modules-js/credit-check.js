@@ -2,6 +2,198 @@
 console.log('✅ Credit check module script loaded');
 
 let isProcessing = false;
+let hasCreditConsent = false;
+
+async function getSessionAndClient() {
+  const { supabase } = await import('/Services/supabaseClient.js');
+  const { data: { session } } = await supabase.auth.getSession();
+  return { supabase, session };
+}
+
+function setConsentStatusText(text) {
+  const statusEl = document.querySelector('#credit-consent-status .consent-status-text');
+  if (statusEl) statusEl.textContent = text;
+}
+
+async function persistCreditConsent(supabase, userId) {
+  const acceptedAt = new Date().toISOString();
+
+  const { data: existingDeclaration } = await supabase
+    .from('declarations')
+    .select('id, metadata')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  const metadata = {
+    ...(existingDeclaration?.metadata || {}),
+    credit_check_consent_accepted: true,
+    credit_check_consent_accepted_at: acceptedAt,
+    credit_check_consent_version: 'v1'
+  };
+
+  try {
+    if (existingDeclaration?.id) {
+      const { error: updateError } = await supabase
+        .from('declarations')
+        .update({
+          credit_check_consent_accepted: true,
+          credit_check_consent_accepted_at: acceptedAt,
+          credit_check_consent_version: 'v1',
+          metadata,
+          updated_at: acceptedAt
+        })
+        .eq('user_id', userId);
+
+      if (updateError) throw updateError;
+      return;
+    }
+
+    const { error: insertError } = await supabase
+      .from('declarations')
+      .insert([{
+        user_id: userId,
+        credit_check_consent_accepted: true,
+        credit_check_consent_accepted_at: acceptedAt,
+        credit_check_consent_version: 'v1',
+        metadata
+      }]);
+
+    if (insertError) throw insertError;
+  } catch (error) {
+    const missingColumn = String(error?.message || '').toLowerCase().includes('column')
+      && String(error?.message || '').toLowerCase().includes('credit_check_consent_');
+
+    if (!missingColumn) throw error;
+
+    if (existingDeclaration?.id) {
+      const { error: fallbackUpdateError } = await supabase
+        .from('declarations')
+        .update({
+          metadata,
+          updated_at: acceptedAt
+        })
+        .eq('user_id', userId);
+
+      if (fallbackUpdateError) throw fallbackUpdateError;
+      return;
+    }
+
+    const { error: fallbackInsertError } = await supabase
+      .from('declarations')
+      .insert([{
+        user_id: userId,
+        metadata
+      }]);
+
+    if (fallbackInsertError) throw fallbackInsertError;
+  }
+}
+
+async function showCreditConsentModalOnce() {
+  const modal = document.getElementById('credit-consent-modal');
+  const acceptCheckbox = document.getElementById('credit-consent-accept-checkbox');
+  const confirmBtn = document.getElementById('credit-consent-confirm');
+  const cancelBtn = document.getElementById('credit-consent-cancel');
+
+  if (!modal || !acceptCheckbox || !confirmBtn || !cancelBtn) {
+    return false;
+  }
+
+  const { supabase, session } = await getSessionAndClient();
+  if (!session?.user?.id) {
+    return false;
+  }
+
+  const { data: declarationData, error: fetchError } = await supabase
+    .from('declarations')
+    .select('credit_check_consent_accepted, metadata')
+    .eq('user_id', session.user.id)
+    .maybeSingle();
+
+  if (fetchError) {
+    console.warn('Could not read declarations consent state:', fetchError);
+  }
+
+  const consentFromColumn = declarationData?.credit_check_consent_accepted === true;
+  const consentFromMetadata = declarationData?.metadata?.credit_check_consent_accepted === true;
+  const alreadyAccepted = consentFromColumn || consentFromMetadata;
+
+  if (alreadyAccepted) {
+    hasCreditConsent = true;
+    setConsentStatusText('Credit check consent already captured.');
+    return true;
+  }
+
+  hasCreditConsent = false;
+  setConsentStatusText('Please review and accept the credit bureau consent before running the credit check.');
+
+  modal.classList.remove('hidden');
+  acceptCheckbox.checked = false;
+  confirmBtn.disabled = true;
+
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      acceptCheckbox.onchange = null;
+      cancelBtn.onclick = null;
+      confirmBtn.onclick = null;
+      modal.onclick = null;
+    };
+
+    const handleCancel = () => {
+      modal.classList.add('hidden');
+      cleanup();
+      resolve(false);
+    };
+
+    const handleConfirm = async () => {
+      try {
+        await persistCreditConsent(supabase, session.user.id);
+        hasCreditConsent = true;
+        setConsentStatusText('Credit check consent accepted and saved.');
+        modal.classList.add('hidden');
+        cleanup();
+        resolve(true);
+      } catch (error) {
+        console.error('Failed to save credit consent:', error);
+        alert('Unable to save consent right now. Please try again.');
+      }
+    };
+
+    acceptCheckbox.onchange = () => {
+      confirmBtn.disabled = !acceptCheckbox.checked;
+    };
+
+    cancelBtn.onclick = handleCancel;
+    confirmBtn.onclick = handleConfirm;
+    modal.onclick = (event) => {
+      if (event.target === modal) {
+        handleCancel();
+      }
+    };
+  });
+}
+
+async function initCreditConsentGate() {
+  const runButton = document.getElementById('run-credit-check-btn');
+  if (!runButton || runButton.disabled) return;
+
+  try {
+    const accepted = await showCreditConsentModalOnce();
+    if (!accepted) {
+      runButton.disabled = false;
+      runButton.style.opacity = '1';
+      runButton.style.cursor = 'pointer';
+      setConsentStatusText('Consent not yet accepted. You can accept it when you run the credit check.');
+    } else {
+      runButton.disabled = false;
+      runButton.style.opacity = '1';
+      runButton.style.cursor = 'pointer';
+    }
+  } catch (error) {
+    console.error('Error initializing credit consent gate:', error);
+    setConsentStatusText('Unable to verify consent right now. Please reload and try again.');
+  }
+}
 
 // Module loading functions
 window.loadCreditCheckModule = function() {
@@ -17,9 +209,12 @@ window.loadCreditCheckModule = function() {
       console.log('✅ Credit check module loaded');
       
       // Attach button listener after loading
-      setTimeout(() => {
+      setTimeout(async () => {
         attachButtonListener();
-        checkExistingCreditCheck();
+        const hasExistingCheck = await checkExistingCreditCheck();
+        if (!hasExistingCheck) {
+          await initCreditConsentGate();
+        }
       }, 100);
     })
     .catch(error => {
@@ -80,7 +275,7 @@ async function checkExistingCreditCheck() {
     
     if (!session) {
       console.log('⚠️ No session found');
-      return;
+      return false;
     }
     
     // Check session storage first
@@ -168,9 +363,12 @@ async function checkExistingCreditCheck() {
       }
       
       console.log('✅ Existing credit check found - button disabled');
+      return true;
     }
+    return false;
   } catch (error) {
     console.error('❌ Error checking existing credit check:', error);
+    return false;
   }
 }
 
@@ -226,6 +424,14 @@ async function runCreditCheck() {
   const button = document.getElementById('run-credit-check-btn');
   
   try {
+    if (!hasCreditConsent) {
+      const accepted = await showCreditConsentModalOnce();
+      if (!accepted) {
+        alert('⚠️ Credit check consent is required to continue.');
+        return;
+      }
+    }
+
     // Import modules dynamically
     const { performCreditCheck } = await import('/Services/dataService.js');
     const { supabase } = await import('/Services/supabaseClient.js');
@@ -244,7 +450,6 @@ async function runCreditCheck() {
     const address2 = document.getElementById('address2').value.trim();
     const postal_code = document.getElementById('postal_code').value.trim();
     const cell_tel_no = document.getElementById('cell_tel_no').value.trim();
-    const credit_consent = document.getElementById('credit_consent').checked;
     
     console.log('📋 Form values collected');
     
@@ -257,8 +462,8 @@ async function runCreditCheck() {
       return;
     }
     
-    if (!credit_consent) {
-      alert('⚠️ Please consent to the credit check to continue');
+    if (!hasCreditConsent) {
+      alert('⚠️ Please accept the credit bureau consent disclaimer to continue');
       isProcessing = false;
       button.disabled = false;
       button.style.opacity = '1';
