@@ -31,7 +31,7 @@ const toNumber = (value, fallback = 0) => {
 const SURESYSTEMS_API_PREFIX = '/api/sssdswitchuadsrest/v3';
 
 const config = {
-  baseUrl: 'https://uat.suredebit.co.za',
+  baseUrl: readEnv('SURESYSTEMS_BASE_URL', 'https://uat.suredebit.co.za'),
   basicAuthUsername: readEnv('SURESYSTEMS_BASIC_AUTH_USERNAME'),
   basicAuthPassword: readEnv('SURESYSTEMS_BASIC_AUTH_PASSWORD'),
   headerPrefix: readEnv('SURESYSTEMS_HEADER_PREFIX', 'SS'),
@@ -305,57 +305,21 @@ function isExactMandatePayload(input = {}) {
 }
 
 async function loadMandate(input = {}) {
-  const mandateRequest = {
-    messageInfo: {
-      merchantGid: 18109,
-      remoteGid: 27,
-      messageDate: '20260225',
-      messageTime: '075442',
-      systemUserName: 'rhinusl',
-      frontEndUserName: 'rhinuslapi'
-    },
-    mandate: {
-      userReference: 'PMA',
-      frequencyCode: 4,
-      installmentAmount: 600,
-      noOfInstallments: 3,
-      origin: 15,
-      binNumber: '',
-      panTrailer: '',
-      contractReference: '46BD3900210898',
-      magId: 45,
-      debitValueType: 1,
-      typeOfAuthorizationRequired: 3,
-      initialAmount: 0,
-      firstCollectionDate: '20260403',
-      maximumCollectionAmount: 150,
-      adjustmentCategory: 1,
-      adjustmentAmount: 0,
-      adjustmentRate: 0,
-      collectionDay: 3,
-      dateAdjustmentRuleIndicator: 1,
-      trackingIndicator: 1,
-      numberOfTrackingDays: 3,
-      debitSequenceType: 'RCUR',
-      debtorAccountName: 'Tyme ABC',
-      debtorIdentificationType: 1,
-      debtorIdentificationNo: '8612257442083',
-      debtorAccountNumber: '51000716346',
-      debtorAccountType: 1,
-      debtorBranchNumber: '678910',
-      entryClass: '0033',
-      mandateInitiationDate: '20260225',
-      authorizationIndicator: '0229',
-      clientNo: '000001',
-      debtorTelephone: '0704227326',
-      debtorEmail: '',
-      dateList: ''
-    }
-  };
+  // If caller already provides a fully-formed { messageInfo, mandate } payload, send it as-is.
+  if (isExactMandatePayload(input)) {
+    const response = await request('/mandates/load', input);
+    return {
+      contractReference: input.mandate?.contractReference || null,
+      response
+    };
+  }
+
+  // Otherwise build the mandate from the simplified input fields.
+  const { contractReference, payload: mandateRequest } = buildMandatePayload(input);
 
   const response = await request('/mandates/load', mandateRequest);
   return {
-    contractReference: mandateRequest?.mandate?.contractReference || null,
+    contractReference,
     response
   };
 }
