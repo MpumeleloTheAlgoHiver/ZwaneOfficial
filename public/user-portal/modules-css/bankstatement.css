@@ -221,7 +221,9 @@
 
 .manual-disclaimer-card {
   width: 100%;
-  max-width: 520px;
+  max-width: 640px;
+  max-height: 88vh;
+  overflow-y: auto;
   background: #ffffff;
   border: 1px solid #e5e7eb;
   border-radius: 18px;
@@ -241,6 +243,37 @@
   color: #4b5563;
   line-height: 1.55;
   font-size: 0.95rem;
+}
+
+.manual-disclaimer-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.manual-disclaimer-consent-row {
+  margin-top: 1rem;
+  padding: 0.8rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f9fafb;
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.manual-disclaimer-consent-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin-top: 0.15rem;
+  flex-shrink: 0;
+}
+
+.manual-disclaimer-consent-row span {
+  color: #111827;
+  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
 .manual-disclaimer-actions {
@@ -277,4 +310,9 @@
 
 .manual-disclaimer-btn.primary:hover {
   background: #1f2937;
+}
+
+.manual-disclaimer-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
