@@ -996,15 +996,37 @@ app.post('/api/docuseal/webhook', async (req, res) => {
     try {
         // Verify webhook signature if secret is configured
         const secret = process.env.DOCUSEAL_WEBHOOK_SECRET;
+        const testHeaderName = (process.env.DOCUSEAL_TEST_HEADER_NAME || '').trim();
+        const testHeaderValue = (process.env.DOCUSEAL_TEST_HEADER_VALUE || '').trim();
+        const testHeaderIncoming = testHeaderName ? req.headers[testHeaderName.toLowerCase()] : undefined;
+        const testHeaderMatched = Boolean(
+            testHeaderName
+            && testHeaderValue
+            && typeof testHeaderIncoming !== 'undefined'
+            && String(testHeaderIncoming).trim() === testHeaderValue
+        );
+
+        // If no signature secret is configured, allow custom header auth as primary guard.
+        // If custom header env vars are configured but header does not match, reject request.
+        if (!secret && testHeaderName && testHeaderValue && !testHeaderMatched) {
+            console.warn('DocuSeal webhook rejected: custom test header did not match', {
+                expectedTestHeader: testHeaderName,
+                receivedTestHeader: typeof testHeaderIncoming === 'undefined' ? null : String(testHeaderIncoming),
+                headers: req.headers
+            });
+            return res.status(401).json({ error: 'Invalid webhook header' });
+        }
+
+        if (!secret && testHeaderName && testHeaderValue && testHeaderMatched) {
+            console.log('Accepted DocuSeal webhook via custom test header', testHeaderName);
+        }
+
         if (secret) {
             const sigHeader = (req.headers['x-docuseal-signature'] || req.headers['x-signature'] || req.headers['x-hub-signature'] || '').toString();
             if (!sigHeader) {
                 // Allow a simple test header fallback (not secure) during debugging if configured
-                const testHeaderName = process.env.DOCUSEAL_TEST_HEADER_NAME || '';
-                const testHeaderValue = process.env.DOCUSEAL_TEST_HEADER_VALUE || '';
                 if (testHeaderName && testHeaderValue) {
-                    const incoming = req.headers[testHeaderName.toLowerCase()];
-                    if (incoming && incoming === testHeaderValue) {
+                    if (testHeaderMatched) {
                         console.log('Accepted DocuSeal webhook via custom test header', testHeaderName);
                         // treat as valid and skip HMAC validation
                     } else {
@@ -1055,8 +1077,13 @@ app.post('/api/docuseal/webhook', async (req, res) => {
             if (received === computedHex || received === computedBase64) valid = true;
 
             if (!valid) {
-                console.warn('Invalid DocuSeal webhook signature');
-                return res.status(401).json({ error: 'Invalid signature' });
+                // Debug fallback: if custom test header matches, allow request even when signature is invalid
+                if (testHeaderMatched) {
+                    console.warn('DocuSeal signature invalid, but accepted via custom test header', testHeaderName);
+                } else {
+                    console.warn('Invalid DocuSeal webhook signature');
+                    return res.status(401).json({ error: 'Invalid signature' });
+                }
             }
         }
 
