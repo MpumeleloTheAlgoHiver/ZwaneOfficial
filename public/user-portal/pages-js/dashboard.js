@@ -1242,6 +1242,178 @@ function closeLoansModal() {
         if (root) root.classList.remove('open');
 }
 
+// --- Recent Applications Modal ---
+const APPLICATIONS_MODAL_ID = 'recent-applications-modal';
+
+function ensureApplicationsModalStyles() {
+        if (document.getElementById('applications-modal-style')) return;
+        const style = document.createElement('style');
+        style.id = 'applications-modal-style';
+        style.textContent = `
+            #${APPLICATIONS_MODAL_ID} { position: fixed; inset: 0; background: rgba(15,23,42,0.35); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 24px; }
+            #${APPLICATIONS_MODAL_ID}.open { display: flex; }
+            #${APPLICATIONS_MODAL_ID} .modal-panel { width: min(980px, 95vw); max-height: min(85vh, 900px); background: #ffffff; color: #0f172a; border-radius: 18px; overflow: hidden; box-shadow: 0 30px 70px rgba(15,23,42,0.25); border: 1px solid #e2e8f0; display: flex; flex-direction: column; }
+            #${APPLICATIONS_MODAL_ID} .modal-header { padding: 18px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: linear-gradient(135deg, var(--color-primary, #0ea5e9), #f8fafc); border-bottom: 1px solid #e2e8f0; }
+            #${APPLICATIONS_MODAL_ID} .modal-title { font-size: 18px; font-weight: 800; letter-spacing: 0.2px; color: #0f172a; }
+            #${APPLICATIONS_MODAL_ID} .modal-actions { display: flex; align-items: center; gap: 10px; }
+            #${APPLICATIONS_MODAL_ID} .pill { padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; background: #eef2ff; color: #312e81; border: 1px solid #c7d2fe; }
+            #${APPLICATIONS_MODAL_ID} .close-btn { background: #f8fafc; border: 1px solid #e2e8f0; color: #0f172a; width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; font-weight: 900; cursor: pointer; transition: all 0.2s ease; }
+            #${APPLICATIONS_MODAL_ID} .close-btn:hover { background: #e2e8f0; transform: translateY(-1px); }
+            #${APPLICATIONS_MODAL_ID} .modal-body { padding: 20px 24px 24px; overflow: hidden; display: flex; flex-direction: column; gap: 16px; }
+            #${APPLICATIONS_MODAL_ID} .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+            #${APPLICATIONS_MODAL_ID} .stat-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px; }
+            #${APPLICATIONS_MODAL_ID} .stat-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; font-weight: 700; }
+            #${APPLICATIONS_MODAL_ID} .stat-value { margin-top: 6px; font-size: 20px; font-weight: 800; color: #0f172a; }
+            #${APPLICATIONS_MODAL_ID} .applications-scroll { max-height: 520px; overflow-y: auto; padding-right: 6px; }
+            #${APPLICATIONS_MODAL_ID} .application-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(15,23,42,0.05); }
+            #${APPLICATIONS_MODAL_ID} .application-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
+            #${APPLICATIONS_MODAL_ID} .application-id { font-weight: 800; letter-spacing: 0.2px; color: #0f172a; }
+            #${APPLICATIONS_MODAL_ID} .application-status { padding: 6px 10px; border-radius: 10px; font-size: 12px; font-weight: 700; border: 1px solid #cbd5e1; background: #f8fafc; color: #0f172a; text-transform: uppercase; }
+            #${APPLICATIONS_MODAL_ID} .application-main { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+            #${APPLICATIONS_MODAL_ID} .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: #475569; font-weight: 700; }
+            #${APPLICATIONS_MODAL_ID} .value { font-size: 15px; font-weight: 700; color: #0f172a; margin-top: 4px; }
+            #${APPLICATIONS_MODAL_ID} .application-footer { margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px; }
+            #${APPLICATIONS_MODAL_ID} .app-action-btn { width: 34px; height: 34px; border-radius: 10px; border: 1px solid #cbd5e1; background: #ffffff; color: #0f172a; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: all .2s ease; }
+            #${APPLICATIONS_MODAL_ID} .app-action-btn:hover:not(:disabled) { border-color: var(--color-primary, #0ea5e9); color: var(--color-primary, #0ea5e9); }
+            #${APPLICATIONS_MODAL_ID} .app-action-btn.delete:hover:not(:disabled) { border-color: #ef4444; color: #ef4444; }
+            #${APPLICATIONS_MODAL_ID} .app-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+            #${APPLICATIONS_MODAL_ID} .empty-state { text-align: center; padding: 40px 10px; color: #475569; font-weight: 700; }
+        `;
+        document.head.appendChild(style);
+}
+
+function ensureApplicationsModalRoot() {
+        ensureApplicationsModalStyles();
+        let root = document.getElementById(APPLICATIONS_MODAL_ID);
+        if (!root) {
+                root = document.createElement('div');
+                root.id = APPLICATIONS_MODAL_ID;
+                root.innerHTML = `
+                    <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="applications-modal-title">
+                        <div class="modal-header">
+                            <div class="modal-title" id="applications-modal-title">All Loan Requests</div>
+                            <div class="modal-actions">
+                                <span class="pill" id="applications-count-pill">0 Requests</span>
+                                <button class="close-btn" id="close-applications-modal" aria-label="Close">×</button>
+                            </div>
+                        </div>
+                        <div class="modal-body">
+                            <div class="stats-grid" id="applications-stats"></div>
+                            <div class="applications-scroll" id="applications-scroll"></div>
+                        </div>
+                    </div>`;
+                document.body.appendChild(root);
+                root.addEventListener('click', (e) => { if (e.target === root) closeApplicationsModal(); });
+                root.querySelector('#close-applications-modal').addEventListener('click', closeApplicationsModal);
+        }
+        return root;
+}
+
+function closeApplicationsModal() {
+        const root = document.getElementById(APPLICATIONS_MODAL_ID);
+        if (root) root.classList.remove('open');
+}
+
+function buildApplicationsModalContent(applications) {
+        const sortedApplications = [...applications].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        const totalRequests = sortedApplications.length;
+        const totalAmount = sortedApplications.reduce((sum, app) => sum + parseRandToNumber(app.amount), 0);
+        const pendingCount = sortedApplications.filter(app => String(app.status).toUpperCase().includes('PENDING')).length;
+        const latestDate = sortedApplications[0]?.date || '—';
+
+        const statsHtml = `
+            <div class="stat-card"><div class="stat-label">Total Requests</div><div class="stat-value">${totalRequests}</div></div>
+            <div class="stat-card"><div class="stat-label">Requested Amount</div><div class="stat-value">${formatCurrencySafe(totalAmount)}</div></div>
+            <div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value">${pendingCount}</div></div>
+            <div class="stat-card"><div class="stat-label">Latest Request</div><div class="stat-value">${latestDate}</div></div>
+        `;
+
+        const listHtml = totalRequests === 0
+            ? '<div class="empty-state">No loan requests found.</div>'
+            : sortedApplications.map(app => {
+                const statusUpper = String(app.status || '').toUpperCase();
+                const now = new Date();
+                const createdAt = new Date(app.createdAt);
+                const hoursSinceCreation = (now - createdAt) / (1000 * 60 * 60);
+                const withinTimeWindow = hoursSinceCreation < 2;
+                const canEdit = withinTimeWindow && statusUpper !== 'AFFORD_OK' && statusUpper !== 'READY_TO_DISBURSE';
+                const canDelete = withinTimeWindow && statusUpper !== 'READY_TO_DISBURSE';
+
+                const editLockReason = statusUpper === 'AFFORD_OK'
+                    ? 'Edit locked - affordability check completed'
+                    : statusUpper === 'READY_TO_DISBURSE'
+                    ? 'Edit locked - ready to disburse'
+                    : 'Edit locked after 2 hours';
+
+                const deleteLockReason = statusUpper === 'READY_TO_DISBURSE'
+                    ? 'Delete locked - ready to disburse'
+                    : 'Delete locked after 2 hours';
+
+                return `
+                    <div class="application-card">
+                        <div class="application-head">
+                            <span class="application-id">${app.id}</span>
+                            <span class="application-status">${app.status}</span>
+                        </div>
+                        <div class="application-main">
+                            <div><div class="label">Purpose</div><div class="value">${app.type}</div></div>
+                            <div><div class="label">Amount</div><div class="value">${app.amount}</div></div>
+                            <div><div class="label">Date Submitted</div><div class="value">${app.date}</div></div>
+                        </div>
+                        <div class="application-footer">
+                            <button class="app-action-btn ${!canEdit ? 'locked' : ''}" onclick="editApplication('${app.rawId}')" ${!canEdit ? 'disabled' : ''} title="${!canEdit ? editLockReason : 'Edit application'}">
+                                <i class="fas fa-${!canEdit ? 'lock' : 'edit'}"></i>
+                            </button>
+                            <button class="app-action-btn delete ${!canDelete ? 'locked' : ''}" onclick="deleteApplication('${app.rawId}')" ${!canDelete ? 'disabled' : ''} title="${!canDelete ? deleteLockReason : 'Delete application'}">
+                                <i class="fas fa-${!canDelete ? 'lock' : 'trash'}"></i>
+                            </button>
+                        </div>
+                    </div>`;
+            }).join('');
+
+        const root = ensureApplicationsModalRoot();
+        root.querySelector('#applications-count-pill').textContent = `${totalRequests} Request${totalRequests === 1 ? '' : 's'}`;
+        root.querySelector('#applications-stats').innerHTML = statsHtml;
+        root.querySelector('#applications-scroll').innerHTML = listHtml;
+        root.classList.add('open');
+}
+
+async function fetchAllApplicationsForModal() {
+        try {
+                const { supabase } = await import('/Services/supabaseClient.js');
+                const { data: { session } } = await supabase.auth.getSession();
+                if (!session?.user?.id) {
+                        return dashboardData.applications || [];
+                }
+
+                const { data: applications, error } = await supabase
+                        .from('loan_applications')
+                        .select('*')
+                        .eq('user_id', session.user.id)
+                        .neq('status', 'OFFERED')
+                        .neq('status', 'DISBURSED')
+                        .order('created_at', { ascending: false });
+
+                if (error) {
+                        console.error('Error fetching all applications for modal:', error);
+                        return dashboardData.applications || [];
+                }
+
+                return (applications || []).map(app => ({
+                        id: `APP-${app.id}`,
+                        rawId: app.id,
+                        type: app.purpose || 'Personal Loan',
+                        amount: `R ${parseFloat(app.amount || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`,
+                        date: new Date(app.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+                        createdAt: app.created_at,
+                        status: app.status || 'PENDING'
+                }));
+        } catch (error) {
+                console.error('Failed to fetch applications for modal:', error);
+                return dashboardData.applications || [];
+        }
+}
+
 window.openLoansModule = function() {
         ensureLoansModalRoot();
         buildLoansModalContent(dashboardData.loans);
@@ -1251,8 +1423,10 @@ window.openChartsModule = function() {
     alert('Analytics Module - Coming Soon!\nThis will show repayment trends and insights in a popup.');
 };
 
-window.openApplicationsModule = function() {
-    alert('Application History Module - Coming Soon!\nThis will show all past applications in a popup.');
+window.openApplicationsModule = async function() {
+    ensureApplicationsModalRoot();
+    const applications = await fetchAllApplicationsForModal();
+    buildApplicationsModalContent(applications);
 };
 
 window.openTransactionsModule = function() {
