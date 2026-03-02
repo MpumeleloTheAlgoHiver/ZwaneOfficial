@@ -332,6 +332,126 @@
   transform: none;
 }
 
+/* Engine-style circular Run Credit Check button */
+#run-credit-check-btn {
+  position: relative;
+  width: 130px;
+  height: 130px;
+  min-width: 130px;
+  min-height: 130px;
+  border-radius: 999px;
+  padding: 12px;
+  text-align: center;
+  white-space: normal;
+  line-height: 1.15;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at 50% 42%, #fff3e6 0%, #ffd8b0 42%, #ffb066 70%, #f48a1f 100%);
+  color: #4a2200;
+  border: 3px solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 0 0 5px rgba(231, 118, 46, 0.18),
+    0 10px 24px rgba(231, 118, 46, 0.35),
+    inset 0 6px 14px rgba(255, 255, 255, 0.55),
+    inset 0 -8px 14px rgba(164, 73, 0, 0.25);
+  overflow: hidden;
+}
+
+@keyframes enginePulseRing {
+  0% {
+    box-shadow:
+      0 0 0 5px rgba(231, 118, 46, 0.16),
+      0 10px 24px rgba(231, 118, 46, 0.35),
+      inset 0 6px 14px rgba(255, 255, 255, 0.55),
+      inset 0 -8px 14px rgba(164, 73, 0, 0.25);
+  }
+  50% {
+    box-shadow:
+      0 0 0 9px rgba(231, 118, 46, 0.10),
+      0 12px 28px rgba(231, 118, 46, 0.42),
+      inset 0 6px 14px rgba(255, 255, 255, 0.60),
+      inset 0 -8px 14px rgba(164, 73, 0, 0.28);
+  }
+  100% {
+    box-shadow:
+      0 0 0 5px rgba(231, 118, 46, 0.16),
+      0 10px 24px rgba(231, 118, 46, 0.35),
+      inset 0 6px 14px rgba(255, 255, 255, 0.55),
+      inset 0 -8px 14px rgba(164, 73, 0, 0.25);
+  }
+}
+
+#run-credit-check-btn:not(:disabled) {
+  animation: enginePulseRing 2.2s ease-in-out infinite;
+}
+
+#run-credit-check-btn::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border-radius: 999px;
+  border: 2px dashed rgba(255, 255, 255, 0.65);
+  pointer-events: none;
+}
+
+#run-credit-check-btn::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ffffff;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.95);
+  pointer-events: none;
+}
+
+#run-credit-check-btn:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.03);
+  background:
+    radial-gradient(circle at 50% 42%, #fff8ef 0%, #ffe5c6 42%, #ffc27f 70%, #f08b2d 100%);
+  box-shadow:
+    0 0 0 6px rgba(231, 118, 46, 0.22),
+    0 14px 30px rgba(231, 118, 46, 0.42),
+    inset 0 8px 16px rgba(255, 255, 255, 0.6),
+    inset 0 -8px 14px rgba(164, 73, 0, 0.28);
+}
+
+/* If button becomes disabled with long status text, switch to normal readable shape */
+#run-credit-check-btn:disabled {
+  width: auto;
+  height: auto;
+  min-width: 220px;
+  min-height: 46px;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 0.9rem;
+  line-height: 1.2;
+  color: #f9fafb;
+  background: #9ca3af;
+  border: 1px solid #9ca3af;
+  box-shadow: none;
+  animation: none;
+}
+
+#run-credit-check-btn:disabled::before,
+#run-credit-check-btn:disabled::after {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #run-credit-check-btn:not(:disabled) {
+    animation: none;
+  }
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .form-grid {
@@ -359,5 +479,13 @@
   .credit-consent-actions .btn-primary,
   .credit-consent-actions .btn-secondary {
     width: 100%;
+  }
+
+  #run-credit-check-btn {
+    width: 112px;
+    height: 112px;
+    min-width: 112px;
+    min-height: 112px;
+    font-size: 0.72rem;
   }
 }
