@@ -628,7 +628,9 @@
 
 .form-group input[type="text"],
 .form-group input[type="email"],
-.form-group input[type="password"] {
+.form-group input[type="password"],
+.form-group input[type="date"],
+.form-group select {
   width: 100%;
   padding: 0.875rem 1.25rem;
   background: #ffffff;
@@ -641,14 +643,16 @@
   position: relative;
 }
 
-.form-group input:hover {
+.form-group input:hover,
+.form-group select:hover {
   border-color: rgb(var(--color-primary-rgb) / 0.3);
   background: linear-gradient(to right, 
     rgb(var(--color-primary-rgb) / 0.02), 
     transparent);
 }
 
-.form-group input:focus {
+.form-group input:focus,
+.form-group select:focus {
   outline: none;
   border-color: var(--color-primary);
   background: #ffffff;
@@ -661,7 +665,8 @@
   color: #9CA3AF;
 }
 
-.form-group input:disabled {
+.form-group input:disabled,
+.form-group select:disabled {
   opacity: 0.6;
   cursor: not-allowed;
   background: #f9fafb;
@@ -1389,7 +1394,9 @@ input, button {
 
 .form-group input[type="text"],
 .form-group input[type="email"],
-.form-group input[type="password"] {
+.form-group input[type="password"],
+.form-group input[type="date"],
+.form-group select {
   width: 100%;
   padding: 0.875rem 1.25rem;
   background: #ffffff;
@@ -1402,14 +1409,16 @@ input, button {
   position: relative;
 }
 
-.form-group input:hover {
+.form-group input:hover,
+.form-group select:hover {
   border-color: rgb(var(--color-primary-rgb) / 0.3);
   background: linear-gradient(to right, 
     rgb(var(--color-primary-rgb) / 0.02), 
     transparent);
 }
 
-.form-group input:focus {
+.form-group input:focus,
+.form-group select:focus {
   outline: none;
   border-color: var(--color-primary);
   background: #ffffff;
@@ -1422,7 +1431,8 @@ input, button {
   color: #9CA3AF;
 }
 
-.form-group input:disabled {
+.form-group input:disabled,
+.form-group select:disabled {
   opacity: 0.6;
   cursor: not-allowed;
   background: #f9fafb;
