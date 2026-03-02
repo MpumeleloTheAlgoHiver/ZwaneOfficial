@@ -96,7 +96,12 @@ async function checkSession() {
     };
 
     try {
-        await ensureBrandingTheme();
+        // Theme fetch with timeout — don't let it block login
+        try {
+            await withTimeout(ensureBrandingTheme(), 5000);
+        } catch (themeErr) {
+            console.warn('Theme load timed out or failed, continuing with defaults:', themeErr.message);
+        }
 
         const { data: { session } } = await withTimeout(supabase.auth.getSession(), 7000);
 
@@ -128,9 +133,7 @@ async function checkSession() {
         console.error('Auth bootstrap failed:', error);
         try {
             await supabase.auth.signOut();
-        } catch (signOutError) {
-            console.error('Sign out after bootstrap failure also failed:', signOutError);
-        }
+        } catch (_) { /* ignore */ }
         render();
     }
 }
@@ -493,5 +496,14 @@ async function handleAuth(e) {
 // INITIALIZE
 // ============================================
 document.addEventListener('DOMContentLoaded', () => {
-    checkSession();
+    // Global failsafe: if nothing renders within 10s, force the login form
+    const failsafe = setTimeout(() => {
+        const container = document.getElementById('auth-container');
+        if (container && container.querySelector('.fa-spinner')) {
+            console.warn('Failsafe triggered — forcing login form render');
+            render();
+        }
+    }, 10000);
+
+    checkSession().finally(() => clearTimeout(failsafe));
 });
