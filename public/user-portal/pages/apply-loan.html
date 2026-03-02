@@ -173,6 +173,59 @@
             <input type="text" id="popup_identity_number" class="popup-input" placeholder="Enter your SA ID number" maxlength="20" autocomplete="off">
           </div>
 
+          <!-- Experian Personal Details -->
+          <div class="popup-decl-card">
+            <div class="popup-decl-header">
+              <i class="fas fa-address-card"></i>
+              <div>
+                <strong>Credit Profile Details</strong>
+                <small>These are used for Experian credit checks so you don't re-enter later</small>
+              </div>
+            </div>
+
+            <div class="popup-financial-grid">
+              <div class="popup-money-field">
+                <label for="popup_first_name">First Name *</label>
+                <input type="text" id="popup_first_name" class="popup-input" placeholder="First name">
+              </div>
+              <div class="popup-money-field">
+                <label for="popup_last_name">Surname *</label>
+                <input type="text" id="popup_last_name" class="popup-input" placeholder="Surname">
+              </div>
+
+              <div class="popup-money-field">
+                <label for="popup_gender">Gender *</label>
+                <select id="popup_gender" class="popup-select">
+                  <option value="">Select gender</option>
+                  <option value="M">Male</option>
+                  <option value="F">Female</option>
+                </select>
+              </div>
+              <div class="popup-money-field">
+                <label for="popup_date_of_birth">Date of Birth * (yyyy/mm/dd)</label>
+                <input type="date" id="popup_date_of_birth" class="popup-input">
+              </div>
+
+              <div class="popup-money-field">
+                <label for="popup_address">Street Address *</label>
+                <input type="text" id="popup_address" class="popup-input" placeholder="Street address">
+              </div>
+              <div class="popup-money-field">
+                <label for="popup_postal_code">Postal Code *</label>
+                <input type="text" id="popup_postal_code" class="popup-input" maxlength="4" placeholder="0123">
+              </div>
+
+              <div class="popup-money-field">
+                <label for="popup_suburb_area">Suburb / Area</label>
+                <input type="text" id="popup_suburb_area" class="popup-input" placeholder="Suburb / area">
+              </div>
+              <div class="popup-money-field">
+                <label for="popup_cell_tel_no">Cell Phone Number</label>
+                <input type="text" id="popup_cell_tel_no" class="popup-input" maxlength="10" placeholder="0821234567">
+              </div>
+            </div>
+          </div>
+
           <!-- Financial Information -->
           <div class="popup-decl-card">
             <div class="popup-decl-header">
