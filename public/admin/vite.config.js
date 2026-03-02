@@ -10,6 +10,7 @@ export default {
     }
   },
   build: {
+    target: 'esnext',
     rollupOptions: {
       input: {
         // Core
