@@ -158,8 +158,69 @@
 
         <!-- Declarations Form -->
         <form id="popup-declarations-form" class="popup-declarations-form">
-          <h4 class="popup-section-title"><i class="fas fa-clipboard-list"></i> Required Declarations</h4>
-          <p class="popup-section-subtitle">Complete these once — they'll auto-save to your profile settings.</p>
+          <h4 class="popup-section-title"><i class="fas fa-clipboard-list"></i> Required Profile Details</h4>
+          <p class="popup-section-subtitle">Complete these once — details are saved to your profile settings automatically.</p>
+
+          <!-- ID Number -->
+          <div class="popup-decl-card">
+            <div class="popup-decl-header">
+              <i class="fas fa-id-card"></i>
+              <div>
+                <strong>Identity Number</strong>
+                <small>Please provide your South African ID number</small>
+              </div>
+            </div>
+            <input type="text" id="popup_identity_number" class="popup-input" placeholder="Enter your SA ID number" maxlength="20" autocomplete="off">
+          </div>
+
+          <!-- Financial Information -->
+          <div class="popup-decl-card">
+            <div class="popup-decl-header">
+              <i class="fas fa-wallet"></i>
+              <div>
+                <strong>Financial Information</strong>
+                <small>Monthly income and expenses (required to unlock application steps)</small>
+              </div>
+            </div>
+
+            <div class="popup-financial-grid">
+              <div class="popup-money-field">
+                <label for="popup_income_salary">Salary Income (R) *</label>
+                <input type="number" id="popup_income_salary" class="popup-money-input" min="0" step="0.01" placeholder="0.00" required>
+              </div>
+              <div class="popup-money-field">
+                <label for="popup_income_other">Other Earnings (R)</label>
+                <input type="number" id="popup_income_other" class="popup-money-input" min="0" step="0.01" placeholder="0.00">
+              </div>
+
+              <div class="popup-money-field">
+                <label for="popup_expense_housing">Housing / Rent (R)</label>
+                <input type="number" id="popup_expense_housing" class="popup-money-input" min="0" step="0.01" placeholder="0.00">
+              </div>
+              <div class="popup-money-field">
+                <label for="popup_expense_school">School Fees (R)</label>
+                <input type="number" id="popup_expense_school" class="popup-money-input" min="0" step="0.01" placeholder="0.00">
+              </div>
+
+              <div class="popup-money-field">
+                <label for="popup_expense_maintenance">Maintenance (R)</label>
+                <input type="number" id="popup_expense_maintenance" class="popup-money-input" min="0" step="0.01" placeholder="0.00">
+              </div>
+              <div class="popup-money-field">
+                <label for="popup_expense_petrol">Transport (R)</label>
+                <input type="number" id="popup_expense_petrol" class="popup-money-input" min="0" step="0.01" placeholder="0.00">
+              </div>
+
+              <div class="popup-money-field">
+                <label for="popup_expense_groceries">Groceries (R)</label>
+                <input type="number" id="popup_expense_groceries" class="popup-money-input" min="0" step="0.01" placeholder="0.00">
+              </div>
+              <div class="popup-money-field">
+                <label for="popup_expense_other">Other Expenses (R)</label>
+                <input type="number" id="popup_expense_other" class="popup-money-input" min="0" step="0.01" placeholder="0.00">
+              </div>
+            </div>
+          </div>
 
           <!-- Historically Disadvantaged -->
           <div class="popup-decl-card">
@@ -174,21 +235,6 @@
               <label class="popup-radio"><input type="radio" name="popup_hd_status" value="yes"><span>Yes</span></label>
               <label class="popup-radio"><input type="radio" name="popup_hd_status" value="no"><span>No</span></label>
             </div>
-          </div>
-
-          <!-- Standard Conditions -->
-          <div class="popup-decl-card">
-            <div class="popup-decl-header">
-              <i class="fas fa-file-contract"></i>
-              <div>
-                <strong>Standard Conditions</strong>
-                <small>Credit agreement terms and conditions</small>
-              </div>
-            </div>
-            <label class="popup-checkbox">
-              <input type="checkbox" id="popup_std_conditions">
-              <span>I confirm that I have read and accepted the <strong>Standard Conditions of Credit Agreement</strong>. I understand all terms, fees, and obligations.</span>
-            </label>
           </div>
 
           <!-- Home Ownership -->
@@ -261,6 +307,21 @@
               <input type="text" id="popup_referral_name" placeholder="Full name" class="popup-input">
               <input type="text" id="popup_referral_phone" placeholder="Cellphone number" class="popup-input">
             </div>
+          </div>
+
+          <!-- Standard Conditions (must be last) -->
+          <div class="popup-decl-card">
+            <div class="popup-decl-header">
+              <i class="fas fa-file-contract"></i>
+              <div>
+                <strong>Standard Conditions</strong>
+                <small>Credit agreement terms and conditions</small>
+              </div>
+            </div>
+            <label class="popup-checkbox">
+              <input type="checkbox" id="popup_std_conditions">
+              <span>I confirm that I have read and accepted the <strong>Standard Conditions of Credit Agreement</strong>. I understand all terms, fees, and obligations.</span>
+            </label>
           </div>
 
           <!-- Save Button -->

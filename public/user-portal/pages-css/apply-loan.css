@@ -992,7 +992,7 @@ body {
 .declarations-popup-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(10, 10, 20, 0.65);
+  background: rgba(245, 247, 250, 0.82);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -1050,8 +1050,9 @@ body {
 
 /* Disclaimer Banner */
 .declarations-popup-disclaimer {
-  background: linear-gradient(135deg, #111827, #1f2937);
-  color: #f9fafb;
+  background: #fff7ed;
+  color: #7c2d12;
+  border: 1px solid #fed7aa;
   border-radius: 12px;
   padding: 1.5rem;
   margin-bottom: 1.75rem;
@@ -1061,7 +1062,7 @@ body {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
+  background: #ffedd5;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1069,7 +1070,7 @@ body {
 }
 .declarations-popup-disclaimer .disclaimer-icon i {
   font-size: 1.3rem;
-  color: #fbbf24;
+  color: #ea580c;
 }
 .declarations-popup-disclaimer h3 {
   font-size: 1.1rem;
@@ -1079,11 +1080,11 @@ body {
 .declarations-popup-disclaimer p {
   font-size: 0.85rem;
   line-height: 1.6;
-  color: #d1d5db;
+  color: #9a3412;
   margin: 0;
 }
 .declarations-popup-disclaimer .privacy-link {
-  color: #fbbf24;
+  color: #c2410c;
   text-decoration: underline;
 }
 
@@ -1173,12 +1174,12 @@ body {
   flex: 0 0 calc(50% - 0.25rem);
 }
 .popup-radio:has(input:checked) {
-  border-color: #111827;
-  background: #f9fafb;
+  border-color: var(--color-primary, #e7762e);
+  background: #fff7ed;
   font-weight: 600;
 }
 .popup-radio input {
-  accent-color: #111827;
+  accent-color: var(--color-primary, #e7762e);
 }
 
 /* Checkbox */
@@ -1193,7 +1194,7 @@ body {
 }
 .popup-checkbox input {
   margin-top: 3px;
-  accent-color: #111827;
+  accent-color: var(--color-primary, #e7762e);
   flex-shrink: 0;
 }
 
@@ -1210,7 +1211,42 @@ body {
   transition: border-color 0.15s;
 }
 .popup-select:focus {
-  border-color: #111827;
+  border-color: var(--color-primary, #e7762e);
+}
+
+/* Financial fields */
+.popup-financial-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.popup-money-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.popup-money-field label {
+  font-size: 0.78rem;
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.popup-money-input {
+  width: 100%;
+  padding: 0.58rem 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 0.84rem;
+  color: #374151;
+  background: #fff;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.popup-money-input:focus {
+  border-color: var(--color-primary, #e7762e);
 }
 
 /* Referral fields */
@@ -1232,7 +1268,7 @@ body {
   transition: border-color 0.15s;
 }
 .popup-input:focus {
-  border-color: #111827;
+  border-color: var(--color-primary, #e7762e);
 }
 
 /* Save button */
@@ -1240,7 +1276,7 @@ body {
   width: 100%;
   padding: 0.9rem;
   margin-top: 1rem;
-  background: #111827;
+  background: var(--color-primary, #e7762e);
   color: #fff;
   border: none;
   border-radius: 10px;
@@ -1254,7 +1290,7 @@ body {
   transition: all 0.15s;
 }
 .popup-save-btn:hover:not(:disabled) {
-  background: #000;
+  background: #cf621b;
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
 }
@@ -1278,5 +1314,8 @@ body {
   }
   .popup-radio-wrap .popup-radio {
     flex: 0 0 100%;
+  }
+  .popup-financial-grid {
+    grid-template-columns: 1fr;
   }
 }
