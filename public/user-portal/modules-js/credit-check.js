@@ -209,6 +209,24 @@ function normalizeDateForInput(value) {
   return '';
 }
 
+function getMissingRequiredCreditFields() {
+  const required = [
+    { id: 'identity_number', label: 'ID Number' },
+    { id: 'surname', label: 'Surname' },
+    { id: 'forename', label: 'First Name' },
+    { id: 'gender', label: 'Gender' },
+    { id: 'date_of_birth', label: 'Date of Birth' },
+    { id: 'address1', label: 'Street Address' },
+    { id: 'postal_code', label: 'Postal Code' }
+  ];
+
+  return required.filter(({ id }) => {
+    const element = document.getElementById(id);
+    const value = element?.value;
+    return !value || !String(value).trim();
+  });
+}
+
 async function prefillCreditCheckFormFromProfile() {
   try {
     const { supabase, session } = await getSessionAndClient();
@@ -253,7 +271,8 @@ async function prefillCreditCheckFormFromProfile() {
 }
 
 // Module loading functions
-window.loadCreditCheckModule = function() {
+window.loadCreditCheckModule = function(options = {}) {
+  const { autoRun = true } = options;
   console.log('🔓 Loading credit check module');
   const moduleContainer = document.getElementById('module-container');
   const moduleContent = document.getElementById('module-content');
@@ -270,8 +289,33 @@ window.loadCreditCheckModule = function() {
         attachButtonListener();
         await prefillCreditCheckFormFromProfile();
         const hasExistingCheck = await checkExistingCreditCheck();
-        if (!hasExistingCheck) {
+        if (!hasExistingCheck && !autoRun) {
           await initCreditConsentGate();
+        }
+
+        if (!hasExistingCheck && autoRun) {
+          const missingFields = getMissingRequiredCreditFields();
+          if (missingFields.length > 0) {
+            const missingLabels = missingFields.map((f) => f.label).join(', ');
+            moduleContainer.classList.add('hidden');
+            resetForm();
+            if (typeof window.showToast === 'function') {
+              window.showToast('Profile Details Required', `Complete profile fields first: ${missingLabels}`, 'warning');
+            } else {
+              alert(`Please complete these profile fields first: ${missingLabels}`);
+            }
+            if (typeof loadPage === 'function') {
+              loadPage('profile');
+            }
+            return;
+          }
+
+          const formContent = document.getElementById('credit-form-content');
+          if (formContent) {
+            formContent.style.display = 'none';
+          }
+
+          await runCreditCheck();
         }
       }, 100);
     })
