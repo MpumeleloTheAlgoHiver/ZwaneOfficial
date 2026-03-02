@@ -733,3 +733,217 @@ async function runCreditCheck() {
     resetForm();
   }
 }
+
+// -------------------------------------------------------
+// SILENT BACKGROUND CREDIT CHECK
+// Called from the circular button on apply-loan-2 page.
+// No module overlay — runs directly from profile data.
+// -------------------------------------------------------
+
+function _resetCircleButton(button) {
+  isProcessing = false;
+  const label = button.querySelector('.scc-label');
+  const spinner = button.querySelector('.scc-spinner');
+  if (label)   label.style.display = '';
+  if (spinner) spinner.style.display = 'none';
+  button.disabled = false;
+  button.classList.remove('is-loading');
+}
+
+function _showCreditResultPopup(score, riskType) {
+  const popup = document.getElementById('credit-result-popup');
+  if (!popup) return;
+
+  const scoreEl  = document.getElementById('cr-score-value');
+  const badgeEl  = document.getElementById('cr-risk-badge');
+
+  if (scoreEl) scoreEl.textContent = score;
+
+  if (badgeEl) {
+    badgeEl.className = 'cr-risk-badge';
+    const risk = String(riskType || '').toUpperCase();
+    if (risk === 'LOW'    || score > 650) badgeEl.classList.add('risk-low');
+    else if (risk === 'MEDIUM' || score > 400) badgeEl.classList.add('risk-medium');
+    else badgeEl.classList.add('risk-high');
+    badgeEl.textContent = riskType || 'Unknown';
+  }
+
+  popup.style.display = 'flex';
+}
+
+window.startCreditCheckSilent = async function(button) {
+  if (isProcessing) return;
+
+  try {
+    isProcessing = true;
+
+    // Transition button to loading state
+    const label = button.querySelector('.scc-label');
+    const spinner = button.querySelector('.scc-spinner');
+    if (label)   label.style.display = 'none';
+    if (spinner) spinner.style.display = '';
+    button.disabled = true;
+    button.classList.add('is-loading');
+
+    // Dynamic imports
+    const { performCreditCheck } = await import('/Services/dataService.js');
+    const { supabase }           = await import('/Services/supabaseClient.js');
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) {
+      window.showToast?.('Session Expired', 'Please log in again.', 'error');
+      _resetCircleButton(button);
+      return;
+    }
+
+    // Load profile fields required for Experian
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('identity_number, first_name, last_name, gender, date_of_birth, address, postal_code, suburb_area, cell_tel_no, contact_number')
+      .eq('id', session.user.id)
+      .maybeSingle();
+
+    // Validate required fields exist in profile
+    const requiredMap = {
+      'ID Number':      profile?.identity_number,
+      'Surname':        profile?.last_name,
+      'First Name':     profile?.first_name,
+      'Gender':         profile?.gender,
+      'Date of Birth':  profile?.date_of_birth,
+      'Street Address': profile?.address,
+      'Postal Code':    profile?.postal_code,
+    };
+
+    const missing = Object.entries(requiredMap)
+      .filter(([, v]) => !v || !String(v).trim())
+      .map(([k]) => k);
+
+    if (missing.length > 0) {
+      window.showToast?.(
+        'Profile Incomplete',
+        `Please complete your profile first: ${missing.join(', ')}`,
+        'warning'
+      );
+      _resetCircleButton(button);
+      if (typeof loadPage === 'function') loadPage('profile');
+      return;
+    }
+
+    // Ensure credit check consent is persisted
+    const { data: declaration } = await supabase
+      .from('declarations')
+      .select('credit_check_consent_accepted, metadata')
+      .eq('user_id', session.user.id)
+      .maybeSingle();
+
+    const alreadyConsented =
+      declaration?.credit_check_consent_accepted === true ||
+      declaration?.metadata?.credit_check_consent_accepted === true;
+
+    if (!alreadyConsented) {
+      await persistCreditConsent(supabase, session.user.id);
+    }
+    hasCreditConsent = true;
+
+    // Get or create application
+    let applicationId = sessionStorage.getItem('currentApplicationId');
+    if (!applicationId) {
+      const { data: newApp, error: appError } = await supabase
+        .from('loan_applications')
+        .insert([{
+          user_id:     session.user.id,
+          status:      'BUREAU_CHECKING',
+          amount:      0,
+          term_months: 0,
+          purpose:     'Personal Loan'
+        }])
+        .select()
+        .single();
+
+      if (appError) {
+        window.showToast?.('Error', 'Failed to create application. Please try again.', 'error');
+        _resetCircleButton(button);
+        return;
+      }
+      applicationId = newApp.id;
+      sessionStorage.setItem('currentApplicationId', applicationId);
+    } else {
+      await supabase
+        .from('loan_applications')
+        .update({ status: 'BUREAU_CHECKING' })
+        .eq('id', applicationId);
+    }
+
+    // Normalise gender to single char expected by Experian
+    const rawGender = String(profile.gender || '').toUpperCase();
+    const gender    = rawGender.startsWith('F') ? 'F' : 'M';
+
+    // Normalise DOB  → YYYYMMDD
+    const dobNormalised   = normalizeDateForInput(profile.date_of_birth); // YYYY-MM-DD
+    const dob_formatted   = dobNormalised.replace(/-/g, '');              // YYYYMMDD
+
+    const userData = {
+      user_id:         session.user.id,
+      identity_number: profile.identity_number,
+      surname:         profile.last_name,
+      forename:        profile.first_name,
+      forename2: '', forename3: '',
+      gender,
+      date_of_birth: dob_formatted,
+      address1:      profile.address,
+      address2:      profile.suburb_area || '',
+      address3: '', address4: '',
+      postal_code:   profile.postal_code,
+      home_tel_code: '', home_tel_no: '',
+      work_tel_code: '', work_tel_no: '',
+      cell_tel_no:   profile.cell_tel_no || profile.contact_number || '',
+      passport_flag: 'N'
+    };
+
+    const result = await performCreditCheck(applicationId, userData);
+
+    if (result.success) {
+      const creditData = result.creditScore || {};
+      const score      = creditData.score    || 0;
+      const riskType   = creditData.riskType || 'Unknown';
+
+      await supabase
+        .from('loan_applications')
+        .update({ bureau_score_band: score, status: 'BUREAU_OK' })
+        .eq('id', applicationId);
+
+      sessionStorage.setItem('creditScore',       score.toString());
+      sessionStorage.setItem('creditRiskType',    riskType);
+      sessionStorage.setItem('creditCheckPassed', 'true');
+      sessionStorage.setItem('creditData',        JSON.stringify(creditData));
+
+      // Flip button to "done" state
+      isProcessing = false;
+      if (spinner) spinner.style.display = 'none';
+      if (label) {
+        label.style.display   = '';
+        label.innerHTML       = 'Done&nbsp;<i class="fas fa-check"></i>';
+      }
+      button.classList.remove('is-loading');
+      button.classList.add('is-done');
+
+      // Show the result popup
+      _showCreditResultPopup(score, riskType);
+
+    } else {
+      await supabase
+        .from('loan_applications')
+        .update({ status: 'BUREAU_DECLINE' })
+        .eq('id', applicationId);
+
+      window.showToast?.('Credit Check Failed', result.error || 'Unknown error', 'error');
+      _resetCircleButton(button);
+    }
+
+  } catch (error) {
+    console.error('❌ Silent credit check error:', error);
+    window.showToast?.('Error', error.message || 'An unexpected error occurred', 'error');
+    _resetCircleButton(button);
+  }
+};
+

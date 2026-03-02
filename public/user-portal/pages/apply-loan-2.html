@@ -76,15 +76,34 @@
         </div>
       </div>
       <div class="right-section">
-        <button class="next-btn" onclick="loadCreditCheckModule()" style="cursor: pointer;">
-          <span>Start Credit Check</span>
-          <i class="fas fa-arrow-right"></i>
-        </button>
+        <div class="credit-circle-outer">
+          <button id="start-credit-check-btn" onclick="startCreditCheckSilent(this)">
+            <span class="scc-label">Start<br>Credit<br>Check</span>
+            <span class="scc-spinner" style="display:none;"><i class="fas fa-sync-alt fa-spin fa-2x"></i></span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Credit Check Module Container -->
+  <!-- Credit Result Popup (shown after successful silent check) -->
+  <div id="credit-result-popup" style="display:none;" class="credit-result-popup">
+    <div class="cr-card">
+      <button class="cr-close" onclick="document.getElementById('credit-result-popup').style.display='none'" title="Close"><i class="fas fa-times"></i></button>
+      <div class="cr-icon-wrap"><i class="fas fa-chart-bar cr-icon"></i></div>
+      <h3 class="cr-title">Credit Check Complete</h3>
+      <div class="cr-score-row">
+        <span class="cr-score-label">Score</span>
+        <span id="cr-score-value" class="cr-score-number">---</span>
+      </div>
+      <div id="cr-risk-badge" class="cr-risk-badge">---</div>
+      <button class="cr-continue-btn" onclick="window.continueToLoanSelection()">
+        <i class="fas fa-arrow-right"></i> Continue to Loan Selection
+      </button>
+    </div>
+  </div>
+
+  <!-- Module container kept for any fallback usage -->
   <div id="module-container" class="module-overlay hidden">
     <div id="module-content" class="module-content"></div>
     <button class="close-btn" onclick="closeModule()">
