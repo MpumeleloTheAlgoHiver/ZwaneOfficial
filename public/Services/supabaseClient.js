@@ -5,14 +5,19 @@ let supabaseUrl = '';
 let supabaseAnonKey = '';
 
 try {
-    const envRes = await fetch('/api/env-config');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const envRes = await fetch('/api/env-config', { signal: controller.signal });
+    clearTimeout(timeout);
     if (envRes.ok) {
         const envData = await envRes.json();
         supabaseUrl = envData.SUPABASE_URL || '';
         supabaseAnonKey = envData.SUPABASE_ANON_KEY || '';
+    } else {
+        console.warn('env-config returned', envRes.status);
     }
 } catch (e) {
-    console.error('Failed to load env config:', e);
+    console.error('Failed to load env config:', e.name === 'AbortError' ? 'Request timed out' : e);
 }
 
 // --- Sanity Check ---
