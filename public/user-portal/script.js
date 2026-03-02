@@ -31,7 +31,9 @@ let systemThemeFetchedAt = 0;
 let systemThemePromise = null;
 
 function isApplyLoanFlowPage(pageName = '') {
-  return ['apply-loan', 'apply-loan-2', 'apply-loan-3', 'confirmation'].includes(pageName);
+  // apply-loan (step 1) is allowed without profile completion — the in-page
+  // declarations popup handles gating for consent / document buttons.
+  return ['apply-loan-2', 'apply-loan-3', 'confirmation'].includes(pageName);
 }
 
 function getProfileState() {

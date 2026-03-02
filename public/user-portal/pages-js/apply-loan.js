@@ -26,6 +26,10 @@ let kycStatusRef = null;
 let isKycLaunching = false;
 let kycStatusInterval = null;
 
+// ── Declarations-popup state ──
+let declarationsCompleted = false;   // true once user has accepted_std_conditions
+let pendingActionAfterDeclarations = null;  // callback to execute after popup save
+
 const APPLY_LOAN_PAGE = 'apply-loan';
 
 async function getSupabaseClient() {
@@ -176,6 +180,20 @@ async function refreshKycStatus() {
 }
 
 async function handleKycButtonClick() {
+  // Gate: if declarations haven't been completed, show popup first  
+  if (!declarationsCompleted) {
+    pendingActionAfterDeclarations = () => {
+      activateConsentUI();
+      handleKycButtonClickInternal();
+    };
+    showDeclarationsPopup();
+    return;
+  }
+
+  handleKycButtonClickInternal();
+}
+
+async function handleKycButtonClickInternal() {
   if (isKycLaunching) {
     return;
   }
@@ -291,6 +309,17 @@ async function initKycButton() {
 }
 
 window.toggleConsent = function () {
+  // If declarations haven't been completed yet, show the popup instead of toggling
+  if (!declarationsCompleted) {
+    pendingActionAfterDeclarations = () => {
+      // After declarations are saved, activate consent automatically
+      activateConsentUI();
+    };
+    showDeclarationsPopup();
+    return;
+  }
+
+  // Normal toggle when declarations are already done
   window.consentGiven = !window.consentGiven;
   const btn = document.getElementById('consentBtn');
   const icon = btn?.querySelector('i');
@@ -315,12 +344,42 @@ window.toggleConsent = function () {
   updateNextButtonState();
 }
 
+// Helper to activate consent UI without toggling
+function activateConsentUI() {
+  window.consentGiven = true;
+  const btn = document.getElementById('consentBtn');
+  const icon = btn?.querySelector('i');
+  const documentList = document.getElementById('documentList');
+  if (btn && icon && documentList) {
+    btn.classList.add('active');
+    icon.classList.remove('fa-square');
+    icon.classList.add('fa-check-square');
+    documentList.classList.remove('hidden-consent');
+  }
+  updateNextButtonState();
+}
+
 window.showApplyLoan2 = function() {
   // Use goToStep for validation instead of direct navigation
   window.goToStep(2);
 }
 
 async function loadModule(name) {
+  // Gate: if declarations haven't been completed, show popup first
+  if (!declarationsCompleted) {
+    pendingActionAfterDeclarations = () => {
+      // After declarations saved, auto-consent and then open the module
+      activateConsentUI();
+      loadModuleInternal(name);
+    };
+    showDeclarationsPopup();
+    return;
+  }
+
+  loadModuleInternal(name);
+}
+
+async function loadModuleInternal(name) {
   const overlay = document.getElementById("module-container");
   const moduleContent = document.getElementById("module-content");
   const cssHref = `/user-portal/modules-css/${name}.css`;
@@ -632,7 +691,210 @@ async function initDocumentChecklist() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+//  DECLARATIONS POPUP — show / hide / save / check
+// ═══════════════════════════════════════════════════════════
+
+function showDeclarationsPopup() {
+  const overlay = document.getElementById('declarations-popup-overlay');
+  if (overlay) {
+    overlay.classList.remove('hidden');
+  }
+}
+
+function hideDeclarationsPopup() {
+  const overlay = document.getElementById('declarations-popup-overlay');
+  if (overlay) {
+    overlay.classList.add('hidden');
+  }
+  pendingActionAfterDeclarations = null;
+}
+
+function initDeclarationsPopup() {
+  // Close button
+  const closeBtn = document.getElementById('closeDeclarationsPopup');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', hideDeclarationsPopup);
+  }
+
+  // Close on overlay click (outside popup)
+  const overlay = document.getElementById('declarations-popup-overlay');
+  if (overlay) {
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        hideDeclarationsPopup();
+      }
+    });
+  }
+
+  // Referral toggle
+  const referralRadios = document.querySelectorAll('input[name="popup_referral"]');
+  referralRadios.forEach(r => {
+    r.addEventListener('change', () => {
+      const fields = document.getElementById('popup-referral-fields');
+      if (fields) {
+        fields.style.display = r.value === 'yes' && r.checked ? 'flex' : 'none';
+      }
+    });
+  });
+
+  // Form submit
+  const form = document.getElementById('popup-declarations-form');
+  if (form) {
+    form.addEventListener('submit', handlePopupDeclarationsSave);
+  }
+}
+
+async function handlePopupDeclarationsSave(e) {
+  e.preventDefault();
+
+  const btn = document.getElementById('popup-save-declarations');
+  if (!btn) return;
+  const origHTML = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+
+  // Collect values
+  const hdStatus = document.querySelector('input[name="popup_hd_status"]:checked')?.value || '';
+  const acceptedStd = document.getElementById('popup_std_conditions')?.checked || false;
+  const homeOwnership = document.querySelector('input[name="popup_home_ownership"]:checked')?.value || '';
+  const maritalStatus = document.querySelector('input[name="popup_marital_status"]:checked')?.value || '';
+  const highestQualification = document.getElementById('popup_highest_qualification')?.value || '';
+  const referralProvided = document.querySelector('input[name="popup_referral"]:checked')?.value === 'yes';
+  const referralName = document.getElementById('popup_referral_name')?.value.trim() || null;
+  const referralPhone = document.getElementById('popup_referral_phone')?.value.trim() || null;
+
+  // Validate: at minimum, std_conditions must be checked
+  if (!acceptedStd) {
+    if (typeof window.showToast === 'function') {
+      window.showToast('Required', 'You must accept the Standard Conditions to continue.', 'warning');
+    } else {
+      showMinimalNotice('Required', 'You must accept the Standard Conditions to continue.');
+    }
+    btn.disabled = false;
+    btn.innerHTML = origHTML;
+    return;
+  }
+
+  const declarations = {
+    historically_disadvantaged: hdStatus,
+    accepted_std_conditions: acceptedStd,
+    home_ownership: homeOwnership,
+    marital_status: maritalStatus,
+    highest_qualification: highestQualification,
+    referral_provided: referralProvided,
+    referral_name: referralProvided ? referralName : null,
+    referral_phone: referralProvided ? referralPhone : null
+  };
+
+  try {
+    const supabase = await getSupabaseClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) {
+      throw new Error('Not authenticated');
+    }
+
+    const userId = session.user.id;
+
+    // Upsert into declarations table (same shape as profile.js)
+    const payload = {
+      user_id: userId,
+      historically_disadvantaged: hdStatus === 'yes',
+      accepted_std_conditions: acceptedStd,
+      home_ownership: homeOwnership || null,
+      marital_status: maritalStatus || null,
+      highest_qualification: highestQualification || null,
+      referral_provided: referralProvided,
+      referral_name: referralProvided ? referralName : null,
+      referral_phone: referralProvided ? referralPhone : null,
+      metadata: declarations,
+      updated_at: new Date().toISOString()
+    };
+
+    const { error: declErr } = await supabase
+      .from('declarations')
+      .upsert([payload], { onConflict: 'user_id' });
+
+    if (declErr) throw declErr;
+
+    // Also update auth user metadata as backup
+    await supabase.auth.updateUser({ data: { declarations: JSON.stringify(declarations) } });
+
+    // Update global profile state so other pages know declarations are done
+    if (window.globalUserProfile) {
+      window.globalUserProfile.hasDeclarations = true;
+      window.globalUserProfile.declarations = declarations;
+      const alreadyHasFinancial = window.globalUserProfile.hasFinancialProfile === true;
+      window.globalUserProfile.isProfileComplete = alreadyHasFinancial && true;
+
+      // If profile is now fully complete, unlock sidebar
+      if (window.globalUserProfile.isProfileComplete && typeof window.unlockSidebar === 'function') {
+        window.unlockSidebar();
+      }
+    }
+
+    // Mark declarations as completed locally
+    declarationsCompleted = true;
+
+    // Close popup
+    hideDeclarationsPopup();
+
+    // Show success
+    if (typeof window.showToast === 'function') {
+      window.showToast('Declarations Saved', 'Your declarations have been saved to your profile.', 'success');
+    } else {
+      showMinimalNotice('Saved', 'Declarations saved successfully.');
+    }
+
+    // Execute pending action (e.g. activate consent + open module)
+    if (pendingActionAfterDeclarations) {
+      const action = pendingActionAfterDeclarations;
+      pendingActionAfterDeclarations = null;
+      action();
+    }
+  } catch (err) {
+    console.error('Failed to save declarations from popup:', err);
+    if (typeof window.showToast === 'function') {
+      window.showToast('Error', 'Failed to save declarations. Please try again.', 'error');
+    } else {
+      showMinimalNotice('Error', 'Failed to save. Please try again.');
+    }
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = origHTML;
+}
+
+async function checkDeclarationsStatus() {
+  try {
+    const supabase = await getSupabaseClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) return;
+
+    const { data: decl } = await supabase
+      .from('declarations')
+      .select('accepted_std_conditions')
+      .eq('user_id', session.user.id)
+      .maybeSingle();
+
+    declarationsCompleted = decl?.accepted_std_conditions === true;
+
+    // If declarations are already done, also check if consent was given in a prior visit
+    // (consent is page-session state, so we just leave it as-is)
+  } catch (err) {
+    console.error('Failed to check declarations status:', err);
+    declarationsCompleted = false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+
 function bootApplyLoanPage() {
+  // Check if declarations are already completed
+  checkDeclarationsStatus();
+  // Set up popup interactions
+  initDeclarationsPopup();
+
   initDocumentChecklist();
   initKycButton().catch(err => {
     console.error('Failed to initialize KYC button:', err);
@@ -649,6 +911,8 @@ window.addEventListener('pageLoaded', (event) => {
   const pageName = event?.detail?.pageName;
   if (pageName === APPLY_LOAN_PAGE) {
     resetDocumentStateFlags();
+    checkDeclarationsStatus();
+    initDeclarationsPopup();
     initDocumentChecklist();
     initKycButton().catch(err => {
       console.error('Failed to initialize KYC button after SPA navigation:', err);
