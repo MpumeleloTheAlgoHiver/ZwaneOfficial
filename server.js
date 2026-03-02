@@ -629,15 +629,6 @@ app.post('/api/banking/capture', async (req, res) => {
 });
 
 // Credit Check API endpoint
-
-// ── Public env config (browser-safe values only) ───────────────
-app.get('/api/env-config', (req, res) => {
-    res.json({
-        SUPABASE_URL:      process.env.SUPABASE_URL      || process.env.VITE_SUPABASE_URL      || '',
-        SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY  || process.env.VITE_SUPABASE_ANON_KEY || ''
-    });
-});
-
 app.post('/api/credit-check', async (req, res) => {
     try {
         const { applicationId, userData } = req.body;
