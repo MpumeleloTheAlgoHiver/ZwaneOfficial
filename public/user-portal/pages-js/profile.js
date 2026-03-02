@@ -220,6 +220,14 @@ function renderProfileTab() {
         <!-- Personal Details Form -->
         <div class="form-grid">
           <div class="form-group">
+            <label for="first_name">First Name</label>
+            <input type="text" id="first_name" value="${currentUserProfile.first_name || ''}" placeholder="Enter your first name" required>
+          </div>
+          <div class="form-group">
+            <label for="last_name">Surname</label>
+            <input type="text" id="last_name" value="${currentUserProfile.last_name || ''}" placeholder="Enter your surname" required>
+          </div>
+          <div class="form-group">
             <label for="full_name">Full Name</label>
             <input type="text" id="full_name" value="${currentUserProfile.full_name || ''}" placeholder="Enter your full name" required>
           </div>
@@ -234,6 +242,34 @@ function renderProfileTab() {
           <div class="form-group">
             <label for="identity_number">ID Number</label>
             <input type="text" id="identity_number" value="${currentUserProfile.identity_number || ''}" placeholder="Enter your SA ID number" maxlength="20" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label for="gender">Gender</label>
+            <select id="gender">
+              <option value="">Select gender</option>
+              <option value="M" ${(currentUserProfile.gender || '').toUpperCase() === 'M' ? 'selected' : ''}>Male</option>
+              <option value="F" ${(currentUserProfile.gender || '').toUpperCase() === 'F' ? 'selected' : ''}>Female</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="date_of_birth">Date of Birth</label>
+            <input type="date" id="date_of_birth" value="${currentUserProfile.date_of_birth ? String(currentUserProfile.date_of_birth).substring(0, 10) : ''}">
+          </div>
+          <div class="form-group">
+            <label for="address">Street Address</label>
+            <input type="text" id="address" value="${currentUserProfile.address || ''}" placeholder="Street address">
+          </div>
+          <div class="form-group">
+            <label for="postal_code">Postal Code</label>
+            <input type="text" id="postal_code" value="${currentUserProfile.postal_code || ''}" placeholder="e.g. 0123" maxlength="4">
+          </div>
+          <div class="form-group">
+            <label for="suburb_area">Suburb / Area</label>
+            <input type="text" id="suburb_area" value="${currentUserProfile.suburb_area || ''}" placeholder="Suburb or area">
+          </div>
+          <div class="form-group">
+            <label for="cell_tel_no">Cell Phone Number</label>
+            <input type="text" id="cell_tel_no" value="${currentUserProfile.cell_tel_no || currentUserProfile.contact_number || ''}" placeholder="e.g. 0821234567" maxlength="10">
           </div>
           <div class="form-group">
             <label for="user_id">User ID</label>
@@ -1269,9 +1305,17 @@ async function handleProfileUpdate(e) {
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
   
   const profileData = {
+    first_name: document.getElementById('first_name')?.value.trim() || null,
+    last_name: document.getElementById('last_name')?.value.trim() || null,
     full_name: document.getElementById('full_name').value.trim(),
     contact_number: document.getElementById('contact_number').value.trim(),
     identity_number: document.getElementById('identity_number')?.value.trim() || null,
+    gender: document.getElementById('gender')?.value || null,
+    date_of_birth: document.getElementById('date_of_birth')?.value || null,
+    address: document.getElementById('address')?.value.trim() || null,
+    postal_code: document.getElementById('postal_code')?.value.trim() || null,
+    suburb_area: document.getElementById('suburb_area')?.value.trim() || null,
+    cell_tel_no: document.getElementById('cell_tel_no')?.value.trim() || null,
     updated_at: new Date().toISOString()
   };
   
@@ -1297,9 +1341,17 @@ async function handleProfileUpdate(e) {
     if (error) throw error;
     
     // Update local state
+    currentUserProfile.first_name = profileData.first_name;
+    currentUserProfile.last_name = profileData.last_name;
     currentUserProfile.full_name = profileData.full_name;
     currentUserProfile.contact_number = profileData.contact_number;
     currentUserProfile.identity_number = profileData.identity_number;
+    currentUserProfile.gender = profileData.gender;
+    currentUserProfile.date_of_birth = profileData.date_of_birth;
+    currentUserProfile.address = profileData.address;
+    currentUserProfile.postal_code = profileData.postal_code;
+    currentUserProfile.suburb_area = profileData.suburb_area;
+    currentUserProfile.cell_tel_no = profileData.cell_tel_no;
     
     // Create notification for account update
     const { notifyAccountUpdated } = await import('/Services/notificationService.js');

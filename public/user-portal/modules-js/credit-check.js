@@ -195,6 +195,63 @@ async function initCreditConsentGate() {
   }
 }
 
+function normalizeDateForInput(value) {
+  if (!value) return '';
+  const dateString = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return dateString;
+  if (/^\d{8}$/.test(dateString)) {
+    return `${dateString.slice(0, 4)}-${dateString.slice(4, 6)}-${dateString.slice(6, 8)}`;
+  }
+  const parsed = new Date(dateString);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+  return '';
+}
+
+async function prefillCreditCheckFormFromProfile() {
+  try {
+    const { supabase, session } = await getSessionAndClient();
+    if (!session?.user?.id) return;
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('identity_number, first_name, last_name, gender, date_of_birth, address, postal_code, suburb_area, cell_tel_no, contact_number')
+      .eq('id', session.user.id)
+      .maybeSingle();
+
+    if (!profile) return;
+
+    const setValue = (id, value) => {
+      const element = document.getElementById(id);
+      if (element && (element.value == null || element.value.trim() === '')) {
+        element.value = value || '';
+      }
+    };
+
+    setValue('identity_number', profile.identity_number || '');
+    setValue('surname', profile.last_name || '');
+    setValue('forename', profile.first_name || '');
+    setValue('address1', profile.address || '');
+    setValue('address2', profile.suburb_area || '');
+    setValue('postal_code', profile.postal_code || '');
+    setValue('cell_tel_no', profile.cell_tel_no || profile.contact_number || '');
+
+    const genderEl = document.getElementById('gender');
+    if (genderEl && !genderEl.value) {
+      const rawGender = (profile.gender || '').toUpperCase();
+      genderEl.value = rawGender.startsWith('F') ? 'F' : (rawGender.startsWith('M') ? 'M' : '');
+    }
+
+    const dobEl = document.getElementById('date_of_birth');
+    if (dobEl && !dobEl.value) {
+      dobEl.value = normalizeDateForInput(profile.date_of_birth);
+    }
+  } catch (error) {
+    console.warn('Could not prefill credit-check form from profile:', error);
+  }
+}
+
 // Module loading functions
 window.loadCreditCheckModule = function() {
   console.log('🔓 Loading credit check module');
@@ -211,6 +268,7 @@ window.loadCreditCheckModule = function() {
       // Attach button listener after loading
       setTimeout(async () => {
         attachButtonListener();
+        await prefillCreditCheckFormFromProfile();
         const hasExistingCheck = await checkExistingCreditCheck();
         if (!hasExistingCheck) {
           await initCreditConsentGate();
@@ -435,6 +493,8 @@ async function runCreditCheck() {
     // Import modules dynamically
     const { performCreditCheck } = await import('/Services/dataService.js');
     const { supabase } = await import('/Services/supabaseClient.js');
+
+    await prefillCreditCheckFormFromProfile();
     
     isProcessing = true;
     button.disabled = true;

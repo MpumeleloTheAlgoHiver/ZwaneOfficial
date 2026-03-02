@@ -810,6 +810,14 @@ async function loadPopupPrefillData() {
   document.querySelectorAll('input[name="popup_referral"]').forEach((input) => { input.checked = false; });
 
   setValue('popup_identity_number', profileData.identity_number || session.user.user_metadata?.identity_number || session.user.user_metadata?.id_number || '');
+  setValue('popup_first_name', profileData.first_name || '');
+  setValue('popup_last_name', profileData.last_name || '');
+  setValue('popup_gender', (profileData.gender || '').toUpperCase());
+  setValue('popup_date_of_birth', profileData.date_of_birth ? String(profileData.date_of_birth).substring(0, 10) : '');
+  setValue('popup_address', profileData.address || '');
+  setValue('popup_postal_code', profileData.postal_code || '');
+  setValue('popup_suburb_area', profileData.suburb_area || '');
+  setValue('popup_cell_tel_no', profileData.cell_tel_no || profileData.contact_number || '');
 
   const parsedFinancial = financialData.parsed_data || {};
   const incomeData = parsedFinancial.income || {};
@@ -900,6 +908,14 @@ async function handlePopupDeclarationsSave(e) {
   const referralName = document.getElementById('popup_referral_name')?.value.trim() || null;
   const referralPhone = document.getElementById('popup_referral_phone')?.value.trim() || null;
   const identityNumber = document.getElementById('popup_identity_number')?.value.trim() || null;
+  const firstName = document.getElementById('popup_first_name')?.value.trim() || null;
+  const lastName = document.getElementById('popup_last_name')?.value.trim() || null;
+  const gender = document.getElementById('popup_gender')?.value || null;
+  const dateOfBirth = document.getElementById('popup_date_of_birth')?.value || null;
+  const streetAddress = document.getElementById('popup_address')?.value.trim() || null;
+  const postalCode = document.getElementById('popup_postal_code')?.value.trim() || null;
+  const suburbArea = document.getElementById('popup_suburb_area')?.value.trim() || null;
+  const cellTelNo = document.getElementById('popup_cell_tel_no')?.value.trim() || null;
 
   const incomeSalaryRaw = document.getElementById('popup_income_salary')?.value?.trim() || '';
   const incomeOtherRaw = document.getElementById('popup_income_other')?.value?.trim() || '';
@@ -926,6 +942,12 @@ async function handlePopupDeclarationsSave(e) {
 
   const requiredChecks = [
     { valid: !!identityNumber, element: document.getElementById('popup_identity_number') },
+    { valid: !!firstName, element: document.getElementById('popup_first_name') },
+    { valid: !!lastName, element: document.getElementById('popup_last_name') },
+    { valid: !!gender, element: document.getElementById('popup_gender') },
+    { valid: !!dateOfBirth, element: document.getElementById('popup_date_of_birth') },
+    { valid: !!streetAddress, element: document.getElementById('popup_address') },
+    { valid: !!postalCode, element: document.getElementById('popup_postal_code') },
     { valid: incomeSalaryRaw !== '', element: document.getElementById('popup_income_salary') },
     { valid: incomeOtherRaw !== '', element: document.getElementById('popup_income_other') },
     { valid: expenseHousingRaw !== '', element: document.getElementById('popup_expense_housing') },
@@ -980,7 +1002,17 @@ async function handlePopupDeclarationsSave(e) {
     const userId = session.user.id;
 
     const profilePayload = {
+        first_name: firstName,
+        last_name: lastName,
       identity_number: identityNumber,
+        gender,
+        date_of_birth: dateOfBirth,
+        address: streetAddress,
+        postal_code: postalCode,
+        suburb_area: suburbArea,
+        cell_tel_no: cellTelNo,
+        contact_number: cellTelNo || null,
+        full_name: [firstName, lastName].filter(Boolean).join(' ') || null,
       updated_at: new Date().toISOString()
     };
 
@@ -1086,7 +1118,17 @@ async function handlePopupDeclarationsSave(e) {
 
     // Update global profile state so other pages know declarations are done
     if (window.globalUserProfile) {
+      window.globalUserProfile.first_name = firstName;
+      window.globalUserProfile.last_name = lastName;
       window.globalUserProfile.identity_number = identityNumber;
+      window.globalUserProfile.gender = gender;
+      window.globalUserProfile.date_of_birth = dateOfBirth;
+      window.globalUserProfile.address = streetAddress;
+      window.globalUserProfile.postal_code = postalCode;
+      window.globalUserProfile.suburb_area = suburbArea;
+      window.globalUserProfile.cell_tel_no = cellTelNo;
+      window.globalUserProfile.contact_number = cellTelNo || window.globalUserProfile.contact_number;
+      window.globalUserProfile.full_name = [firstName, lastName].filter(Boolean).join(' ') || window.globalUserProfile.full_name;
       window.globalUserProfile.hasDeclarations = true;
       window.globalUserProfile.hasFinancialProfile = totalIncome > 0;
       window.globalUserProfile.declarations = declarations;
@@ -1139,16 +1181,24 @@ async function checkDeclarationsStatus() {
 
     const userId = session.user.id;
     const [profileResult, financialResult, declarationResult] = await Promise.all([
-      supabase.from('profiles').select('identity_number').eq('id', userId).maybeSingle(),
+      supabase.from('profiles').select('identity_number, first_name, last_name, gender, date_of_birth, address, postal_code').eq('id', userId).maybeSingle(),
       supabase.from('financial_profiles').select('monthly_income').eq('user_id', userId).maybeSingle(),
       supabase.from('declarations').select('accepted_std_conditions').eq('user_id', userId).maybeSingle()
     ]);
 
     const hasId = !!profileResult?.data?.identity_number;
+    const hasExperianProfile = !!(
+      profileResult?.data?.first_name
+      && profileResult?.data?.last_name
+      && profileResult?.data?.gender
+      && profileResult?.data?.date_of_birth
+      && profileResult?.data?.address
+      && profileResult?.data?.postal_code
+    );
     const hasFinancial = (Number(financialResult?.data?.monthly_income) || 0) > 0;
     const hasStdConditions = declarationResult?.data?.accepted_std_conditions === true;
 
-    declarationsCompleted = hasId && hasFinancial && hasStdConditions;
+    declarationsCompleted = hasId && hasExperianProfile && hasFinancial && hasStdConditions;
 
     // If declarations are already done, also check if consent was given in a prior visit
     // (consent is page-session state, so we just leave it as-is)
