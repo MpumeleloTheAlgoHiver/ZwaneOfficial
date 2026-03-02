@@ -98,22 +98,25 @@ async function checkCreditCheckStatus() {
       }
     }
     
-    // Update main page button if credit check exists
+    // Update circle button if credit check already exists
     if (hasExistingCheck || creditCheckPassed === 'true') {
-      const mainButton = document.querySelector('.next-btn');
-      if (mainButton) {
-        const score = existingScore || creditScore || 'Ready';
-        mainButton.innerHTML = `
-          <i class="fas fa-check-circle"></i>
-          <span>Continue to Loan Selection (${score})</span>
-        `;
-        mainButton.style.background = 'linear-gradient(135deg, #1b5e20 0%, #00c853 100%)';
-        mainButton.style.color = '#ffffff';
-        mainButton.style.cursor = 'pointer';
-        mainButton.disabled = false;
-        mainButton.removeAttribute('aria-disabled');
-        mainButton.classList.remove('button-disabled');
-        mainButton.onclick = () => {
+      const circleBtn = document.getElementById('start-credit-check-btn');
+      if (circleBtn) {
+        // Stop pulse, go green, change label to "Next"
+        circleBtn.classList.remove('is-loading');
+        circleBtn.classList.add('is-done');
+        circleBtn.style.animation = 'none';
+
+        const label = circleBtn.querySelector('.scc-label');
+        const spinner = circleBtn.querySelector('.scc-spinner');
+        if (spinner) spinner.style.display = 'none';
+        if (label) {
+          label.innerHTML = 'Next&nbsp;<i class="fas fa-arrow-right"></i>';
+        }
+
+        circleBtn.disabled = false;
+        circleBtn.onclick = () => {
+          sessionStorage.setItem('creditCheckPassed', 'true');
           if (typeof loadPage === 'function') {
             loadPage('apply-loan-3');
           } else {
@@ -121,14 +124,14 @@ async function checkCreditCheckStatus() {
           }
         };
       }
-      
+
       // Mark step 2 as completed
       const step2 = document.querySelector('.step.active');
       if (step2) {
         step2.classList.add('completed');
       }
-      
-      console.log('✅ Credit check already completed');
+
+      console.log('✅ Credit check already completed — button set to Next');
     }
   } catch (error) {
     console.error('❌ Error checking credit status:', error);
