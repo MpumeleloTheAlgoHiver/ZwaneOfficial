@@ -87,12 +87,30 @@ async function ensureBrandingTheme(force = false) {
 // AUTH GUARD
 // ============================================
 async function checkSession() {
-    const { data: { session } } = await supabase.auth.getSession();
-    await ensureBrandingTheme();
-    if (session) {
-        const { data: isAllowed, error } = await supabase.rpc('is_role_or_higher', { 
-            p_min_role: 'base_admin' 
+    const withTimeout = (promise, ms = 7000) => {
+        let timer;
+        const timeoutPromise = new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`Auth request timed out after ${ms}ms`)), ms);
         });
+        return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
+    };
+
+    try {
+        await ensureBrandingTheme();
+
+        const { data: { session } } = await withTimeout(supabase.auth.getSession(), 7000);
+
+        if (!session) {
+            render();
+            return;
+        }
+
+        const { data: isAllowed, error } = await withTimeout(
+            supabase.rpc('is_role_or_higher', {
+                p_min_role: 'base_admin'
+            }),
+            7000
+        );
 
         if (error) {
             console.error('Error checking role:', error.message);
@@ -100,14 +118,20 @@ async function checkSession() {
             render();
             return;
         }
-        
+
         if (isAllowed) {
             window.location.replace('/admin/dashboard');
         } else {
             window.location.replace('/user-portal/index.html');
         }
-    } else {
-        render(); 
+    } catch (error) {
+        console.error('Auth bootstrap failed:', error);
+        try {
+            await supabase.auth.signOut();
+        } catch (signOutError) {
+            console.error('Sign out after bootstrap failure also failed:', signOutError);
+        }
+        render();
     }
 }
 
