@@ -89,17 +89,33 @@
   <!-- Credit Result Popup (shown after successful silent check) -->
   <div id="credit-result-popup" style="display:none;" class="credit-result-popup">
     <div class="cr-card">
-      <button class="cr-close" onclick="document.getElementById('credit-result-popup').style.display='none'" title="Close"><i class="fas fa-times"></i></button>
-      <div class="cr-icon-wrap"><i class="fas fa-chart-bar cr-icon"></i></div>
-      <h3 class="cr-title">Credit Check Complete</h3>
-      <div class="cr-score-row">
-        <span class="cr-score-label">Score</span>
-        <span id="cr-score-value" class="cr-score-number">---</span>
+
+      <!-- Coloured banner top -->
+      <div id="cr-banner" class="cr-banner">
+        <div class="cr-banner-icon"><i class="fas fa-shield-check"></i></div>
       </div>
-      <div id="cr-risk-badge" class="cr-risk-badge">---</div>
-      <button class="cr-continue-btn" onclick="window.continueToLoanSelection()">
-        <i class="fas fa-arrow-right"></i> Continue to Loan Selection
-      </button>
+
+      <button class="cr-close" onclick="document.getElementById('credit-result-popup').style.display='none'" title="Close"><i class="fas fa-times"></i></button>
+
+      <div class="cr-body">
+        <p class="cr-subtitle">Credit Check Complete</p>
+        <h2 class="cr-headline">Bureau Score</h2>
+
+        <!-- Score ring -->
+        <div class="cr-score-ring">
+          <span id="cr-score-value" class="cr-score-number">---</span>
+          <span class="cr-score-unit">pts</span>
+        </div>
+
+        <div id="cr-risk-badge" class="cr-risk-badge">---</div>
+        <p id="cr-risk-desc" class="cr-risk-desc"></p>
+
+        <div class="cr-divider"></div>
+
+        <button class="cr-continue-btn" onclick="window.continueToLoanSelection()">
+          Continue to Loan Selection&nbsp;<i class="fas fa-arrow-right"></i>
+        </button>
+      </div>
     </div>
   </div>
 

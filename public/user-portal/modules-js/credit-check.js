@@ -756,17 +756,33 @@ function _showCreditResultPopup(score, riskType) {
 
   const scoreEl  = document.getElementById('cr-score-value');
   const badgeEl  = document.getElementById('cr-risk-badge');
+  const descEl   = document.getElementById('cr-risk-desc');
+  const bannerEl = popup.querySelector('.cr-banner');
+  const ringEl   = popup.querySelector('.cr-score-ring');
 
-  if (scoreEl) scoreEl.textContent = score;
+  if (scoreEl) scoreEl.textContent = score || '---';
+
+  // Determine risk level class
+  const riskUpper = String(riskType || '').toUpperCase();
+  let riskClass = 'risk-high';
+  let riskLabel = riskType || 'Unknown';
+  let riskDesc  = 'Your credit profile requires further review before proceeding.';
+
+  if (riskUpper === 'LOW' || score > 650) {
+    riskClass = 'risk-low';
+    riskDesc  = 'Excellent! Your credit profile looks great. You qualify for preferential rates.';
+  } else if (riskUpper === 'MEDIUM' || score > 400) {
+    riskClass = 'risk-medium';
+    riskDesc  = 'Your credit profile is acceptable. Proceed to select your loan amount.';
+  }
 
   if (badgeEl) {
-    badgeEl.className = 'cr-risk-badge';
-    const risk = String(riskType || '').toUpperCase();
-    if (risk === 'LOW'    || score > 650) badgeEl.classList.add('risk-low');
-    else if (risk === 'MEDIUM' || score > 400) badgeEl.classList.add('risk-medium');
-    else badgeEl.classList.add('risk-high');
-    badgeEl.textContent = riskType || 'Unknown';
+    badgeEl.className = `cr-risk-badge ${riskClass}`;
+    badgeEl.textContent = riskLabel;
   }
+  if (descEl)   descEl.textContent = riskDesc;
+  if (bannerEl) { bannerEl.className = `cr-banner ${riskClass}`; }
+  if (ringEl)   { ringEl.className   = `cr-score-ring ${riskClass}`; }
 
   popup.style.display = 'flex';
 }
