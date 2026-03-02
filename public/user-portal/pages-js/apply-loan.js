@@ -831,6 +831,28 @@ async function loadPopupPrefillData() {
   }
 }
 
+function clearPopupRequiredMarkers() {
+  document.querySelectorAll('.popup-required-missing').forEach((node) => {
+    node.classList.remove('popup-required-missing');
+  });
+}
+
+function showPopupAllRequiredMessage(targetElement) {
+  if (targetElement) {
+    targetElement.classList.add('popup-required-missing');
+    targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (typeof targetElement.focus === 'function') {
+      targetElement.focus({ preventScroll: true });
+    }
+  }
+
+  if (typeof window.showToast === 'function') {
+    window.showToast('Required', 'All fields are required. Please complete every field to continue.', 'warning');
+  } else {
+    showMinimalNotice('Required', 'All fields are required. Please complete every field to continue.');
+  }
+}
+
 async function handlePopupDeclarationsSave(e) {
   e.preventDefault();
 
@@ -851,6 +873,15 @@ async function handlePopupDeclarationsSave(e) {
   const referralPhone = document.getElementById('popup_referral_phone')?.value.trim() || null;
   const identityNumber = document.getElementById('popup_identity_number')?.value.trim() || null;
 
+  const incomeSalaryRaw = document.getElementById('popup_income_salary')?.value?.trim() || '';
+  const incomeOtherRaw = document.getElementById('popup_income_other')?.value?.trim() || '';
+  const expenseHousingRaw = document.getElementById('popup_expense_housing')?.value?.trim() || '';
+  const expenseSchoolRaw = document.getElementById('popup_expense_school')?.value?.trim() || '';
+  const expenseMaintenanceRaw = document.getElementById('popup_expense_maintenance')?.value?.trim() || '';
+  const expensePetrolRaw = document.getElementById('popup_expense_petrol')?.value?.trim() || '';
+  const expenseGroceriesRaw = document.getElementById('popup_expense_groceries')?.value?.trim() || '';
+  const expenseOtherRaw = document.getElementById('popup_expense_other')?.value?.trim() || '';
+
   const incomeSalary = parseFloat(document.getElementById('popup_income_salary')?.value) || 0;
   const incomeOther = parseFloat(document.getElementById('popup_income_other')?.value) || 0;
   const expenseHousing = parseFloat(document.getElementById('popup_expense_housing')?.value) || 0;
@@ -863,35 +894,38 @@ async function handlePopupDeclarationsSave(e) {
   const totalIncome = incomeSalary + incomeOther;
   const totalExpenses = expenseHousing + expenseSchool + expenseMaintenance + expensePetrol + expenseGroceries + expenseOther;
 
-  // Validate: at minimum, std_conditions must be checked
-  if (!identityNumber) {
-    if (typeof window.showToast === 'function') {
-      window.showToast('Required', 'Please provide your ID number to continue.', 'warning');
-    } else {
-      showMinimalNotice('Required', 'Please provide your ID number to continue.');
-    }
+  clearPopupRequiredMarkers();
+
+  const requiredChecks = [
+    { valid: !!identityNumber, element: document.getElementById('popup_identity_number') },
+    { valid: incomeSalaryRaw !== '', element: document.getElementById('popup_income_salary') },
+    { valid: incomeOtherRaw !== '', element: document.getElementById('popup_income_other') },
+    { valid: expenseHousingRaw !== '', element: document.getElementById('popup_expense_housing') },
+    { valid: expenseSchoolRaw !== '', element: document.getElementById('popup_expense_school') },
+    { valid: expenseMaintenanceRaw !== '', element: document.getElementById('popup_expense_maintenance') },
+    { valid: expensePetrolRaw !== '', element: document.getElementById('popup_expense_petrol') },
+    { valid: expenseGroceriesRaw !== '', element: document.getElementById('popup_expense_groceries') },
+    { valid: expenseOtherRaw !== '', element: document.getElementById('popup_expense_other') },
+    { valid: !!hdStatus, element: document.querySelector('input[name="popup_hd_status"]') },
+    { valid: !!homeOwnership, element: document.querySelector('input[name="popup_home_ownership"]') },
+    { valid: !!maritalStatus, element: document.querySelector('input[name="popup_marital_status"]') },
+    { valid: !!highestQualification, element: document.getElementById('popup_highest_qualification') },
+    { valid: !!document.querySelector('input[name="popup_referral"]:checked'), element: document.querySelector('input[name="popup_referral"]') },
+    { valid: !referralProvided || !!referralName, element: document.getElementById('popup_referral_name') },
+    { valid: !referralProvided || !!referralPhone, element: document.getElementById('popup_referral_phone') },
+    { valid: acceptedStd, element: document.getElementById('popup_std_conditions') }
+  ];
+
+  const firstMissing = requiredChecks.find(check => !check.valid);
+  if (firstMissing) {
+    showPopupAllRequiredMessage(firstMissing.element);
     btn.disabled = false;
     btn.innerHTML = origHTML;
     return;
   }
 
   if (totalIncome <= 0) {
-    if (typeof window.showToast === 'function') {
-      window.showToast('Required', 'Please provide your monthly income to continue.', 'warning');
-    } else {
-      showMinimalNotice('Required', 'Please provide your monthly income to continue.');
-    }
-    btn.disabled = false;
-    btn.innerHTML = origHTML;
-    return;
-  }
-
-  if (!acceptedStd) {
-    if (typeof window.showToast === 'function') {
-      window.showToast('Required', 'You must accept the Standard Conditions to continue.', 'warning');
-    } else {
-      showMinimalNotice('Required', 'You must accept the Standard Conditions to continue.');
-    }
+    showPopupAllRequiredMessage(document.getElementById('popup_income_salary'));
     btn.disabled = false;
     btn.innerHTML = origHTML;
     return;

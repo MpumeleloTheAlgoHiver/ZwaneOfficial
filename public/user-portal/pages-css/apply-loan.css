@@ -1271,6 +1271,11 @@ body {
   border-color: var(--color-primary, #e7762e);
 }
 
+.popup-required-missing {
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.18);
+}
+
 /* Save button */
 .popup-save-btn {
   width: 100%;
