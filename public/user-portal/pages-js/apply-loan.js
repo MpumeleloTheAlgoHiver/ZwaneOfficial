@@ -774,6 +774,28 @@ async function loadPopupPrefillData() {
   const financialData = financialResult.data || {};
   const declarationData = declarationResult.data || {};
 
+  const parseMaybeJson = (value) => {
+    if (!value || typeof value !== 'string') {
+      return null;
+    }
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  };
+
+  const metadataDeclarations = declarationData?.metadata && typeof declarationData.metadata === 'object'
+    ? declarationData.metadata
+    : {};
+  const authMetadataDeclarations = parseMaybeJson(session?.user?.user_metadata?.declarations) || {};
+
+  const resolvedDeclarations = {
+    ...authMetadataDeclarations,
+    ...metadataDeclarations,
+    ...declarationData
+  };
+
   const setValue = (id, value) => {
     const element = document.getElementById(id);
     if (element) {
@@ -781,15 +803,21 @@ async function loadPopupPrefillData() {
     }
   };
 
-  setValue('popup_identity_number', profileData.identity_number || '');
+  // Reset possible stale state first (popup can be opened multiple times)
+  document.querySelectorAll('input[name="popup_hd_status"]').forEach((input) => { input.checked = false; });
+  document.querySelectorAll('input[name="popup_home_ownership"]').forEach((input) => { input.checked = false; });
+  document.querySelectorAll('input[name="popup_marital_status"]').forEach((input) => { input.checked = false; });
+  document.querySelectorAll('input[name="popup_referral"]').forEach((input) => { input.checked = false; });
+
+  setValue('popup_identity_number', profileData.identity_number || session.user.user_metadata?.identity_number || session.user.user_metadata?.id_number || '');
 
   const parsedFinancial = financialData.parsed_data || {};
   const incomeData = parsedFinancial.income || {};
   const expenseData = parsedFinancial.expenses || {};
 
-  setValue('popup_income_salary', incomeData.salary ?? '');
+  setValue('popup_income_salary', incomeData.salary ?? financialData.monthly_income ?? '');
   setValue('popup_income_other', incomeData.other_monthly_earnings ?? '');
-  setValue('popup_expense_housing', expenseData.housing_rent ?? '');
+  setValue('popup_expense_housing', expenseData.housing_rent ?? financialData.monthly_expenses ?? '');
   setValue('popup_expense_school', expenseData.school ?? '');
   setValue('popup_expense_maintenance', expenseData.maintenance ?? '');
   setValue('popup_expense_petrol', expenseData.petrol ?? '');
@@ -806,28 +834,28 @@ async function loadPopupPrefillData() {
     }
   };
 
-  if (declarationData.historically_disadvantaged === true) checkRadio('popup_hd_status', 'yes');
-  if (declarationData.historically_disadvantaged === false) checkRadio('popup_hd_status', 'no');
-  checkRadio('popup_home_ownership', declarationData.home_ownership || '');
-  checkRadio('popup_marital_status', declarationData.marital_status || '');
-  checkRadio('popup_referral', declarationData.referral_provided ? 'yes' : 'no');
+  if (resolvedDeclarations.historically_disadvantaged === true) checkRadio('popup_hd_status', 'yes');
+  if (resolvedDeclarations.historically_disadvantaged === false) checkRadio('popup_hd_status', 'no');
+  checkRadio('popup_home_ownership', resolvedDeclarations.home_ownership || '');
+  checkRadio('popup_marital_status', resolvedDeclarations.marital_status || '');
+  checkRadio('popup_referral', resolvedDeclarations.referral_provided === true ? 'yes' : 'no');
 
   const stdCheckbox = document.getElementById('popup_std_conditions');
   if (stdCheckbox) {
-    stdCheckbox.checked = declarationData.accepted_std_conditions === true;
+    stdCheckbox.checked = resolvedDeclarations.accepted_std_conditions === true;
   }
 
   const qualificationSelect = document.getElementById('popup_highest_qualification');
   if (qualificationSelect) {
-    qualificationSelect.value = declarationData.highest_qualification || '';
+    qualificationSelect.value = resolvedDeclarations.highest_qualification || '';
   }
 
-  setValue('popup_referral_name', declarationData.referral_name || '');
-  setValue('popup_referral_phone', declarationData.referral_phone || '');
+  setValue('popup_referral_name', resolvedDeclarations.referral_name || '');
+  setValue('popup_referral_phone', resolvedDeclarations.referral_phone || '');
 
   const referralFields = document.getElementById('popup-referral-fields');
   if (referralFields) {
-    referralFields.style.display = declarationData.referral_provided ? 'flex' : 'none';
+    referralFields.style.display = resolvedDeclarations.referral_provided ? 'flex' : 'none';
   }
 }
 
