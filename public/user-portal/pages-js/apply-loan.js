@@ -698,50 +698,136 @@ async function initDocumentChecklist() {
 function showDeclarationsPopup() {
   const overlay = document.getElementById('declarations-popup-overlay');
   if (overlay) {
+    loadPopupPrefillData().catch((error) => {
+      console.error('Failed to prefill popup data:', error);
+    });
     overlay.classList.remove('hidden');
   }
 }
 
-function hideDeclarationsPopup() {
+function hideDeclarationsPopup(clearPending = true) {
   const overlay = document.getElementById('declarations-popup-overlay');
   if (overlay) {
     overlay.classList.add('hidden');
   }
-  pendingActionAfterDeclarations = null;
+  if (clearPending) {
+    pendingActionAfterDeclarations = null;
+  }
 }
 
 function initDeclarationsPopup() {
   // Close button
   const closeBtn = document.getElementById('closeDeclarationsPopup');
-  if (closeBtn) {
-    closeBtn.addEventListener('click', hideDeclarationsPopup);
+  if (closeBtn && !closeBtn.dataset.bound) {
+    closeBtn.addEventListener('click', () => hideDeclarationsPopup(true));
+    closeBtn.dataset.bound = 'true';
   }
 
   // Close on overlay click (outside popup)
   const overlay = document.getElementById('declarations-popup-overlay');
-  if (overlay) {
+  if (overlay && !overlay.dataset.bound) {
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) {
-        hideDeclarationsPopup();
+        hideDeclarationsPopup(true);
       }
     });
+    overlay.dataset.bound = 'true';
   }
 
   // Referral toggle
   const referralRadios = document.querySelectorAll('input[name="popup_referral"]');
   referralRadios.forEach(r => {
-    r.addEventListener('change', () => {
-      const fields = document.getElementById('popup-referral-fields');
-      if (fields) {
-        fields.style.display = r.value === 'yes' && r.checked ? 'flex' : 'none';
-      }
-    });
+    if (!r.dataset.bound) {
+      r.addEventListener('change', () => {
+        const fields = document.getElementById('popup-referral-fields');
+        if (fields) {
+          fields.style.display = r.value === 'yes' && r.checked ? 'flex' : 'none';
+        }
+      });
+      r.dataset.bound = 'true';
+    }
   });
 
   // Form submit
   const form = document.getElementById('popup-declarations-form');
-  if (form) {
+  if (form && !form.dataset.bound) {
     form.addEventListener('submit', handlePopupDeclarationsSave);
+    form.dataset.bound = 'true';
+  }
+}
+
+async function loadPopupPrefillData() {
+  const supabase = await getSupabaseClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user?.id) {
+    return;
+  }
+
+  const userId = session.user.id;
+  const [profileResult, financialResult, declarationResult] = await Promise.all([
+    supabase.from('profiles').select('identity_number').eq('id', userId).maybeSingle(),
+    supabase.from('financial_profiles').select('monthly_income, monthly_expenses, parsed_data').eq('user_id', userId).maybeSingle(),
+    supabase.from('declarations').select('*').eq('user_id', userId).maybeSingle()
+  ]);
+
+  const profileData = profileResult.data || {};
+  const financialData = financialResult.data || {};
+  const declarationData = declarationResult.data || {};
+
+  const setValue = (id, value) => {
+    const element = document.getElementById(id);
+    if (element) {
+      element.value = value ?? '';
+    }
+  };
+
+  setValue('popup_identity_number', profileData.identity_number || '');
+
+  const parsedFinancial = financialData.parsed_data || {};
+  const incomeData = parsedFinancial.income || {};
+  const expenseData = parsedFinancial.expenses || {};
+
+  setValue('popup_income_salary', incomeData.salary ?? '');
+  setValue('popup_income_other', incomeData.other_monthly_earnings ?? '');
+  setValue('popup_expense_housing', expenseData.housing_rent ?? '');
+  setValue('popup_expense_school', expenseData.school ?? '');
+  setValue('popup_expense_maintenance', expenseData.maintenance ?? '');
+  setValue('popup_expense_petrol', expenseData.petrol ?? '');
+  setValue('popup_expense_groceries', expenseData.groceries ?? '');
+  setValue('popup_expense_other', expenseData.other ?? '');
+
+  const checkRadio = (name, value) => {
+    if (!value && value !== false) {
+      return;
+    }
+    const radio = document.querySelector(`input[name="${name}"][value="${value}"]`);
+    if (radio) {
+      radio.checked = true;
+    }
+  };
+
+  if (declarationData.historically_disadvantaged === true) checkRadio('popup_hd_status', 'yes');
+  if (declarationData.historically_disadvantaged === false) checkRadio('popup_hd_status', 'no');
+  checkRadio('popup_home_ownership', declarationData.home_ownership || '');
+  checkRadio('popup_marital_status', declarationData.marital_status || '');
+  checkRadio('popup_referral', declarationData.referral_provided ? 'yes' : 'no');
+
+  const stdCheckbox = document.getElementById('popup_std_conditions');
+  if (stdCheckbox) {
+    stdCheckbox.checked = declarationData.accepted_std_conditions === true;
+  }
+
+  const qualificationSelect = document.getElementById('popup_highest_qualification');
+  if (qualificationSelect) {
+    qualificationSelect.value = declarationData.highest_qualification || '';
+  }
+
+  setValue('popup_referral_name', declarationData.referral_name || '');
+  setValue('popup_referral_phone', declarationData.referral_phone || '');
+
+  const referralFields = document.getElementById('popup-referral-fields');
+  if (referralFields) {
+    referralFields.style.display = declarationData.referral_provided ? 'flex' : 'none';
   }
 }
 
@@ -763,8 +849,43 @@ async function handlePopupDeclarationsSave(e) {
   const referralProvided = document.querySelector('input[name="popup_referral"]:checked')?.value === 'yes';
   const referralName = document.getElementById('popup_referral_name')?.value.trim() || null;
   const referralPhone = document.getElementById('popup_referral_phone')?.value.trim() || null;
+  const identityNumber = document.getElementById('popup_identity_number')?.value.trim() || null;
+
+  const incomeSalary = parseFloat(document.getElementById('popup_income_salary')?.value) || 0;
+  const incomeOther = parseFloat(document.getElementById('popup_income_other')?.value) || 0;
+  const expenseHousing = parseFloat(document.getElementById('popup_expense_housing')?.value) || 0;
+  const expenseSchool = parseFloat(document.getElementById('popup_expense_school')?.value) || 0;
+  const expenseMaintenance = parseFloat(document.getElementById('popup_expense_maintenance')?.value) || 0;
+  const expensePetrol = parseFloat(document.getElementById('popup_expense_petrol')?.value) || 0;
+  const expenseGroceries = parseFloat(document.getElementById('popup_expense_groceries')?.value) || 0;
+  const expenseOther = parseFloat(document.getElementById('popup_expense_other')?.value) || 0;
+
+  const totalIncome = incomeSalary + incomeOther;
+  const totalExpenses = expenseHousing + expenseSchool + expenseMaintenance + expensePetrol + expenseGroceries + expenseOther;
 
   // Validate: at minimum, std_conditions must be checked
+  if (!identityNumber) {
+    if (typeof window.showToast === 'function') {
+      window.showToast('Required', 'Please provide your ID number to continue.', 'warning');
+    } else {
+      showMinimalNotice('Required', 'Please provide your ID number to continue.');
+    }
+    btn.disabled = false;
+    btn.innerHTML = origHTML;
+    return;
+  }
+
+  if (totalIncome <= 0) {
+    if (typeof window.showToast === 'function') {
+      window.showToast('Required', 'Please provide your monthly income to continue.', 'warning');
+    } else {
+      showMinimalNotice('Required', 'Please provide your monthly income to continue.');
+    }
+    btn.disabled = false;
+    btn.innerHTML = origHTML;
+    return;
+  }
+
   if (!acceptedStd) {
     if (typeof window.showToast === 'function') {
       window.showToast('Required', 'You must accept the Standard Conditions to continue.', 'warning');
@@ -796,6 +917,87 @@ async function handlePopupDeclarationsSave(e) {
 
     const userId = session.user.id;
 
+    const profilePayload = {
+      identity_number: identityNumber,
+      updated_at: new Date().toISOString()
+    };
+
+    const { error: profileErr } = await supabase
+      .from('profiles')
+      .update(profilePayload)
+      .eq('id', userId);
+
+    if (profileErr) throw profileErr;
+
+    let affordabilityRatio = null;
+    let maxLoanAmount = null;
+    try {
+      const affordabilityResponse = await fetch('/api/calculate-affordability', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          monthly_income: totalIncome,
+          affordability_percent: 20,
+          annual_interest_rate: 20,
+          loan_term_months: 1
+        })
+      });
+      const affordabilityData = await affordabilityResponse.json();
+      affordabilityRatio = totalIncome > 0 ? affordabilityData.max_monthly_payment?.toFixed(2) : null;
+      maxLoanAmount = totalIncome > 0 ? affordabilityData.max_loan_amount?.toFixed(2) : null;
+    } catch (error) {
+      const fallbackThreshold = totalIncome * 0.20;
+      affordabilityRatio = totalIncome > 0 ? fallbackThreshold.toFixed(2) : null;
+      const monthlyRate = (0.20 / 12);
+      const fallbackMaxLoan = fallbackThreshold * ((1 - Math.pow(1 + monthlyRate, -1)) / monthlyRate);
+      maxLoanAmount = totalIncome > 0 ? fallbackMaxLoan.toFixed(2) : null;
+    }
+
+    const financialPayload = {
+      user_id: userId,
+      monthly_income: totalIncome,
+      monthly_expenses: totalExpenses,
+      debt_to_income_ratio: null,
+      affordability_ratio: affordabilityRatio,
+      max_loan_amount: maxLoanAmount,
+      parsed_data: {
+        income: {
+          salary: incomeSalary,
+          other_monthly_earnings: incomeOther
+        },
+        expenses: {
+          housing_rent: expenseHousing,
+          school: expenseSchool,
+          maintenance: expenseMaintenance,
+          petrol: expensePetrol,
+          groceries: expenseGroceries,
+          other: expenseOther
+        }
+      }
+    };
+
+    const { data: existingFinancial } = await supabase
+      .from('financial_profiles')
+      .select('user_id')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    let financialError = null;
+    if (existingFinancial?.user_id) {
+      const updateResult = await supabase
+        .from('financial_profiles')
+        .update(financialPayload)
+        .eq('user_id', userId);
+      financialError = updateResult.error;
+    } else {
+      const insertResult = await supabase
+        .from('financial_profiles')
+        .insert([financialPayload]);
+      financialError = insertResult.error;
+    }
+
+    if (financialError) throw financialError;
+
     // Upsert into declarations table (same shape as profile.js)
     const payload = {
       user_id: userId,
@@ -822,10 +1024,11 @@ async function handlePopupDeclarationsSave(e) {
 
     // Update global profile state so other pages know declarations are done
     if (window.globalUserProfile) {
+      window.globalUserProfile.identity_number = identityNumber;
       window.globalUserProfile.hasDeclarations = true;
+      window.globalUserProfile.hasFinancialProfile = totalIncome > 0;
       window.globalUserProfile.declarations = declarations;
-      const alreadyHasFinancial = window.globalUserProfile.hasFinancialProfile === true;
-      window.globalUserProfile.isProfileComplete = alreadyHasFinancial && true;
+      window.globalUserProfile.isProfileComplete = (window.globalUserProfile.hasFinancialProfile === true) && true;
 
       // If profile is now fully complete, unlock sidebar
       if (window.globalUserProfile.isProfileComplete && typeof window.unlockSidebar === 'function') {
@@ -833,11 +1036,14 @@ async function handlePopupDeclarationsSave(e) {
       }
     }
 
-    // Mark declarations as completed locally
-    declarationsCompleted = true;
+    // Mark all popup-required items as completed locally
+    declarationsCompleted = !!identityNumber && totalIncome > 0 && acceptedStd === true;
+
+    const action = pendingActionAfterDeclarations;
+    pendingActionAfterDeclarations = null;
 
     // Close popup
-    hideDeclarationsPopup();
+    hideDeclarationsPopup(false);
 
     // Show success
     if (typeof window.showToast === 'function') {
@@ -847,9 +1053,7 @@ async function handlePopupDeclarationsSave(e) {
     }
 
     // Execute pending action (e.g. activate consent + open module)
-    if (pendingActionAfterDeclarations) {
-      const action = pendingActionAfterDeclarations;
-      pendingActionAfterDeclarations = null;
+    if (action) {
       action();
     }
   } catch (err) {
@@ -871,13 +1075,18 @@ async function checkDeclarationsStatus() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user?.id) return;
 
-    const { data: decl } = await supabase
-      .from('declarations')
-      .select('accepted_std_conditions')
-      .eq('user_id', session.user.id)
-      .maybeSingle();
+    const userId = session.user.id;
+    const [profileResult, financialResult, declarationResult] = await Promise.all([
+      supabase.from('profiles').select('identity_number').eq('id', userId).maybeSingle(),
+      supabase.from('financial_profiles').select('monthly_income').eq('user_id', userId).maybeSingle(),
+      supabase.from('declarations').select('accepted_std_conditions').eq('user_id', userId).maybeSingle()
+    ]);
 
-    declarationsCompleted = decl?.accepted_std_conditions === true;
+    const hasId = !!profileResult?.data?.identity_number;
+    const hasFinancial = (Number(financialResult?.data?.monthly_income) || 0) > 0;
+    const hasStdConditions = declarationResult?.data?.accepted_std_conditions === true;
+
+    declarationsCompleted = hasId && hasFinancial && hasStdConditions;
 
     // If declarations are already done, also check if consent was given in a prior visit
     // (consent is page-session state, so we just leave it as-is)
