@@ -1,4 +1,4 @@
-// Dashboard page JS - Combined Hybrid Version
+// Dashboard page JS - Final Production Hybrid
 import '/user-portal/Services/sessionGuard.js'; 
 
 // ==========================================
@@ -6,7 +6,7 @@ import '/user-portal/Services/sessionGuard.js';
 // ==========================================
 const dashboardData = {
     currentBalance: 0,
-    nextPayment: { amount: 0, date: null },
+    nextPayment: { amount: 0, date: null, hasUpcoming: false },
     creditScore: 0,
     totalBorrowed: 0,
     totalRepaid: 0,
@@ -15,6 +15,10 @@ const dashboardData = {
     transactions: [],
     applications: []
 };
+
+// Pagination State
+let currentLoansPage = 1;
+const LOANS_PER_PAGE = 5;
 
 const CREDIT_SCORE_MAX = 999;
 const SCORE_RISK_COLORS = {
@@ -26,11 +30,7 @@ const SCORE_RISK_COLORS = {
 };
 
 let repaymentChart, loanBreakdownChart;
-
-const currencyFormatter = new Intl.NumberFormat('en-ZA', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-});
+const currencyFormatter = new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const getThemePalette = () => {
     const styles = getComputedStyle(document.documentElement);
@@ -38,11 +38,7 @@ const getThemePalette = () => {
     const primaryRgb = read('--color-primary-rgb', '231 118 46');
     return {
         primary: read('--color-primary', '#E7762E'),
-        primarySoft: read('--color-primary-soft', '#ff9f5a'),
-        secondarySoft: read('--color-secondary-soft', '#ffb26b'),
-        surfaceCard: read('--color-surface-card', '#ffffff'),
-        text: read('--color-text', '#0f172a'),
-        textMuted: read('--color-text-muted', '#475569'),
+        surfaceCard: read('--color-surface-card', '#FFFFFF'),
         primaryAlpha: (alpha) => `rgb(${primaryRgb} / ${alpha})`
     };
 };
@@ -67,10 +63,8 @@ function calculateMonthlyPayment(principal = 0, annualRate = 0, termMonths = 0) 
     const amount = Number(principal);
     const months = Number(termMonths);
     if (!amount || !months || months <= 0) return 0;
-
     const monthlyRate = Number(annualRate) / 12;
     if (!monthlyRate) return amount / months;
-
     const factor = Math.pow(1 + monthlyRate, months);
     return (amount * monthlyRate * factor) / (factor - 1);
 }
@@ -81,13 +75,12 @@ function parseRandToNumber(val) {
 }
 
 // ==========================================
-// 3. UI RENDERING: MOBILE CAROUSEL & EYE TOGGLE
+// 3. UI RENDERING: CAROUSEL
 // ==========================================
 window.toggleFigureVisibility = function(btn) {
     const card = btn.closest('.snap-card');
     const valueEl = card.querySelector('.card-value');
     const icon = btn.querySelector('i');
-    
     valueEl.classList.toggle('hidden-value');
     icon.classList.toggle('fa-eye');
     icon.classList.toggle('fa-eye-slash');
@@ -98,13 +91,19 @@ function populateDashboardMetrics() {
     const dotContainer = document.getElementById('carouselDots');
     if (!container || !dotContainer) return;
 
-    // REORDERED CAROUSEL: Next Due -> Outstanding -> Credit Score -> Repaid -> Borrowed
+    let paymentSubtitle = 'No upcoming payment';
+    if (dashboardData.nextPayment.hasUpcoming && dashboardData.nextPayment.date) {
+        paymentSubtitle = `Due ${formatDueDate(dashboardData.nextPayment.date)}`;
+    } else if (!dashboardData.nextPayment.hasUpcoming && dashboardData.nextPayment.date) {
+        paymentSubtitle = `Last paid ${formatDueDate(dashboardData.nextPayment.date)}`;
+    }
+
     const slides = [
-        { label: 'Next Payment Due', value: formatCurrency(dashboardData.nextPayment.amount), subtitle: dashboardData.nextPayment.date ? `Due ${formatDueDate(dashboardData.nextPayment.date)}` : 'No upcoming payment' },
+        { label: 'Next Payment Due', value: formatCurrency(dashboardData.nextPayment.amount), subtitle: paymentSubtitle },
         { label: 'Outstanding Balance', value: formatCurrency(dashboardData.currentBalance), subtitle: 'Total principal remaining' },
-        { label: 'Credit Score', value: dashboardData.creditScore || '---', subtitle: 'Experian Financial Standing', isScore: true },
+        { label: 'Credit Score', value: dashboardData.creditScore || '---', subtitle: 'Excellent Financial Standing' },
         { label: 'Total Repaid', value: formatCurrency(dashboardData.totalRepaid), subtitle: 'Successfully settled' },
-        { label: 'Total Borrowed', value: formatCurrency(dashboardData.totalBorrowed), subtitle: 'Lifetime borrowing capacity' }
+        { label: 'Total Borrowed', value: formatCurrency(dashboardData.totalBorrowed), subtitle: 'Lifetime capacity' }
     ];
 
     container.innerHTML = slides.map(slide => `
@@ -114,7 +113,7 @@ function populateDashboardMetrics() {
             </button>
             <div class="card-content">
                 <p class="card-label">${slide.label}</p>
-                <h2 class="card-value ${slide.isScore ? '' : ''}">${slide.value}</h2>
+                <h2 class="card-value">${slide.value}</h2>
                 <p class="card-detail">${slide.subtitle}</p>
             </div>
         </div>
@@ -131,81 +130,80 @@ function populateDashboardMetrics() {
 }
 
 // ==========================================
-// 4. UI RENDERING: DESKTOP & SHARED
+// 4. UI RENDERING: DESKTOP SCORE & PAGINATION
 // ==========================================
-function updateNextPaymentDisplay(amount, dueDate) {
-    const amountEl = document.getElementById('nextPaymentAmount');
-    const dateEl = document.getElementById('nextPaymentDate');
-    if (!amountEl || !dateEl) return;
-
-    if (!amount || amount <= 0) {
-        amountEl.textContent = 'R 0.00';
-        dateEl.textContent = 'No upcoming payment';
-        return;
-    }
-
-    amountEl.textContent = formatCurrency(amount);
-    const formattedDate = formatDueDate(dueDate);
-    dateEl.textContent = formattedDate ? `Due ${formattedDate}` : 'Next payment date pending';
-}
-
 function applyCreditScoreToDashboard(creditData) {
     const scoreElement = document.getElementById('creditScore');
-    const subtitleElement = document.querySelector('.credit-score-card .card-subtitle');
     const scoreFill = document.querySelector('.credit-score-card .score-fill');
-
-    if (!scoreElement || !subtitleElement || !scoreFill) return;
+    if (!scoreElement || !scoreFill) return;
 
     if (!creditData) {
         scoreElement.textContent = '---';
-        subtitleElement.textContent = 'Run a credit check to sync Experian data';
         scoreFill.style.width = '0%';
-        scoreFill.style.background = 'linear-gradient(90deg, #4b5563, #9ca3af)';
         return;
     }
 
     const rawScore = Number(creditData.credit_score ?? creditData.score ?? 0);
     const clampedScore = Math.max(0, Math.min(rawScore, CREDIT_SCORE_MAX));
     const percentage = Math.round((clampedScore / CREDIT_SCORE_MAX) * 100);
-    const riskLabel = (creditData.score_band || creditData.risk_category || 'Risk level unavailable').toString();
-    const checkedAt = creditData.checked_at ? new Date(creditData.checked_at) : null;
-    const checkedAtCopy = checkedAt ? ` • Checked ${checkedAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : '';
-
+    
     scoreElement.textContent = clampedScore.toString();
-    subtitleElement.textContent = `${riskLabel}${checkedAtCopy}`;
-
-    const lookupKey = riskLabel.trim().toLowerCase();
-    const colorMeta = SCORE_RISK_COLORS[lookupKey] || { gradient: 'linear-gradient(90deg, var(--color-primary), var(--color-secondary-soft))', accent: 'var(--color-primary)' };
+    const riskLabel = (creditData.score_band || 'Medium Risk').toLowerCase();
+    const colorMeta = SCORE_RISK_COLORS[riskLabel] || SCORE_RISK_COLORS['medium risk'];
     
     scoreFill.style.width = `${percentage}%`;
     scoreFill.style.background = colorMeta.gradient;
-    scoreFill.style.boxShadow = `0 0 12px ${colorMeta.accent}66`;
-
     dashboardData.creditScore = clampedScore;
 }
 
+window.changeLoanPage = function(direction) {
+    const active = dashboardData.loans.filter(l => l.status === 'Active' || l.status === 'Offered');
+    const maxPage = Math.ceil(active.length / LOANS_PER_PAGE) || 1;
+    currentLoansPage += direction;
+    if (currentLoansPage < 1) currentLoansPage = 1;
+    if (currentLoansPage > maxPage) currentLoansPage = maxPage;
+    populateActiveLoans();
+};
+
+function getPaginationHtml(totalItems) {
+    const maxPage = Math.ceil(totalItems / LOANS_PER_PAGE) || 1;
+    if (maxPage <= 1) return '';
+    return `
+        <div class="pagination-controls">
+            <button class="page-btn" onclick="changeLoanPage(-1)" ${currentLoansPage === 1 ? 'disabled' : ''}><i class="fas fa-chevron-left"></i></button>
+            <span class="page-indicator">Page ${currentLoansPage} of ${maxPage}</span>
+            <button class="page-btn" onclick="changeLoanPage(1)" ${currentLoansPage === maxPage ? 'disabled' : ''}><i class="fas fa-chevron-right"></i></button>
+        </div>
+    `;
+}
+
+// ==========================================
+// 5. UI RENDERING: LISTS (DESKTOP & MOBILE)
+// ==========================================
 function populateActiveLoans() {
-    const active = dashboardData.loans.filter(l => l.status === 'Active' || l.status === 'Offered').slice(0, 3);
+    const allActive = dashboardData.loans.filter(l => l.status === 'Active' || l.status === 'Offered');
     
-    // Desktop View Update
+    const startIdx = (currentLoansPage - 1) * LOANS_PER_PAGE;
+    const activePaginated = allActive.slice(startIdx, startIdx + LOANS_PER_PAGE);
+    const paginationHtml = getPaginationHtml(allActive.length);
+
+    // Desktop Updates
     const desktopGrid = document.getElementById('activeLoansGrid');
     if (desktopGrid) {
-        if (active.length === 0) {
-            desktopGrid.innerHTML = '<div style="color: #666; text-align: center; padding: 20px; grid-column: 1/-1;">No active loans</div>';
+        if (allActive.length === 0) {
+            desktopGrid.innerHTML = '<div style="color: var(--text-muted); text-align: center; padding: 40px; grid-column: 1/-1;">No active loans found.</div>';
         } else {
-            desktopGrid.innerHTML = active.map(loan => {
-                const total = loan.totalAmount || parseRandToNumber(loan.amount);
-                const remaining = parseRandToNumber(loan.remaining);
-                const progress = loan.status === 'Offered' ? 0 : ((total - remaining) / total * 100).toFixed(0);
+            desktopGrid.innerHTML = activePaginated.map(loan => {
+                const progress = loan.rawTotal > 0 ? Math.max(0, Math.min(100, Math.round(((loan.rawTotal - loan.rawRemaining) / loan.rawTotal) * 100))) : 0;
                 return `
                     <div class="loan-card">
                         <div class="loan-header"><span class="loan-id">${loan.id}</span><span class="loan-status">${loan.status}</span></div>
                         <div class="loan-amount">${loan.amount}</div>
                         <div class="loan-details-grid">
-                            <div class="loan-detail"><div class="loan-detail-label">Remaining</div><div class="loan-detail-value">${loan.remaining || loan.amount}</div></div>
-                            <div class="loan-detail"><div class="loan-detail-label">Next Payment</div><div class="loan-detail-value">${loan.nextPayment || 'TBD'}</div></div>
-                            <div class="loan-detail"><div class="loan-detail-label">Due Date</div><div class="loan-detail-value">${loan.dueDate || 'TBD'}</div></div>
-                            <div class="loan-detail"><div class="loan-detail-label">Interest Rate</div><div class="loan-detail-value">${loan.interestRate || 'TBD'}</div></div>
+                            <div class="loan-detail"><div class="loan-detail-label">Remaining</div><div class="loan-detail-value">${loan.remaining}</div></div>
+                            <div class="loan-detail"><div class="loan-detail-label">Next Payment</div><div class="loan-detail-value">${loan.nextPayment}</div></div>
+                            <div class="loan-detail"><div class="loan-detail-label">Due Date</div><div class="loan-detail-value">${loan.dueDate}</div></div>
+                            <div class="loan-detail"><div class="loan-detail-label">Interest Rate</div><div class="loan-detail-value">${loan.interestRate}</div></div>
                         </div>
                         <div class="progress-section">
                             <div class="progress-header"><span class="progress-label">Repayment Progress</span><span class="progress-percentage">${progress}%</span></div>
@@ -213,35 +211,47 @@ function populateActiveLoans() {
                         </div>
                     </div>`;
             }).join('');
+            
+            const wrapper = document.getElementById('activeLoansGridWrapper');
+            if(wrapper) {
+                const oldPg = wrapper.querySelector('.pagination-controls');
+                if(oldPg) oldPg.remove();
+                wrapper.insertAdjacentHTML('beforeend', paginationHtml);
+            }
         }
     }
 
-    // Mobile View Update
+    // Mobile Updates
     const mobileGrid = document.getElementById('activeLoansGridMobile');
     if (mobileGrid) {
-        if (active.length === 0) {
-            mobileGrid.innerHTML = '<div class="empty-loans-state"><p>No active loans available</p></div>';
+        if (allActive.length === 0) {
+            mobileGrid.innerHTML = '<div class="empty-loans-state">You have no active loans right now.</div>';
         } else {
-            mobileGrid.innerHTML = active.map(loan => {
-                const total = loan.totalAmount || parseRandToNumber(loan.amount);
-                const remaining = parseRandToNumber(loan.remaining);
-                const progress = total > 0 ? ((total - remaining) / total * 100).toFixed(0) : 0;
+            mobileGrid.innerHTML = activePaginated.map(loan => {
+                const progress = loan.rawTotal > 0 ? Math.max(0, Math.min(100, Math.round(((loan.rawTotal - loan.rawRemaining) / loan.rawTotal) * 100))) : 0;
                 return `
                     <div class="loan-card-hifi">
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
-                            <span style="font-size: 11px; font-weight: 500; color: var(--text-muted);">${loan.id}</span>
-                            <span style="background: var(--color-peach); color: var(--color-primary); padding: 4px 10px; border-radius: 100px; font-size: 11px; font-weight: 600;">${loan.status}</span>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 12px; align-items: center;">
+                            <span style="font-size: 13px; font-weight: 600; color: var(--text-muted);">${loan.id}</span>
+                            <span style="background: rgba(231,118,46,0.1); color: var(--color-primary); padding: 6px 12px; border-radius: 100px; font-size: 11px; font-weight: 700; text-transform: uppercase;">${loan.status}</span>
                         </div>
-                        <div style="font-size: 24px; font-weight: 600; color: var(--text-main); margin-bottom: 15px;">${loan.amount}</div>
-                        <div style="height: 6px; background: var(--apple-gray); border-radius: 10px; overflow: hidden;">
-                            <div style="width: ${progress}%; height: 100%; background: var(--color-primary);"></div>
+                        <div style="font-size: 32px; font-weight: 700; color: var(--text-main); margin-bottom: 20px; letter-spacing: -1px;">${loan.amount}</div>
+                        
+                        <div class="loan-hifi-details">
+                            <div class="detail-item"><span class="label">Remaining</span><span class="val">${loan.remaining}</span></div>
+                            <div class="detail-item"><span class="label">Next Due</span><span class="val">${loan.nextPayment}</span></div>
+                            <div class="detail-item"><span class="label">Due Date</span><span class="val">${loan.dueDate}</span></div>
+                            <div class="detail-item"><span class="label">Interest</span><span class="val">${loan.interestRate}</span></div>
                         </div>
-                        <div style="display: flex; justify-content: space-between; margin-top: 10px; font-size: 12px;">
-                            <span style="color: var(--text-muted);">Repayment Progress</span>
-                            <span style="color: var(--color-primary); font-weight: 600;">${progress}%</span>
+
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 12px; font-weight: 600; color: var(--text-muted);">
+                            <span>Repayment Progress</span><span>${progress}%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${progress}%;"></div>
                         </div>
                     </div>`;
-            }).join('');
+            }).join('') + paginationHtml; 
         }
     }
 }
@@ -249,13 +259,10 @@ function populateActiveLoans() {
 function populateTransactions() {
     const transactionList = document.getElementById('transactionList');
     if (!transactionList) return;
-
     const recentTransactions = dashboardData.transactions.slice(0, 5);
     if (recentTransactions.length === 0) {
-        transactionList.innerHTML = '<p style="color: #666; text-align: center; padding: 20px;">No transactions yet</p>';
-        return;
+        transactionList.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;">No transactions yet</p>'; return;
     }
-
     transactionList.innerHTML = recentTransactions.map(tx => `
         <div class="transaction-item">
             <div class="transaction-icon ${tx.type}"><i class="fas fa-${tx.type === 'inbound' ? 'arrow-down' : 'arrow-up'}"></i></div>
@@ -268,13 +275,10 @@ function populateTransactions() {
 function populateApplications() {
     const applicationList = document.getElementById('applicationList');
     if (!applicationList) return;
-
     const recentApplications = dashboardData.applications.slice(0, 5);
     if (recentApplications.length === 0) {
-        applicationList.innerHTML = '<p style="color: #666; text-align: center; padding: 20px;">No applications yet</p>';
-        return;
+        applicationList.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 20px;">No applications yet</p>'; return;
     }
-
     applicationList.innerHTML = recentApplications.map(app => {
         const now = new Date();
         const createdAt = new Date(app.createdAt);
@@ -284,21 +288,19 @@ function populateApplications() {
         const canEdit = withinTimeWindow && app.status !== 'AFFORD_OK' && app.status !== 'READY_TO_DISBURSE';
         const canDelete = withinTimeWindow && app.status !== 'READY_TO_DISBURSE';
         
+        const editLockReason = app.status === 'AFFORD_OK' ? 'Edit locked' : app.status === 'READY_TO_DISBURSE' ? 'Edit locked' : 'Edit locked after 2 hours';
+        const deleteLockReason = app.status === 'READY_TO_DISBURSE' ? 'Delete locked' : 'Delete locked after 2 hours';
+
         return `
         <div class="application-item">
-            <div class="application-icon ${app.status.toLowerCase()}">
-                <i class="fas fa-${app.status === 'Approved' ? 'check' : app.status === 'Pending' ? 'clock' : 'times'}"></i>
-            </div>
-            <div class="item-details">
-                <div class="item-title">${app.type}</div>
-                <div class="item-date">${app.date}</div>
-            </div>
+            <div class="application-icon ${app.status.toLowerCase()}"><i class="fas fa-${app.status === 'Approved' ? 'check' : app.status === 'Pending' ? 'clock' : 'times'}"></i></div>
+            <div class="item-details"><div class="item-title">${app.type}</div><div class="item-date">${app.date}</div></div>
             <div style="display: flex; align-items: center; gap: 8px;">
                 <span class="status-badge ${app.status.toLowerCase()}">${app.status}</span>
-                <button class="app-action-btn ${!canEdit ? 'locked' : ''}" onclick="editApplication('${app.rawId}')" ${!canEdit ? 'disabled' : ''}>
+                <button class="app-action-btn ${!canEdit ? 'locked' : ''}" onclick="editApplication('${app.rawId}')" ${!canEdit ? 'disabled' : ''} title="${!canEdit ? editLockReason : 'Edit'}">
                     <i class="fas fa-${!canEdit ? 'lock' : 'edit'}"></i>
                 </button>
-                <button class="app-action-btn delete ${!canDelete ? 'locked' : ''}" onclick="deleteApplication('${app.rawId}')" ${!canDelete ? 'disabled' : ''}>
+                <button class="app-action-btn delete ${!canDelete ? 'locked' : ''}" onclick="deleteApplication('${app.rawId}')" ${!canDelete ? 'disabled' : ''} title="${!canDelete ? deleteLockReason : 'Delete'}">
                     <i class="fas fa-${!canDelete ? 'lock' : 'trash'}"></i>
                 </button>
             </div>
@@ -307,7 +309,7 @@ function populateApplications() {
 }
 
 // ==========================================
-// 5. CHARTS & VISUALIZATIONS
+// 6. CHARTS & VISUALIZATIONS
 // ==========================================
 function computeRepaymentSuggestedMax(data = []) {
     const numericData = Array.isArray(data) ? data.map(v => Number(v) || 0) : [];
@@ -503,7 +505,7 @@ async function tryInitCharts() {
 tryInitCharts();
 
 // ==========================================
-// 6. SUPABASE HYDRATION (THE ENGINE)
+// 7. SUPABASE ENGINE
 // ==========================================
 async function loadDashboardData() {
     try {
@@ -511,94 +513,129 @@ async function loadDashboardData() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return;
         
-        // Fetch Credit Score
         await hydrateCreditScore(supabase, session.user.id);
         
-        const { data: payments } = await supabase.from('payments').select('loan_id, amount, payment_date').eq('user_id', session.user.id);
+        // Fetch payments for "Last paid" fallback
+        const { data: payments } = await supabase.from('payments').select('loan_id, amount, payment_date').eq('user_id', session.user.id).order('payment_date', { ascending: false });
+        
+        let latestPaymentDate = null;
+        if (payments && payments.length > 0) {
+            latestPaymentDate = payments[0].payment_date;
+        }
+
         const paymentsByLoan = (payments || []).reduce((acc, payment) => {
-            acc[payment.loan_id] = (acc[payment.loan_id] || 0) + (Number(payment.amount) || 0);
-            return acc;
+            acc[payment.loan_id] = (acc[payment.loan_id] || 0) + (Number(payment.amount) || 0); return acc;
         }, {});
         const totalRepaidAllLoans = (payments || []).reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-
-        dashboardData.repaymentSeries6 = buildMonthlySeries(6, payments);
-        dashboardData.repaymentSeries12 = buildMonthlySeries(12, payments);
-        dashboardData.repaymentSeries = dashboardData.repaymentSeries6;
 
         const { data: loans } = await supabase.from('loans').select('*').eq('user_id', session.user.id).eq('status', 'active').order('created_at', { ascending: false });
         
         if (loans && loans.length > 0) {
             const enrichedLoans = loans.map((loan) => {
                 const principal = Number(loan.principal_amount) || 0;
-                const termMonths = Number(loan.term_months) || 0;
+                const termMonths = Number(loan.term_months) || 1;
                 const rawRate = Number(loan.interest_rate) || 0;
                 const normalizedRate = rawRate > 1 ? rawRate / 100 : rawRate;
                 const monthlyPayment = Number(loan.monthly_payment) || calculateMonthlyPayment(principal, normalizedRate, termMonths);
-                const rawNextPayment = loan.next_payment_date || loan.first_payment_date;
+                
+                // Deep Date Check
                 let dueDateObj = null;
-                if (rawNextPayment) {
-                    const candidate = new Date(rawNextPayment);
-                    if (!Number.isNaN(candidate.getTime())) { candidate.setUTCHours(0, 0, 0, 0); dueDateObj = candidate; }
+                const candidateDateStr = loan.next_payment_date || loan.first_payment_date || loan.repayment_start_date;
+                
+                if (candidateDateStr) {
+                    dueDateObj = new Date(candidateDateStr);
+                } else if (loan.start_date) {
+                    dueDateObj = new Date(loan.start_date);
+                    dueDateObj.setDate(dueDateObj.getDate() + 30); // Assume 30 days from start if totally blank
                 }
-                const totalRepayment = Number(loan.total_repayment) || (monthlyPayment * (termMonths || 1)) || 0;
+
+                if (dueDateObj && !Number.isNaN(dueDateObj.getTime())) { 
+                    dueDateObj.setUTCHours(0, 0, 0, 0); 
+                } else {
+                    dueDateObj = null;
+                }
+
+                const totalRepayment = Number(loan.total_repayment) || (monthlyPayment * termMonths) || principal;
                 const paidToDate = paymentsByLoan[loan.id] || 0;
                 const outstandingBalance = Math.max(totalRepayment - paidToDate, 0);
-                const nextDueAmount = Math.min(monthlyPayment, outstandingBalance || monthlyPayment);
-                return { ...loan, principal, termMonths, normalizedRate, monthlyPayment, nextDueAmount, dueDateObj, outstandingBalance, totalRepayment, paidToDate };
+                const nextDueAmount = monthlyPayment > 0 ? Math.min(monthlyPayment, outstandingBalance) : outstandingBalance;
+                
+                return { 
+                    ...loan, principal, termMonths, normalizedRate, monthlyPayment, 
+                    nextDueAmount, dueDateObj, outstandingBalance, totalRepayment, paidToDate 
+                };
             });
 
             const loanTotals = enrichedLoans.reduce((acc, loan) => {
-                acc.borrowed += loan.principal;
-                acc.outstanding += loan.outstandingBalance;
-                acc.repaid += loan.paidToDate || 0;
-                return acc;
+                acc.borrowed += loan.principal; acc.outstanding += loan.outstandingBalance; acc.repaid += loan.paidToDate || 0; return acc;
             }, { borrowed: 0, outstanding: 0, repaid: 0 });
 
             dashboardData.totalBorrowed = loanTotals.borrowed;
             dashboardData.currentBalance = loanTotals.outstanding;
             dashboardData.totalRepaid = loanTotals.repaid || totalRepaidAllLoans;
 
-            document.getElementById('totalBorrowed').textContent = formatCurrency(loanTotals.borrowed);
-            document.getElementById('currentBalance').textContent = formatCurrency(loanTotals.outstanding);
-            document.getElementById('totalRepaid').textContent = formatCurrency(loanTotals.repaid || totalRepaidAllLoans);
-            updateLoanBreakdownChart(loanTotals.repaid || totalRepaidAllLoans, loanTotals.outstanding);
-
+            // Find the most immediate upcoming payment that has an outstanding balance
             const upcomingPayment = enrichedLoans.reduce((best, loan) => {
-                if (!loan.monthlyPayment) return best;
-                if (!loan.dueDateObj && !best) return loan;
-                if (loan.dueDateObj && (!best || !best.dueDateObj || loan.dueDateObj < best.dueDateObj)) return loan;
+                if (!loan.dueDateObj) return best;
+                if (loan.outstandingBalance <= 0) return best; 
+                if (!best) return loan;
+                if (loan.dueDateObj < best.dueDateObj) return loan;
                 return best;
             }, null);
 
-            if (upcomingPayment) {
-                dashboardData.nextPayment = { amount: upcomingPayment.nextDueAmount, date: upcomingPayment.dueDateObj ? upcomingPayment.dueDateObj.toISOString() : null };
-                updateNextPaymentDisplay(upcomingPayment.nextDueAmount, upcomingPayment.dueDateObj);
+            if (upcomingPayment && upcomingPayment.dueDateObj) {
+                dashboardData.nextPayment = { 
+                    amount: upcomingPayment.nextDueAmount, 
+                    date: upcomingPayment.dueDateObj.toISOString(),
+                    hasUpcoming: true 
+                };
+            } else {
+                dashboardData.nextPayment = { 
+                    amount: 0, 
+                    date: latestPaymentDate, 
+                    hasUpcoming: false 
+                };
             }
-
-            if (dashboardData.repaymentSeries) applyRepaymentChart(dashboardData.repaymentSeries.labels, dashboardData.repaymentSeries.data);
 
             dashboardData.loans = enrichedLoans.map(loan => {
                 const readableStatus = loan.status ? `${loan.status.charAt(0).toUpperCase()}${loan.status.slice(1).toLowerCase()}` : 'Active';
                 return {
                     id: `LOAN-${loan.id}`,
                     amount: formatCurrency(loan.totalRepayment || loan.principal),
-                    remaining: formatCurrency((loan.outstandingBalance ?? (loan.totalRepayment || loan.principal))),
+                    remaining: formatCurrency(loan.outstandingBalance),
                     nextPayment: formatCurrency(loan.nextDueAmount),
                     dueDate: loan.dueDateObj ? loan.dueDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'TBD',
                     interestRate: `${(loan.normalizedRate * 100).toFixed(2)}%`,
                     status: readableStatus,
-                    totalAmount: loan.totalRepayment || loan.principal
+                    rawTotal: loan.totalRepayment || loan.principal,
+                    rawRemaining: loan.outstandingBalance
                 };
             });
-            
-            populateActiveLoans();
         } else {
-            dashboardData.totalBorrowed = 0; dashboardData.currentBalance = 0; dashboardData.totalRepaid = totalRepaidAllLoans;
-            document.getElementById('totalBorrowed').textContent = formatCurrency(0); document.getElementById('currentBalance').textContent = formatCurrency(0); document.getElementById('totalRepaid').textContent = formatCurrency(totalRepaidAllLoans);
-            updateLoanBreakdownChart(totalRepaidAllLoans, 0); updateNextPaymentDisplay(0, null);
-            if (dashboardData.repaymentSeries) applyRepaymentChart(dashboardData.repaymentSeries.labels, dashboardData.repaymentSeries.data);
+            dashboardData.nextPayment = { amount: 0, date: latestPaymentDate, hasUpcoming: false };
+            dashboardData.totalBorrowed = 0; 
+            dashboardData.currentBalance = 0; 
+            dashboardData.totalRepaid = totalRepaidAllLoans;
         }
+
+        // Sync Desktop DOM IDs manually
+        document.getElementById('totalBorrowed').textContent = formatCurrency(dashboardData.totalBorrowed);
+        document.getElementById('currentBalance').textContent = formatCurrency(dashboardData.currentBalance);
+        document.getElementById('totalRepaid').textContent = formatCurrency(dashboardData.totalRepaid);
         
+        const nxtAmt = document.getElementById('nextPaymentAmount');
+        const nxtDt = document.getElementById('nextPaymentDate');
+        if (nxtAmt) nxtAmt.textContent = formatCurrency(dashboardData.nextPayment.amount);
+        if (nxtDt) {
+            if (dashboardData.nextPayment.hasUpcoming && dashboardData.nextPayment.date) {
+                nxtDt.textContent = `Due ${formatDueDate(dashboardData.nextPayment.date)}`;
+            } else if (!dashboardData.nextPayment.hasUpcoming && dashboardData.nextPayment.date) {
+                nxtDt.textContent = `Last paid ${formatDueDate(dashboardData.nextPayment.date)}`;
+            } else {
+                nxtDt.textContent = 'No upcoming payment';
+            }
+        }
+
         const { data: applications } = await supabase.from('loan_applications').select('*').eq('user_id', session.user.id).neq('status', 'OFFERED').neq('status', 'DISBURSED').order('created_at', { ascending: false }).limit(5);
         if (applications && applications.length > 0) {
             dashboardData.applications = applications.map(app => ({
@@ -610,133 +647,101 @@ async function loadDashboardData() {
             populateApplications();
         }
         
-        populateDashboardMetrics(); // Render Mobile Carousel after all data is loaded
+        populateDashboardMetrics(); // Rebuilds mobile carousel with live real data
+        populateActiveLoans();      // Rebuilds both grids
 
-    } catch (error) {
-        console.error('Error loading dashboard data:', error);
-    }
+    } catch (error) { console.error('Error loading dashboard data:', error); }
 }
 
 async function hydrateCreditScore(supabase, userId) {
     try {
-        const { data } = await supabase.from('credit_checks').select('id, credit_score, score_band, risk_category, checked_at').eq('user_id', userId).order('checked_at', { ascending: false }).limit(1).maybeSingle();
-        if (!data) { applyCreditScoreToDashboard(null); return; }
+        const { data } = await supabase.from('credit_checks').select('*').eq('user_id', userId).order('checked_at', { ascending: false }).limit(1).maybeSingle();
         applyCreditScoreToDashboard(data);
-    } catch (err) {
-        applyCreditScoreToDashboard(null);
-    }
+    } catch (err) { applyCreditScoreToDashboard(null); }
 }
 
 // ==========================================
-// 7. MODALS & MODULES (DESKTOP)
+// 8. UNIVERSAL PRODUCTION MODALS
 // ==========================================
-const LOANS_MODAL_ID = 'active-loans-modal';
-function ensureLoansModalStyles() {
-    if (document.getElementById('loans-modal-style')) return;
-    const style = document.createElement('style'); style.id = 'loans-modal-style';
-    style.textContent = `
-        #${LOANS_MODAL_ID} { position: fixed; inset: 0; background: rgba(15,23,42,0.35); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 24px; }
-        #${LOANS_MODAL_ID}.open { display: flex; }
-        #${LOANS_MODAL_ID} .modal-panel { width: min(1100px, 95vw); max-height: min(85vh, 900px); background: #ffffff; color: #0f172a; border-radius: 18px; overflow: hidden; box-shadow: 0 30px 70px rgba(15,23,42,0.25); border: 1px solid #e2e8f0; display: flex; flex-direction: column; }
-        #${LOANS_MODAL_ID} .modal-header { padding: 18px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: linear-gradient(135deg, var(--color-primary, #0ea5e9), #f8fafc); border-bottom: 1px solid #e2e8f0; }
-        #${LOANS_MODAL_ID} .modal-title { font-size: 18px; font-weight: 800; letter-spacing: 0.2px; color: #0f172a; }
-        #${LOANS_MODAL_ID} .modal-actions { display: flex; align-items: center; gap: 10px; }
-        #${LOANS_MODAL_ID} .pill { padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; background: #eef2ff; color: #312e81; border: 1px solid #c7d2fe; }
-        #${LOANS_MODAL_ID} .close-btn { background: #f8fafc; border: 1px solid #e2e8f0; color: #0f172a; width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center; font-weight: 900; cursor: pointer; transition: all 0.2s ease; }
-        #${LOANS_MODAL_ID} .modal-body { padding: 20px 24px 24px; overflow: hidden; display: flex; flex-direction: column; gap: 16px; }
-        #${LOANS_MODAL_ID} .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
-        #${LOANS_MODAL_ID} .stat-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px; }
-        #${LOANS_MODAL_ID} .stat-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; font-weight: 700; }
-        #${LOANS_MODAL_ID} .stat-value { margin-top: 6px; font-size: 22px; font-weight: 800; color: #0f172a; }
-        #${LOANS_MODAL_ID} .loans-scroll { max-height: 520px; overflow-y: auto; padding-right: 6px; }
-        #${LOANS_MODAL_ID} .loan-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px; margin-bottom: 12px; box-shadow: 0 4px 12px rgba(15,23,42,0.05); }
-        #${LOANS_MODAL_ID} .loan-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
-        #${LOANS_MODAL_ID} .loan-id { font-weight: 800; letter-spacing: 0.2px; color: #0f172a; }
-        #${LOANS_MODAL_ID} .loan-status { padding: 6px 10px; border-radius: 10px; font-size: 12px; font-weight: 700; border: 1px solid #cbd5e1; background: #f8fafc; color: #0f172a; }
-        #${LOANS_MODAL_ID} .loan-main { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
-        #${LOANS_MODAL_ID} .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: #475569; font-weight: 700; }
-        #${LOANS_MODAL_ID} .value { font-size: 15px; font-weight: 700; color: #0f172a; margin-top: 4px; }
-        #${LOANS_MODAL_ID} .progress { margin-top: 12px; }
-        #${LOANS_MODAL_ID} .progress-top { display: flex; justify-content: space-between; font-size: 12px; color: #475569; font-weight: 700; margin-bottom: 6px; }
-        #${LOANS_MODAL_ID} .progress-bar { width: 100%; height: 8px; border-radius: 999px; background: #e2e8f0; overflow: hidden; }
-        #${LOANS_MODAL_ID} .progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--color-primary, #0ea5e9), #0284c7); transition: width 0.3s ease; }
-        #${LOANS_MODAL_ID} .empty-state { text-align: center; padding: 40px 10px; color: #475569; font-weight: 700; }
-    `;
-    document.head.appendChild(style);
-}
-
-function ensureLoansModalRoot() {
-    ensureLoansModalStyles();
-    let root = document.getElementById(LOANS_MODAL_ID);
-    if (!root) {
-        root = document.createElement('div');
-        root.id = LOANS_MODAL_ID;
-        root.innerHTML = `<div class="modal-panel" role="dialog" aria-modal="true"><div class="modal-header"><div class="modal-title">Active Loans</div><div class="modal-actions"><span class="pill" id="loans-count-pill">0 Loans</span><button class="close-btn" id="close-loans-modal" aria-label="Close">×</button></div></div><div class="modal-body"><div class="stats-grid" id="loans-stats"></div><div class="loans-scroll" id="loans-scroll"></div></div></div>`;
-        document.body.appendChild(root);
-        root.addEventListener('click', (e) => { if (e.target === root) document.getElementById(LOANS_MODAL_ID).classList.remove('open'); });
-        root.querySelector('#close-loans-modal').addEventListener('click', () => document.getElementById(LOANS_MODAL_ID).classList.remove('open'));
+window.openUniversalModal = function(title, bodyHTML, isFullScreen = false) {
+    const modal = document.getElementById('modern-universal-modal');
+    const titleEl = document.getElementById('modern-modal-title');
+    const bodyEl = document.getElementById('modern-modal-body');
+    if (!modal) return;
+    
+    titleEl.innerText = title;
+    bodyEl.innerHTML = bodyHTML;
+    
+    if (isFullScreen) {
+        modal.classList.add('is-full-screen');
+    } else {
+        modal.classList.remove('is-full-screen');
     }
-    return root;
-}
+    
+    modal.classList.remove('hidden');
+};
+
+window.closeUniversalModal = function() {
+    document.getElementById('modern-universal-modal').classList.add('hidden');
+};
 
 window.openLoansModule = function() {
-    const root = ensureLoansModalRoot();
-    const activeLoans = dashboardData.loans.filter(l => l.status === 'Active' || l.status === 'Offered');
-    const count = activeLoans.length;
-    const totalRepayment = activeLoans.reduce((sum, l) => sum + parseRandToNumber(l.amount), 0);
-    const totalRemaining = activeLoans.reduce((sum, l) => sum + (parseRandToNumber(l.remaining || l.amount)), 0);
+    const active = dashboardData.loans.filter(l => l.status === 'Active' || l.status === 'Offered');
+    const totalRepayment = active.reduce((sum, l) => sum + l.rawTotal, 0);
+    const totalRemaining = active.reduce((sum, l) => sum + l.rawRemaining, 0);
 
-    const statsHtml = `<div class="stat-card"><div class="stat-label">Active / Offered</div><div class="stat-value">${count}</div></div><div class="stat-card"><div class="stat-label">Total Repayment</div><div class="stat-value">${formatCurrency(totalRepayment)}</div></div><div class="stat-card"><div class="stat-label">Total Outstanding</div><div class="stat-value">${formatCurrency(totalRemaining)}</div></div>`;
+    // Full Screen specific styling wrappers
+    const statsHtml = `
+        <div class="full-screen-content-wrapper">
+            <div class="modal-stat-row" style="margin-top: 10px;">
+                <div class="modal-stat-box" style="margin-bottom:20px;">
+                    <div class="modal-stat-label">Active Balance</div>
+                    <div class="modal-stat-val">${formatCurrency(totalRemaining)}</div>
+                </div>
+            </div>`;
 
-    const listHtml = count === 0 ? '<div class="empty-state">No active loans right now.</div>' : activeLoans.map(loan => {
-        const principal = parseRandToNumber(loan.amount);
-        const remaining = parseRandToNumber(loan.remaining || loan.amount);
-        const progress = Math.max(0, Math.min(100, Math.round(principal ? ((principal - remaining) / principal) * 100 : 0)));
-        return `<div class="loan-card"><div class="loan-head"><span class="loan-id">${loan.id}</span><span class="loan-status">${loan.status}</span></div><div class="loan-main"><div><div class="label">Amount</div><div class="value">${loan.amount}</div></div><div><div class="label">Remaining</div><div class="value">${loan.remaining || loan.amount}</div></div><div><div class="label">Next Payment</div><div class="value">${loan.nextPayment || 'TBD'}</div></div><div><div class="label">Due Date</div><div class="value">${loan.dueDate || 'TBD'}</div></div><div><div class="label">Interest Rate</div><div class="value">${loan.interestRate || 'TBD'}</div></div></div><div class="progress"><div class="progress-top"><span>Repayment Progress</span><span>${progress}%</span></div><div class="progress-bar"><div class="progress-fill" style="width:${progress}%"></div></div></div></div>`;
-    }).join('');
+    const listHtml = active.length === 0 ? '<div style="text-align:center; padding:40px; color:var(--text-muted);">No active loans found.</div></div>' : active.map(loan => `
+            <div class="modern-list-item">
+                <div class="modern-item-header">
+                    <span class="modern-item-id">${loan.id}</span>
+                    <span class="status-badge" style="background:rgba(231,118,46,0.1); color:var(--color-primary); padding:6px 12px; border-radius:100px; font-size:11px; font-weight:700;">${loan.status}</span>
+                </div>
+                <div class="modern-item-grid">
+                    <div class="modern-grid-col"><div class="label">Amount</div><div class="val">${loan.amount}</div></div>
+                    <div class="modern-grid-col"><div class="label">Remaining</div><div class="val">${loan.remaining}</div></div>
+                    <div class="modern-grid-col"><div class="label">Next Due</div><div class="val">${loan.nextPayment}</div></div>
+                    <div class="modern-grid-col"><div class="label">Due Date</div><div class="val">${loan.dueDate}</div></div>
+                </div>
+            </div>`).join('') + '</div>';
 
-    root.querySelector('#loans-count-pill').textContent = `${count} Loan${count === 1 ? '' : 's'}`;
-    root.querySelector('#loans-stats').innerHTML = statsHtml;
-    root.querySelector('#loans-scroll').innerHTML = listHtml;
-    root.classList.add('open');
+    // TRUE forces CSS into Full Screen mode
+    openUniversalModal('Active Loans', statsHtml + listHtml, true);
 };
 
-const APPLICATIONS_MODAL_ID = 'recent-applications-modal';
-function ensureApplicationsModalRoot() {
-    let root = document.getElementById(APPLICATIONS_MODAL_ID);
-    if (!root) {
-        root = document.createElement('div');
-        root.id = APPLICATIONS_MODAL_ID;
-        root.innerHTML = `<div class="modal-panel" role="dialog" aria-modal="true"><div class="modal-header"><div class="modal-title" id="applications-modal-title">All Loan Requests</div><div class="modal-actions"><span class="pill" id="applications-count-pill">0 Requests</span><button class="close-btn" id="close-applications-modal" aria-label="Close">×</button></div></div><div class="modal-body"><div class="stats-grid" id="applications-stats"></div><div class="applications-scroll" id="applications-scroll"></div></div></div>`;
-        document.body.appendChild(root);
-        root.addEventListener('click', (e) => { if (e.target === root) document.getElementById(APPLICATIONS_MODAL_ID).classList.remove('open'); });
-        root.querySelector('#close-applications-modal').addEventListener('click', () => document.getElementById(APPLICATIONS_MODAL_ID).classList.remove('open'));
-    }
-    return root;
-}
+window.openApplicationsModule = function() {
+    const apps = dashboardData.applications;
+    const statsHtml = `<div class="modal-stat-row" style="margin-top: 10px;"><div class="modal-stat-box" style="margin-bottom:20px;"><div class="modal-stat-label">Total Requests</div><div class="modal-stat-val">${apps.length}</div></div></div>`;
+    const listHtml = apps.length === 0 ? '<div style="text-align:center; padding:40px; color:var(--text-muted);">No active requests.</div>' : apps.map(app => `
+        <div class="modern-list-item">
+            <div class="modern-item-header">
+                <span class="modern-item-id">${app.id}</span>
+                <span class="status-badge" style="background:#f4f4f5; color:#666; padding:4px 10px; border-radius:100px; font-size:11px; font-weight:700;">${app.status}</span>
+            </div>
+            <div class="modern-item-grid">
+                <div class="modern-grid-col"><div class="label">Purpose</div><div class="val">${app.type}</div></div>
+                <div class="modern-grid-col"><div class="label">Amount</div><div class="val">${app.amount}</div></div>
+                <div class="modern-grid-col"><div class="label">Date</div><div class="val">${app.date}</div></div>
+            </div>
+        </div>`).join('');
 
-window.openApplicationsModule = async function() {
-    const root = ensureApplicationsModalRoot();
-    const sortedApplications = [...dashboardData.applications].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    const totalRequests = sortedApplications.length;
-    const totalAmount = sortedApplications.reduce((sum, app) => sum + parseRandToNumber(app.amount), 0);
-    const pendingCount = sortedApplications.filter(app => String(app.status).toUpperCase().includes('PENDING')).length;
-
-    const statsHtml = `<div class="stat-card"><div class="stat-label">Total Requests</div><div class="stat-value">${totalRequests}</div></div><div class="stat-card"><div class="stat-label">Requested Amount</div><div class="stat-value">${formatCurrency(totalAmount)}</div></div><div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value">${pendingCount}</div></div><div class="stat-card"><div class="stat-label">Latest Request</div><div class="stat-value">${sortedApplications[0]?.date || '—'}</div></div>`;
-
-    const listHtml = totalRequests === 0 ? '<div class="empty-state">No loan requests found.</div>' : sortedApplications.map(app => {
-        return `<div class="application-card"><div class="application-head"><span class="application-id">${app.id}</span><span class="application-status">${app.status}</span></div><div class="application-main"><div><div class="label">Purpose</div><div class="value">${app.type}</div></div><div><div class="label">Amount</div><div class="value">${app.amount}</div></div><div><div class="label">Date Submitted</div><div class="value">${app.date}</div></div></div></div>`;
-    }).join('');
-
-    root.querySelector('#applications-count-pill').textContent = `${totalRequests} Request${totalRequests === 1 ? '' : 's'}`;
-    root.querySelector('#applications-stats').innerHTML = statsHtml;
-    root.querySelector('#applications-scroll').innerHTML = listHtml;
-    root.classList.add('open');
+    openUniversalModal('Recent Applications', statsHtml + listHtml, false);
 };
 
-// ==========================================
-// 8. MODALS & MODULES (MOBILE)
-// ==========================================
+window.openTransactionsModule = function() {
+    openUniversalModal('Transactions', '<div style="text-align:center; padding:40px; color:var(--text-muted); font-weight:500;">No transactions to display yet.</div>', false);
+};
+
+// Mobile Full Screen Modals (Bottom Sheet) Overrides
 window.openFullScreenModal = function(type) {
     const modal = document.getElementById('fullScreenModal');
     const title = document.getElementById('modalTitle');
@@ -744,30 +749,33 @@ window.openFullScreenModal = function(type) {
     if(!modal) return;
     
     modal.classList.remove('hidden');
-    
     if (type === 'transactions') {
-        title.innerText = 'Recent Transactions';
-        const recentTransactions = dashboardData.transactions.slice(0, 10);
-        body.innerHTML = recentTransactions.length === 0 
-            ? '<div style="text-align:center; padding: 40px; color:#8E8E93;">No transactions found.</div>'
-            : recentTransactions.map(tx => `<div style="display:flex; justify-content:space-between; padding: 16px 0; border-bottom: 1px solid #E5E5EA;"><div><div style="font-weight:600; font-size:15px; color:#1C1C1E;">${tx.description}</div><div style="font-size:13px; color:#8E8E93; margin-top:4px;">${tx.date}</div></div><div style="font-weight:600; font-size:15px; color:${tx.type === 'inbound' ? 'var(--color-primary)' : '#1C1C1E'}">${tx.amount}</div></div>`).join('');
+        title.innerText = 'History';
+        body.innerHTML = '<div style="text-align:center; padding: 40px; color:var(--text-muted); font-weight:500;">No transactions found.</div>';
     } else if (type === 'applications') {
-        title.innerText = 'Recent Applications';
-        const recentApplications = dashboardData.applications;
-        body.innerHTML = recentApplications.length === 0 
-            ? '<div style="text-align:center; padding: 40px; color:#8E8E93;">No active applications found.</div>'
-            : recentApplications.map(app => `<div style="padding: 16px 0; border-bottom: 1px solid #E5E5EA;"><div style="display:flex; justify-content:space-between; margin-bottom:8px;"><span style="font-weight:600; font-size:15px; color:#1C1C1E;">${app.type}</span><span style="font-weight:600; font-size:15px;">${app.amount}</span></div><div style="display:flex; justify-content:space-between; font-size:13px; color:#8E8E93;"><span>${app.date}</span><span style="color:var(--color-primary); font-weight:500;">${app.status}</span></div></div>`).join('');
+        title.innerText = 'Requests';
+        body.innerHTML = dashboardData.applications.length === 0 
+            ? '<div style="text-align:center; padding: 40px; color:var(--text-muted); font-weight:500;">No requests found.</div>'
+            : dashboardData.applications.map(app => `
+                <div class="modern-list-item" style="padding: 20px; margin-bottom: 12px; border: none;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+                        <span style="font-weight:700; font-size:16px; color:var(--text-main);">${app.type}</span>
+                        <span style="font-weight:700; font-size:16px; color:var(--text-main);">${app.amount}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; font-size:13px; color:var(--text-muted); font-weight:600;">
+                        <span>${app.date}</span>
+                        <span style="color:var(--color-primary); background: rgba(231,118,46,0.1); padding: 4px 10px; border-radius: 10px;">${app.status}</span>
+                    </div>
+                </div>`).join('');
     }
 };
 
-window.closeFullScreenModal = function() {
-    document.getElementById('fullScreenModal').classList.add('hidden');
-};
+window.closeFullScreenModal = function() { document.getElementById('fullScreenModal').classList.add('hidden'); };
 
 // ==========================================
-// 9. ACTIONS & EDIT APPLICATION LOGIC
+// 9. ACTIONS & ROUTING
 // ==========================================
-window.createNewApplication = function() {
+window.createNewApplication = () => {
     if (typeof loadPage === 'function') {
         loadPage('apply-loan');
     } else {
@@ -775,9 +783,7 @@ window.createNewApplication = function() {
     }
 };
 
-window.makePayment = function() {
-    alert('Payment functionality - Connect to payment gateway');
-};
+window.makePayment = () => alert('Payment functionality coming soon.');
 
 window.editApplication = async function(applicationId) {
     try {
