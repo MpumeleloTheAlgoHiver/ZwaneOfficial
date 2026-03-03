@@ -25,11 +25,11 @@
                 </button>
                 <button class="action-btn-item" onclick="openFullScreenModal('transactions')">
                     <div class="action-icon-circle"><i class="fas fa-list-ul"></i></div>
-                    <span>History</span>
+                    <span>Transactions</span>
                 </button>
                 <button class="action-btn-item" onclick="openFullScreenModal('applications')">
                     <div class="action-icon-circle"><i class="fas fa-file-alt"></i></div>
-                    <span>Requests</span>
+                    <span>Applications</span>
                 </button>
             </section>
 
@@ -38,16 +38,17 @@
                     <h2 class="section-title">Active Loans</h2>
                     <button class="view-all-link" onclick="openLoansModule()">View All</button>
                 </div>
-                <div class="loans-container-hifi" id="activeLoansGridMobile"></div>
+                <div class="loans-container-hifi" id="activeLoansGridMobile">
+                    </div>
             </section>
 
             <div id="fullScreenModal" class="full-modal hidden">
                 <div class="modal-header-hifi">
                     <button onclick="closeFullScreenModal()" class="modal-close-btn">
-                        <i class="fas fa-times"></i>
+                        <i class="fas fa-chevron-left"></i>
                     </button>
-                    <h2 id="modalTitle">Details</h2>
-                </div>
+                    <h2 id="modalTitle" class="modal-title-mobile">Details</h2>
+                    <div style="width: 36px;"></div> </div>
                 <div id="modalBody" class="modal-body-content"></div>
             </div>
         </div>
@@ -75,14 +76,12 @@
                 <div class="card">
                   <div class="card-label">Total Borrowed</div>
                   <div class="card-value" id="totalBorrowed">R 0.00</div>
-                  <div class="card-subtitle">Lifetime borrowing capacity</div>
-                  <div class="card-change positive">↑ 12.5%</div>
+                  <div class="card-subtitle">Lifetime capacity</div>
                 </div>
                 <div class="card">
                   <div class="card-label">Total Repaid</div>
                   <div class="card-value" id="totalRepaid">R 0.00</div>
                   <div class="card-subtitle">Successfully settled</div>
-                  <div class="card-change positive">↑ 8.2%</div>
                 </div>
               </div>
               <div class="credit-score-card card">
@@ -100,16 +99,20 @@
                 <h2>Quick Actions</h2>
               </div>
               <div class="quick-actions-grid">
-                <button class="action-card action-primary" onclick="createNewApplication()">
-                  <i class="fas fa-plus-circle"></i>
-                  <div class="action-title">New Loan</div>
-                  <div class="action-subtitle">Apply for a new loan</div>
+                <button class="action-card" onclick="createNewApplication()">
+                  <div class="action-icon-wrapper"><i class="fas fa-plus"></i></div>
+                  <div class="action-text-block">
+                    <div class="action-title">New Loan</div>
+                    <div class="action-subtitle">Apply for a new loan</div>
+                  </div>
                 </button>
                 
-                <button class="action-card action-secondary" onclick="makePayment()">
-                  <i class="fas fa-credit-card"></i>
-                  <div class="action-title">Make Payment</div>
-                  <div class="action-subtitle">Process a payment</div>
+                <button class="action-card" onclick="makePayment()">
+                  <div class="action-icon-wrapper"><i class="fas fa-wallet"></i></div>
+                  <div class="action-text-block">
+                    <div class="action-title">Make Payment</div>
+                    <div class="action-subtitle">Process a payment</div>
+                  </div>
                 </button>
               </div>
             </div>
@@ -119,8 +122,9 @@
                 <h2>Active Loans</h2>
                 <button class="btn-view-all" onclick="openLoansModule()">View All →</button>
               </div>
-              <div class="loans-grid" id="activeLoansGrid">
-                </div>
+              <div id="activeLoansGridWrapper">
+                  <div class="loans-grid" id="activeLoansGrid"></div>
+              </div>
             </div>
 
             <div class="bottom-grid">
@@ -129,8 +133,7 @@
                   <h2>Recent Transactions</h2>
                   <button class="btn-view-all" onclick="openTransactionsModule()">View All →</button>
                 </div>
-                <div class="transaction-list" id="transactionList">
-                  </div>
+                <div class="transaction-list" id="transactionList"></div>
               </div>
 
               <div class="applications-section">
@@ -138,8 +141,7 @@
                   <h2>Recent Applications</h2>
                   <button class="btn-view-all" onclick="openApplicationsModule()">View All →</button>
                 </div>
-                <div class="application-list" id="applicationList">
-                  </div>
+                <div class="application-list" id="applicationList"></div>
               </div>
             </div>
 
@@ -171,6 +173,19 @@
         </div>
     </div>
   </div>
+</div>
+
+<div id="modern-universal-modal" class="modern-modal-overlay hidden">
+    <div class="modern-modal-panel" role="dialog" aria-modal="true">
+        <div class="modern-modal-header">
+            <button class="modern-modal-close" onclick="closeUniversalModal()">
+                <i class="fas fa-chevron-left"></i>
+            </button>
+            <h2 class="modern-modal-title" id="modern-modal-title">Details</h2>
+            <div style="width: 44px;"></div> </div>
+        <div class="modern-modal-body" id="modern-modal-body">
+            </div>
+    </div>
 </div>
 
 <div id="edit-module-container" class="module-overlay hidden">
