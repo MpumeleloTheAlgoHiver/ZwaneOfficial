@@ -612,34 +612,52 @@ function setLoginRequiredState() {
 }
 
 async function refreshDocumentStatuses(showSpinner = false) {
-  if (!documentServices || !activeUserId) {
-    return;
+  if (!documentServices || !activeUserId) return;
+  if (showSpinner) setModuleStatusLoading();
+
+  try {
+    const [tillSlipExists, bankStatementExists, truidResponse] = await Promise.all([
+      documentServices.checkDocumentExistsByUser(activeUserId, 'till_slip'),
+      documentServices.checkDocumentExistsByUser(activeUserId, 'bank_statement'),
+      fetch(`/api/truid/user/${activeUserId}/status`).then(res => res.ok ? res.json() : null)
+    ]);
+
+    // Ensure we have data before trying to save
+    if (truidResponse) {
+      const supabase = await getSupabaseClient();
+      
+      // We save the WHOLE truidResponse into 'collection_payload' 
+      // This ensures 100% of the data is collected.
+      const { error: upsertError } = await supabase
+        .from('truid_collections')
+        .upsert({
+          user_id: activeUserId,
+          collection_id: truidResponse.collectionId || truidResponse.id, // Fallback ID
+          status: truidResponse.status,
+          normalized_status: truidResponse.normalizedStatus || truidResponse.status,
+          verified: !!truidResponse.verified,
+          // --- ALL INFO COLLECTED HERE ---
+          collection_payload: truidResponse, 
+          summary_payload: truidResponse.summary || {}, 
+          // -------------------------------
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'collection_id' });
+
+      if (upsertError) console.error('Supabase Sync Error:', upsertError);
+    }
+
+    const bankStatementReady = bankStatementExists || !!truidResponse?.verified;
+
+    updateDocumentButtonState('tillslip', tillSlipExists ? 'complete' : 'pending');
+    updateDocumentButtonState('bankstatement', bankStatementReady ? 'complete' : 'pending');
+
+    renderModuleStatus();
+    updateNextButtonState();
+    
+  } catch (err) {
+    console.error('Error in status sync:', err);
+    showModuleStatusError('Unable to sync verification data.');
   }
-
-  if (showSpinner) {
-    setModuleStatusLoading();
-  }
-
-  const [tillSlipExists, bankStatementExists, truidStatus] = await Promise.all([
-    documentServices.checkDocumentExistsByUser(activeUserId, 'till_slip'),
-    documentServices.checkDocumentExistsByUser(activeUserId, 'bank_statement'),
-    fetch(`/api/truid/user/${activeUserId}/status`)
-      .then(async (res) => {
-        if (!res.ok) {
-          return { verified: false };
-        }
-        return res.json();
-      })
-      .catch(() => ({ verified: false }))
-  ]);
-
-  const bankStatementReady = bankStatementExists || !!truidStatus?.verified;
-
-  updateDocumentButtonState('tillslip', tillSlipExists ? 'complete' : 'pending');
-  updateDocumentButtonState('bankstatement', bankStatementReady ? 'complete' : 'pending');
-
-  renderModuleStatus();
-  updateNextButtonState();
 }
 
 async function initDocumentChecklist() {
