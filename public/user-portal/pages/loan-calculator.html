@@ -1,9 +1,7 @@
-<!-- Loan Calculator page -->
 <div class="page-container">
   <div class="content-wrapper">
     <div class="calculator-wrapper">
       <div class="calculator-container">
-        <!-- Header -->
         <div class="calculator-header">
           <h1>Loan Calculator</h1>
           <p>Estimate your monthly payments and total repayment amount</p>
@@ -13,7 +11,6 @@
           </div>
         </div>
 
-        <!-- Calculator Card -->
         <div class="calculator-card">
           <div class="calculator-inputs">
             <div class="input-group">
@@ -41,7 +38,7 @@
 
             <div class="input-group">
               <label>Interest Rate (Annual)</label>
-              <div style="width: 100%; padding: 0.75rem; background: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px; color: #1a1a1a; font-size: 1rem; font-weight: 600;">
+              <div style="width: 100%; padding: 0 16px 0 16px; background: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px; color: #1a1a1a; font-size: 1rem; font-weight: 600;">
                 20% per year
               </div>
             </div>
@@ -69,19 +66,25 @@
               <div class="breakdown-legend">
                 <div class="legend-item">
                   <span class="legend-color principal"></span>
-                  <span>Principal: <strong id="principalAmount">R 0.00</strong></span>
+                  <div class="legend-text">
+                    <span>Principal</span>
+                    <strong id="principalAmount">R 0.00</strong>
+                  </div>
                 </div>
                 <div class="legend-item">
                   <span class="legend-color interest"></span>
-                  <span>Interest + Fees: <strong id="interestAmount">R 0.00</strong></span>
+                  <div class="legend-text">
+                    <span>Interest + Fees</span>
+                    <strong id="interestAmount">R 0.00</strong>
+                  </div>
                 </div>
               </div>
-              <small id="breakdownInfo" style="color: #999; font-size: 0.85rem; margin-top: 0.5rem; display: block;">
+              <small id="breakdownInfo" style="color: #999; font-size: 0.85rem; margin-top: 1rem; display: block; font-weight: 500;">
                 <i class="fas fa-info-circle"></i> Includes: Interest (20% annual) + Admin fees (R60/month) + Initiation fees (15%/month)
               </small>
             </div>
 
-            <button class="btn-apply btn-apply-black" onclick="applyForLoan()">
+            <button class="btn-apply" onclick="applyForLoan()">
               <i class="fas fa-arrow-right"></i>
               Apply for this Loan
             </button>
