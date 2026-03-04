@@ -3,7 +3,7 @@
     <header class="minimal-header">
       <div class="header-text">
         <h1>Payments & Transactions</h1>
-        <p class="page-subtitle">Manage your loan payments and bank accounts</p>
+        <p class="page-subtitle">Manage your loan settlements and banking information</p>
       </div>
     </header>
 
@@ -52,11 +52,11 @@
 
       <div class="action-dropdown-wrapper">
         <select id="quickAccountSelect" class="action-select">
-          <option value="" disabled selected>My Accounts</option>
-          </select>
+          <option value="" disabled selected>Loading accounts...</option>
+        </select>
       </div>
 
-      <button class="action-btn" id="makePaymentBtn">
+      <button class="action-btn primary" id="makePaymentBtn">
         <i class="fas fa-credit-card"></i>
         <span>Make Payment</span>
       </button>
@@ -69,7 +69,7 @@
           <span class="count-pill" id="activeLoansCount">0</span>
         </div>
         <div id="activeLoansContainer" class="list-content">
-          </div>
+           </div>
       </div>
 
       <div class="section-card">
@@ -77,15 +77,14 @@
           <h3>Bank Accounts</h3>
         </div>
         <div id="bankAccountsContainer" class="list-content">
-          </div>
+           </div>
       </div>
     </div>
 
-    <div class="section-card full-width">
+    <div class="section-card full-width" style="margin-bottom: 40px;">
       <div class="section-header">
         <h3>Payment History</h3>
         <div class="header-btns">
-          <button id="syncSureSystemsBtn" class="text-btn">Sync</button>
           <button id="downloadStatementBtn" class="text-btn">Download</button>
         </div>
       </div>
@@ -107,4 +106,14 @@
       </div>
     </div>
   </div>
+</div>
+
+<div id="modern-universal-modal" class="modern-modal-overlay hidden">
+    <div class="modern-modal-panel">
+        <div class="modern-modal-header">
+            <h2 id="modern-modal-title" class="modern-modal-title"></h2>
+            <button class="modern-modal-close" onclick="closeUniversalModal()"><i class="fas fa-times"></i></button>
+        </div>
+        <div id="modern-modal-body" class="modern-modal-body"></div>
+    </div>
 </div>
