@@ -1,329 +1,633 @@
-// Payments Dashboard JavaScript
-import '/user-portal/Services/sessionGuard.js'; // Production auth guard
+// Payments Dashboard JavaScript - Soft Neumorphic & Bank Management
+import '/user-portal/Services/sessionGuard.js'; 
 
 let activeLoans = [];
 let bankAccounts = [];
 let paymentHistory = [];
-let selectedLoan = null;
 
-// Initialize dashboard
+// ==========================================
+// UTILITY FORMATTERS
+// ==========================================
+const formatCurrency = (value) => {
+    const number = Number(value) || 0;
+    return `R ${number.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+};
+
+const formatDate = (dateValue) => {
+    if (!dateValue) return '--';
+    const date = new Date(dateValue);
+    return isNaN(date.getTime()) ? '--' : date.toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
+const calculateMonthlyPayment = (principal, annualRate, termMonths) => {
+    if (!principal || !termMonths) return 0;
+    const monthlyRate = (annualRate || 0) / 12;
+    if (!monthlyRate) return principal / termMonths;
+    const factor = Math.pow(1 + monthlyRate, termMonths);
+    return (principal * monthlyRate * factor) / (factor - 1);
+};
+
+// ==========================================
+// INITIALIZATION
+// ==========================================
 async function initPaymentsDashboard() {
-  try {
-    console.log('🚀 Initializing payments dashboard...');
-    
-    // Check if required elements exist - Matches the IDs in your updated HTML
-    const requiredElements = [
-      'totalOutstanding', 'nextPaymentAmount', 'nextPaymentDate',
-      'paidThisMonth', 'totalPaid', 'activeLoansContainer',
-      'bankAccountsContainer', 'paymentHistoryBody', 'quickAccountSelect'
-    ];
-    
-    const missingElements = requiredElements.filter(id => !document.getElementById(id));
-    if (missingElements.length > 0) {
-      console.error('❌ Missing required elements:', missingElements);
-      console.log('⚠️ Waiting for DOM to be ready...');
-      setTimeout(initPaymentsDashboard, 200);
-      return;
+    try {
+        const requiredElements = [
+            'totalOutstanding', 'nextPaymentAmount', 'nextPaymentDate',
+            'paidThisMonth', 'totalPaid', 'activeLoansContainer',
+            'bankAccountsContainer', 'paymentHistoryBody', 'quickAccountSelect'
+        ];
+        
+        const missingElements = requiredElements.filter(id => !document.getElementById(id));
+        if (missingElements.length > 0) {
+            setTimeout(initPaymentsDashboard, 200);
+            return;
+        }
+        
+        const { supabase } = await import('/Services/supabaseClient.js');
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (!session) {
+            window.location.href = '/auth/login.html';
+            return;
+        }
+
+        const [paymentsByLoan] = await Promise.all([
+            loadPaymentHistory(supabase, session.user.id),
+            loadBankAccounts(supabase, session.user.id)
+        ]);
+        
+        await loadActiveLoans(supabase, session.user.id, paymentsByLoan);
+
+        calculateMetrics();
+        renderAll();
+        bindEventListeners();
+
+    } catch (error) {
+        console.error('Error initializing payments dashboard:', error);
     }
-    
-    console.log('✅ All required elements found');
-    
-    const { supabase } = await import('/Services/supabaseClient.js');
-    const { data: { session } } = await supabase.auth.getSession();
-
-    if (!session) {
-      console.log('⛔ No session found');
-      window.location.href = '/auth/login.html';
-      return;
-    }
-    
-    console.log('✅ Session found, user:', session.user.id);
-
-    // Load data from Supabase
-    const paymentsByLoan = await loadPaymentHistory(supabase, session.user.id);
-    await loadActiveLoans(supabase, session.user.id, paymentsByLoan);
-    await loadBankAccounts(supabase, session.user.id);
-
-    // Update UI
-    calculateMetrics();
-    renderAll();
-    bindEventListeners();
-
-  } catch (error) {
-    console.error('Error initializing payments dashboard:', error);
-  }
 }
 
-// Load active loans from database
-async function loadActiveLoans(supabase, userId, paymentsByLoan = {}) {
-  try {
-    const { data, error } = await supabase
-      .from('loans')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('status', 'active')
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-
-    activeLoans = (data || []).map(loan => {
-      const principal = parseFloat(loan.principal_amount) || 0;
-      const termMonths = parseInt(loan.term_months, 10) || 0;
-      const rawRate = parseFloat(loan.interest_rate) || 0;
-      const normalizedRate = rawRate > 1 ? rawRate / 100 : rawRate;
-      const storedMonthly = parseFloat(loan.monthly_payment) || 0;
-      const derivedMonthly = calculateMonthlyPayment(principal, normalizedRate, termMonths);
-      const monthlyPayment = Number.isFinite(storedMonthly) && storedMonthly > 0 ? storedMonthly : derivedMonthly;
-      const safeMonthlyPayment = Number.isFinite(monthlyPayment) ? monthlyPayment : 0;
-      const totalRepayment = parseFloat(loan.total_repayment) || (safeMonthlyPayment * (termMonths || 1)) || principal;
-      const paidToDate = paymentsByLoan[loan.id] || 0;
-      const outstandingBalance = Math.max(totalRepayment - paidToDate, 0);
-      const dueDateObj = normalizeNextPaymentDate(
-        loan.next_payment_date || loan.first_payment_date || loan.repayment_start_date
-      );
-      const nextDueAmount = Math.min(safeMonthlyPayment, outstandingBalance || safeMonthlyPayment);
-
-      return {
-        id: loan.id,
-        applicationId: loan.application_id,
-        principal,
-        totalRepayment,
-        paidToDate,
-        outstanding: outstandingBalance,
-        monthlyPayment: safeMonthlyPayment,
-        nextPaymentDate: dueDateObj ? dueDateObj.toISOString() : null,
-        dueDateObj,
-        nextDueAmount: Number.isFinite(nextDueAmount) ? nextDueAmount : safeMonthlyPayment,
-        interestRate: normalizedRate,
-        termMonths,
-        status: loan.status,
-        startDate: loan.start_date
-      };
-    });
-  } catch (error) {
-    console.error('Error loading active loans:', error);
-  }
-}
-
-// Load bank accounts from database
+// ==========================================
+// SAFE DATABASE FETCHERS
+// ==========================================
 async function loadBankAccounts(supabase, userId) {
-  try {
-    const { data, error } = await supabase
-      .from('bank_accounts')
-      .select('*')
-      .eq('user_id', userId)
-      .order('is_primary', { ascending: false });
+    try {
+        const { data, error } = await supabase
+            .from('bank_accounts')
+            .select('*')
+            .eq('user_id', userId)
+            .order('is_primary', { ascending: false });
 
-    if (error) throw error;
+        if (error) throw error;
 
-    bankAccounts = (data || []).map(account => ({
-      id: account.id,
-      bankName: account.bank_name,
-      accountNumber: account.account_number,
-      isPrimary: account.is_primary
-    }));
-  } catch (error) {
-    console.error('Error loading bank accounts:', error);
-  }
+        bankAccounts = (data || []).map(acc => ({
+            id: acc.id,
+            bankName: acc.bank_name,
+            accountNumber: acc.account_number,
+            accountType: acc.account_type,
+            isPrimary: acc.is_primary
+        }));
+    } catch (error) {
+        console.error('Error loading bank accounts:', error);
+    }
 }
 
-// Load payment history from database
+async function loadActiveLoans(supabase, userId, paymentsByLoan = {}) {
+    try {
+        const { data, error } = await supabase
+            .from('loans')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('status', 'active')
+            .order('created_at', { ascending: false });
+            
+        if (error) throw error;
+
+        activeLoans = (data || []).map(loan => {
+            const principal = parseFloat(loan.principal_amount) || 0;
+            const termMonths = parseInt(loan.term_months, 10) || 1;
+            const rawRate = parseFloat(loan.interest_rate) || 0;
+            const normalizedRate = rawRate > 1 ? rawRate / 100 : rawRate;
+            
+            const storedMonthly = parseFloat(loan.monthly_payment) || 0;
+            const derivedMonthly = calculateMonthlyPayment(principal, normalizedRate, termMonths);
+            const safeMonthlyPayment = Number.isFinite(storedMonthly) && storedMonthly > 0 ? storedMonthly : derivedMonthly;
+            
+            const totalRepayment = parseFloat(loan.total_repayment) || (safeMonthlyPayment * termMonths) || principal;
+            const paidToDate = paymentsByLoan[loan.id] || 0;
+            const outstandingBalance = Math.max(totalRepayment - paidToDate, 0);
+            
+            let dueDateObj = null;
+            const candidateDateStr = loan.next_payment_date || loan.first_payment_date || loan.repayment_start_date;
+            
+            if (candidateDateStr) {
+                dueDateObj = new Date(candidateDateStr);
+            } else if (loan.start_date) {
+                dueDateObj = new Date(loan.start_date);
+                dueDateObj.setDate(dueDateObj.getDate() + 30);
+            }
+
+            if (dueDateObj && !Number.isNaN(dueDateObj.getTime())) { 
+                dueDateObj.setUTCHours(0, 0, 0, 0); 
+            } else {
+                dueDateObj = null;
+            }
+
+            const nextDueAmount = Math.min(safeMonthlyPayment, outstandingBalance || safeMonthlyPayment);
+
+            return {
+                id: loan.id, applicationId: loan.application_id,
+                principal, outstanding: outstandingBalance,
+                monthlyPayment: safeMonthlyPayment,
+                dueDateObj, nextDueAmount, status: loan.status
+            };
+        });
+    } catch (error) { console.error('Error loading active loans:', error); }
+}
+
 async function loadPaymentHistory(supabase, userId) {
-  try {
-    const { data, error } = await supabase
-      .from('payments')
-      .select('*, loans:loan_id(application_id)')
-      .eq('user_id', userId)
-      .order('payment_date', { ascending: false });
+    try {
+        const { data, error } = await supabase
+            .from('payments')
+            .select('*, loans:loan_id(application_id)')
+            .eq('user_id', userId)
+            .order('payment_date', { ascending: false });
+            
+        if (error) throw error;
 
-    if (error) throw error;
+        paymentHistory = (data || []).map(payment => ({
+            id: payment.id, loanId: payment.loan_id, applicationId: payment.loans?.application_id,
+            amount: parseFloat(payment.amount), date: payment.payment_date, 
+            status: payment.status || 'completed', method: payment.payment_method || 'Card'
+        }));
 
-    paymentHistory = (data || []).map(payment => ({
-      id: payment.id,
-      loanId: payment.loan_id,
-      applicationId: payment.loans?.application_id,
-      amount: parseFloat(payment.amount),
-      date: payment.payment_date,
-      status: payment.status || 'completed',
-      method: payment.payment_method || 'Card'
-    }));
-
-    const paymentsByLoan = paymentHistory.reduce((acc, payment) => {
-      acc[payment.loanId] = (acc[payment.loanId] || 0) + (payment.amount || 0);
-      return acc;
-    }, {});
-
-    return paymentsByLoan;
-  } catch (error) {
-    console.error('Error loading payment history:', error);
-    return {};
-  }
+        return paymentHistory.reduce((acc, p) => {
+            acc[p.loanId] = (acc[p.loanId] || 0) + (p.amount || 0);
+            return acc;
+        }, {});
+    } catch (error) { return {}; }
 }
 
-// Render the new "My Accounts" dropdown
+// ==========================================
+// CALCULATIONS & RENDERING
+// ==========================================
+function calculateMetrics() {
+    const totalOutstanding = activeLoans.reduce((sum, loan) => sum + loan.outstanding, 0);
+    
+    const upcomingLoan = activeLoans.reduce((best, loan) => {
+        if (!loan.dueDateObj) return best;
+        if (loan.outstanding <= 0) return best; 
+        if (!best) return loan;
+        if (loan.dueDateObj < best.dueDateObj) return loan;
+        return best;
+    }, null);
+    
+    let nextPayment = 0;
+    let nextDateStr = 'No upcoming payment';
+
+    if (upcomingLoan && upcomingLoan.dueDateObj) {
+        nextPayment = upcomingLoan.nextDueAmount;
+        nextDateStr = `Due ${upcomingLoan.dueDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    } else if (paymentHistory.length > 0) {
+        const latestPaid = new Date(paymentHistory[0].date);
+        nextDateStr = `Last paid ${latestPaid.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    }
+
+    const now = new Date();
+    const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const paidThisMonth = paymentHistory.filter(p => new Date(p.date) >= firstOfMonth).reduce((sum, p) => sum + p.amount, 0);
+    const totalPaid = paymentHistory.reduce((sum, p) => sum + p.amount, 0);
+
+    const tryUpdate = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val; };
+    tryUpdate('totalOutstanding', formatCurrency(totalOutstanding));
+    tryUpdate('nextPaymentAmount', formatCurrency(nextPayment));
+    tryUpdate('nextPaymentDate', nextDateStr);
+    tryUpdate('paidThisMonth', formatCurrency(paidThisMonth));
+    tryUpdate('totalPaid', formatCurrency(totalPaid));
+}
+
 function renderQuickAccountDropdown() {
-  const select = document.getElementById('quickAccountSelect');
-  if (!select) return;
+    const select = document.getElementById('quickAccountSelect');
+    if (!select) return;
 
-  // Sorting: Primary account always on top
-  const sortedAccounts = [...bankAccounts].sort((a, b) => b.isPrimary - a.isPrimary);
+    if (bankAccounts.length === 0) {
+        select.innerHTML = '<option value="" disabled selected>No accounts linked</option>';
+        return;
+    }
 
-  select.innerHTML = '<option value="" disabled>My Accounts</option>' + 
-    sortedAccounts.map(acc => `
-      <option value="${acc.id}">
-        ${acc.isPrimary ? '⭐ ' : ''}${acc.bankName} (•${acc.accountNumber.slice(-4)})
-      </option>
+    const sortedAccounts = [...bankAccounts].sort((a, b) => (b.isPrimary ? 1 : 0) - (a.isPrimary ? 1 : 0));
+    
+    select.innerHTML = sortedAccounts.map(acc => `
+        <option value="${acc.id}" ${acc.isPrimary ? 'selected' : ''}>
+            ${acc.bankName} (•••• ${String(acc.accountNumber).slice(-4)})
+        </option>
     `).join('');
 }
 
-// Master render function
-function renderAll() {
-  renderActiveLoans();
-  renderBankAccounts();
-  renderPaymentHistory();
-  renderQuickAccountDropdown(); // Populate the new dropdown
-}
-
-// UI Metric Calculations
-function calculateMetrics() {
-  const totalOutstanding = activeLoans.reduce((sum, loan) => sum + loan.outstanding, 0);
-  
-  const upcomingLoan = activeLoans.reduce((best, loan) => {
-    if (!loan.monthlyPayment || loan.monthlyPayment <= 0) return best;
-    if (!best || !best.dueDateObj || (loan.dueDateObj && loan.dueDateObj < best.dueDateObj)) return loan;
-    return best;
-  }, null);
-  
-  const nextPayment = upcomingLoan ? (upcomingLoan.nextDueAmount ?? upcomingLoan.monthlyPayment) : 0;
-  const nextDate = upcomingLoan ? (upcomingLoan.dueDateObj || upcomingLoan.nextPaymentDate) : null;
-
-  const now = new Date();
-  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const paidThisMonth = paymentHistory
-    .filter(p => new Date(p.date) >= firstOfMonth)
-    .reduce((sum, p) => sum + p.amount, 0);
-
-  const totalPaid = paymentHistory.reduce((sum, p) => sum + p.amount, 0);
-
-  document.getElementById('totalOutstanding').textContent = formatCurrency(totalOutstanding);
-  document.getElementById('nextPaymentAmount').textContent = formatCurrency(nextPayment);
-  document.getElementById('nextPaymentDate').textContent = formatNextPaymentDate(nextDate);
-  document.getElementById('paidThisMonth').textContent = formatCurrency(paidThisMonth);
-  document.getElementById('totalPaid').textContent = formatCurrency(totalPaid);
-}
-
-// Render active loans list
 function renderActiveLoans() {
-  const container = document.getElementById('activeLoansContainer');
-  const countBadge = document.getElementById('activeLoansCount');
-  
-  if (countBadge) countBadge.textContent = activeLoans.length;
+    const container = document.getElementById('activeLoansContainer');
+    const countBadge = document.getElementById('activeLoansCount');
+    if (countBadge) countBadge.textContent = activeLoans.length;
+    if (!container) return;
 
-  if (activeLoans.length === 0) {
-    container.innerHTML = `<div class="empty-state"><p>No active loans</p></div>`;
-    return;
-  }
+    if (activeLoans.length === 0) {
+        container.innerHTML = `<div class="empty-state">No active loans found</div>`;
+        return;
+    }
 
-  container.innerHTML = activeLoans.map(loan => `
-    <div class="loan-item" onclick="viewLoanDetails(${loan.id})">
-      <div class="loan-info">
-        <span class="item-name">Loan #${loan.applicationId || loan.id}</span>
-        <span class="item-status active">Active</span>
-      </div>
-      <div class="loan-amount">
-        <span>-${formatCurrency(loan.outstanding)}</span>
-      </div>
-    </div>
-  `).join('');
+    container.innerHTML = activeLoans.slice(0,3).map(loan => `
+        <div class="modern-list-item" onclick="openLoansModule()">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <div style="font-weight:700; color:var(--text-main); font-size:16px;">Loan #${loan.applicationId || loan.id}</div>
+                    <div style="font-size:13px; color:var(--text-muted); margin-top:4px;">Next: ${loan.dueDateObj ? formatDate(loan.dueDateObj) : 'TBD'}</div>
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-weight:700; color:var(--text-main); font-size:18px;">${formatCurrency(loan.outstanding)}</div>
+                    <span style="display:inline-block; margin-top:6px; padding:4px 12px; background:rgba(231,118,46,0.1); color:var(--color-primary); border-radius:50px; font-size:10px; font-weight:700; text-transform:uppercase;">Active</span>
+                </div>
+            </div>
+        </div>
+    `).join('');
 }
 
-// Render bank accounts list
 function renderBankAccounts() {
-  const container = document.getElementById('bankAccountsContainer');
+    const container = document.getElementById('bankAccountsContainer');
+    if (!container) return;
 
-  if (bankAccounts.length === 0) {
-    container.innerHTML = `<div class="empty-state"><p>No saved bank accounts</p></div>`;
-    return;
-  }
+    if (bankAccounts.length === 0) {
+        container.innerHTML = `<div class="empty-state">No saved bank accounts</div>`;
+        return;
+    }
 
-  container.innerHTML = bankAccounts.map(account => `
-    <div class="bank-account-item ${account.isPrimary ? 'primary' : ''}">
-      <span class="bank-name">${account.bankName}</span>
-      <span class="account-mask">•••• ${account.accountNumber.slice(-4)}</span>
-    </div>
-  `).join('');
+    // SLICED: Only show top 3 on the main dashboard
+    const visibleAccounts = bankAccounts.slice(0, 3);
+
+    let html = visibleAccounts.map(account => `
+        <div class="modern-list-item" style="display:flex; flex-direction:row; justify-content:space-between; align-items:center;">
+            <div style="display:flex; align-items:center; gap:16px;">
+                <div style="width:52px; height:52px; border-radius:50%; background:var(--color-white); box-shadow:var(--shadow-soft); display:grid; place-items:center; color:var(--text-main); font-size:20px;">
+                    <i class="fas fa-university"></i>
+                </div>
+                <div>
+                    <div style="font-weight:700; color:var(--text-main); font-size:16px;">${account.bankName}</div>
+                    <div style="font-size:13px; color:var(--text-muted); margin-top:4px; font-weight:500;">${account.accountType || 'Account'} •••• ${String(account.accountNumber).slice(-4)}</div>
+                </div>
+            </div>
+            
+            <div style="display: flex; align-items: center; gap: 16px;">
+                ${account.isPrimary ? '<span class="status-badge completed" style="background:rgba(231,118,46,0.1); color:var(--color-primary);">Primary</span>' : ''}
+                
+                <button class="btn-icon" onclick="confirmDeleteAccount('${account.id}')" title="Remove Account" style="color: #ef4444; width: 36px; height: 36px; background: #fff1f2; border: none; border-radius: 50%; display: grid; place-items: center; cursor: pointer; transition: 0.2s;">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+    `).join('');
+
+    // If more than 3 accounts exist, add a View All button
+    if (bankAccounts.length > 3) {
+        html += `
+            <button class="text-btn" onclick="openBankAccountsModule()" style="width: 100%; text-align: center; margin-top: 16px; padding: 12px; font-weight: 600; color: var(--color-primary); background: rgba(231,118,46,0.05); border-radius: var(--radius-md); transition: 0.2s; cursor: pointer;">
+                View All ${bankAccounts.length} Accounts
+            </button>
+        `;
+    }
+
+    container.innerHTML = html;
 }
 
-// Render payment history table
 function renderPaymentHistory() {
-  const tbody = document.getElementById('paymentHistoryBody');
+    const tbody = document.getElementById('paymentHistoryBody');
+    if (!tbody) return;
 
-  if (paymentHistory.length === 0) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">No payment history yet</td></tr>`;
-    return;
-  }
+    if (paymentHistory.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px; font-weight:500;">No payment history yet</td></tr>`;
+        return;
+    }
 
-  tbody.innerHTML = paymentHistory.map(p => `
-    <tr>
-      <td>${formatDate(p.date)}</td>
-      <td>#${p.applicationId || p.loanId}</td>
-      <td>${formatCurrency(p.amount)}</td>
-      <td><span class="status-badge ${p.status}">${p.status}</span></td>
-      <td>${p.method}</td>
-      <td><button class="btn-icon" onclick="viewPaymentReceipt(${p.id})"><i class="fas fa-receipt"></i></button></td>
-    </tr>
-  `).join('');
+    tbody.innerHTML = paymentHistory.slice(0, 10).map(p => `
+        <tr>
+            <td>${formatDate(p.date)}</td>
+            <td style="color:var(--text-muted);">#${p.applicationId || p.loanId}</td>
+            <td style="color:var(--text-main); font-weight:700;">${formatCurrency(p.amount)}</td>
+            <td><span class="status-badge ${p.status.toLowerCase()}">${p.status}</span></td>
+            <td style="color:var(--text-muted);">${p.method}</td>
+            <td><button class="btn-icon"><i class="fas fa-receipt"></i></button></td>
+        </tr>
+    `).join('');
 }
 
-// Utility: Currency Formatting
-function formatCurrency(value) {
-  const number = Number(value) || 0;
-  return `R ${number.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+function renderAll() {
+    renderActiveLoans();
+    renderBankAccounts();
+    renderPaymentHistory();
+    renderQuickAccountDropdown();
 }
 
-// Utility: Date Formatting
-function formatDate(dateValue) {
-  if (!dateValue) return '--';
-  const date = new Date(dateValue);
-  return isNaN(date.getTime()) ? '--' : date.toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: 'numeric' });
-}
+// ==========================================
+// DB ACTIONS: Update Default & Custom Confirm Delete
+// ==========================================
+window.updateDefaultAccount = async function(accountId) {
+    try {
+        const { supabase } = await import('/Services/supabaseClient.js');
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        await supabase.from('bank_accounts').update({ is_primary: false }).eq('user_id', session.user.id);
+        await supabase.from('bank_accounts').update({ is_primary: true }).eq('id', accountId).eq('user_id', session.user.id);
+            
+        await loadBankAccounts(supabase, session.user.id);
+        renderAll(); 
+    } catch (error) {
+        console.error('Error updating default account:', error);
+    }
+};
 
-// Utility: Next Payment Date Text
-function formatNextPaymentDate(dateValue) {
-  const date = normalizeNextPaymentDate(dateValue);
-  return date ? `Due ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : 'Date pending';
-}
+// ==========================================
+// DB ACTIONS: Update Default & Custom Confirm Delete
+// ==========================================
 
-function normalizeNextPaymentDate(rawDate) {
-  if (!rawDate) return null;
-  const date = new Date(rawDate);
-  if (isNaN(date.getTime())) return null;
-  date.setUTCHours(0, 0, 0, 0);
-  return date;
-}
+window.confirmDeleteAccount = function(accountId) {
+    // FIX: Convert the ID from a String back to a Number so it matches the database
+    const numericId = Number(accountId);
+    const account = bankAccounts.find(a => a.id === numericId);
+    
+    // If it still can't find it, log an error so we know why
+    if (!account) {
+        console.error('Account not found in array. ID searched:', numericId);
+        return;
+    }
 
-function calculateMonthlyPayment(principal, annualRate, termMonths) {
-  if (!principal || !termMonths) return 0;
-  const monthlyRate = (annualRate || 0) / 12;
-  if (!monthlyRate) return principal / termMonths;
-  const factor = Math.pow(1 + monthlyRate, termMonths);
-  return (principal * monthlyRate * factor) / (factor - 1);
-}
+    const html = `
+        <div style="text-align: center; padding: 10px 0;">
+            <div style="width: 64px; height: 64px; background: #fff1f2; color: #ef4444; border-radius: 50%; display: grid; place-items: center; font-size: 24px; margin: 0 auto 16px;">
+                <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            <h3 style="margin-bottom: 8px; font-size: 20px; font-weight: 700; color: var(--text-main);">Remove Account?</h3>
+            <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 32px; line-height: 1.5;">
+                Are you sure you want to remove <strong>${account.bankName} (•••• ${String(account.accountNumber).slice(-4)})</strong>?<br>This action cannot be undone.
+            </p>
+            <div style="display: flex; gap: 12px; justify-content: center;">
+                <button onclick="closeUniversalModal()" class="action-btn" style="flex: 1; background: #FAFAFA; border: 1px solid #E5E5EA; color: var(--text-main);">Cancel</button>
+                <button id="confirmRemoveBtn" onclick="executeDeleteAccount(${numericId})" class="action-btn" style="flex: 1; background: #ef4444; color: white; border: none;">Yes, Remove</button>
+            </div>
+        </div>
+    `;
+    
+    openUniversalModal('Confirm Removal', html, false);
+};
 
-// Bind Buttons & Events
+window.executeDeleteAccount = async function(accountId) {
+    try {
+
+        const btn = document.getElementById('confirmRemoveBtn');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Removing...';
+        }
+
+        const { supabase } = await import('/Services/supabaseClient.js');
+        const { data: { session } } = await supabase.auth.getSession();
+        
+
+        const numericId = Number(accountId);
+
+        const { error } = await supabase.from('bank_accounts')
+            .delete()
+            .eq('id', numericId)
+            .eq('user_id', session.user.id);
+            
+        if (error) throw error;
+        
+        // Refresh data
+        await loadBankAccounts(supabase, session.user.id);
+        
+
+        if (bankAccounts.length > 0 && !bankAccounts.some(acc => acc.isPrimary)) {
+            await updateDefaultAccount(bankAccounts[0].id);
+        } else {
+            renderAll(); 
+        }
+        
+        closeUniversalModal(); 
+    } catch (error) {
+        console.error('Error deleting account:', error);
+        alert('Failed to remove account.');
+        
+        // Reset button if it fails
+        const btn = document.getElementById('confirmRemoveBtn');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = 'Yes, Remove';
+        }
+    }
+};
+// ==========================================
+// UNIVERSAL MODALS
+// ==========================================
+window.openUniversalModal = function(title, bodyHTML, isFullScreen = false) {
+    const modal = document.getElementById('modern-universal-modal');
+    const titleEl = document.getElementById('modern-modal-title');
+    const bodyEl = document.getElementById('modern-modal-body');
+    if (!modal) return;
+    
+    titleEl.innerText = title;
+    bodyEl.innerHTML = bodyHTML;
+    
+    if (isFullScreen) {
+        modal.classList.add('is-full-screen');
+    } else {
+        modal.classList.remove('is-full-screen');
+    }
+    
+    modal.classList.remove('hidden');
+};
+
+window.closeUniversalModal = function() {
+    document.getElementById('modern-universal-modal').classList.add('hidden');
+};
+
+// MODAL: VIEW ALL BANK ACCOUNTS
+window.openBankAccountsModule = function() {
+    const html = bankAccounts.map(account => `
+        <div class="modern-list-item" style="display:flex; flex-direction:row; justify-content:space-between; align-items:center;">
+            <div style="display:flex; align-items:center; gap:16px;">
+                <div style="width:52px; height:52px; border-radius:50%; background:var(--color-white); box-shadow:var(--shadow-soft); display:grid; place-items:center; color:var(--text-main); font-size:20px;">
+                    <i class="fas fa-university"></i>
+                </div>
+                <div>
+                    <div style="font-weight:700; color:var(--text-main); font-size:16px;">${account.bankName}</div>
+                    <div style="font-size:13px; color:var(--text-muted); margin-top:4px; font-weight:500;">${account.accountType || 'Account'} •••• ${String(account.accountNumber).slice(-4)}</div>
+                </div>
+            </div>
+            
+            <div style="display: flex; align-items: center; gap: 16px;">
+                ${account.isPrimary ? '<span class="status-badge completed" style="background:rgba(231,118,46,0.1); color:var(--color-primary);">Primary</span>' : ''}
+                
+                <button class="btn-icon" onclick="confirmDeleteAccount('${account.id}')" title="Remove Account" style="color: #ef4444; width: 36px; height: 36px; background: #fff1f2; border: none; border-radius: 50%; display: grid; place-items: center; cursor: pointer; transition: 0.2s;">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+    `).join('');
+
+    openUniversalModal('All Bank Accounts', html, false);
+};
+
+// MODAL: ACTIVE LOANS DETAILS
+window.openLoansModule = function() {
+    const active = activeLoans;
+    const totalRemaining = active.reduce((sum, l) => sum + l.outstanding, 0);
+
+    const statsHtml = `
+        <div style="text-align: center; margin-bottom: 24px;">
+            <div style="font-size: 13px; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Active Balance</div>
+            <div style="font-size: 36px; font-weight: 700; color: var(--text-main); letter-spacing: -1px;">${formatCurrency(totalRemaining)}</div>
+        </div>`;
+
+    const listHtml = active.length === 0 ? '<div class="empty-state">No active loans found.</div>' : active.map(loan => `
+            <div class="modern-list-item" style="border: 1px solid #eee; background: var(--color-white); box-shadow: var(--shadow-soft);">
+                <div class="modern-item-header">
+                    <span class="modern-item-id">Loan #${loan.applicationId || loan.id}</span>
+                    <span class="status-badge" style="background:rgba(231,118,46,0.1); color:var(--color-primary);">Active</span>
+                </div>
+                <div class="modern-item-grid">
+                    <div class="modern-grid-col"><div class="label">Principal</div><div class="val">${formatCurrency(loan.principal)}</div></div>
+                    <div class="modern-grid-col"><div class="label">Remaining</div><div class="val">${formatCurrency(loan.outstanding)}</div></div>
+                    <div class="modern-grid-col"><div class="label">Next Due</div><div class="val">${formatCurrency(loan.nextDueAmount)}</div></div>
+                    <div class="modern-grid-col"><div class="label">Due Date</div><div class="val">${loan.dueDateObj ? formatDate(loan.dueDateObj) : 'TBD'}</div></div>
+                </div>
+            </div>`).join('');
+
+    openUniversalModal('Active Loans Details', statsHtml + listHtml, true);
+};
+
+// ==========================================
+// ADD BANK ACCOUNT MODULE
+// ==========================================
+window.openAddBankAccountModal = function() {
+    const formHTML = `
+    <form id="addBankForm" onsubmit="saveNewBankAccount(event)" style="display: flex; flex-direction: column; gap: 20px;">
+       <div class="form-group">
+           <label>Bank Name</label>
+           <select id="bankName" required class="modern-input">
+               <option value="" disabled selected>Select your bank</option>
+               <option value="FNB">First National Bank (FNB)</option>
+               <option value="Standard Bank">Standard Bank</option>
+               <option value="ABSA">ABSA</option>
+               <option value="Nedbank">Nedbank</option>
+               <option value="Capitec">Capitec</option>
+               <option value="Investec">Investec</option>
+               <option value="TymeBank">TymeBank</option>
+               <option value="Discovery Bank">Discovery Bank</option>
+               <option value="African Bank">African Bank</option>
+           </select>
+       </div>
+       <div class="form-group">
+           <label>Account Holder Name</label>
+           <input type="text" id="accountHolder" required class="modern-input" placeholder="e.g. John Doe">
+       </div>
+       <div class="form-group">
+           <label>Account Number</label>
+           <input type="text" id="accountNumber" required class="modern-input" pattern="[0-9]+" title="Numbers only" placeholder="e.g. 62000000000">
+       </div>
+       <div class="form-group">
+           <label>Branch Code</label>
+           <input type="text" id="branchCode" required class="modern-input" placeholder="e.g. 250655">
+       </div>
+       <div class="form-group">
+           <label>Account Type</label>
+           <select id="accountType" required class="modern-input">
+               <option value="" disabled selected>Select account type</option>
+               <option value="cheque">Cheque / Current</option>
+               <option value="savings">Savings</option>
+               <option value="transmission">Transmission</option>
+           </select>
+       </div>
+       <div style="display:flex; align-items:center; gap: 12px; cursor: pointer; padding-top: 8px;">
+           <input type="checkbox" id="isPrimary" style="width: 20px; height: 20px; accent-color: var(--color-primary); cursor: pointer;">
+           <label for="isPrimary" style="cursor: pointer; font-size: 14px; font-weight: 500;">Set as default account for payments</label>
+       </div>
+       <div id="addBankStatus" class="status-message"></div>
+       <button type="submit" id="saveBankBtn" class="action-btn primary" style="width: 100%; margin-top: 10px;">Save Bank Account</button>
+    </form>`;
+
+    openUniversalModal('Add Bank Account', formHTML, false);
+};
+
+window.saveNewBankAccount = async function(e) {
+    e.preventDefault();
+    const btn = document.getElementById('saveBankBtn');
+    const status = document.getElementById('addBankStatus');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+
+    try {
+        const { supabase } = await import('/Services/supabaseClient.js');
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error('Session expired. Please sign in again.');
+
+        const bankName = document.getElementById('bankName').value;
+        const accountHolder = document.getElementById('accountHolder').value;
+        const accountNumber = document.getElementById('accountNumber').value;
+        const branchCode = document.getElementById('branchCode').value;
+        const accountType = document.getElementById('accountType').value;
+        const isPrimary = document.getElementById('isPrimary').checked;
+
+        if (isPrimary && bankAccounts.length > 0) {
+            await supabase.from('bank_accounts').update({ is_primary: false }).eq('user_id', session.user.id);
+        }
+
+        const { error } = await supabase.from('bank_accounts').insert([{
+            user_id: session.user.id,
+            bank_name: bankName,
+            account_holder: accountHolder,
+            account_number: accountNumber,
+            branch_code: branchCode,
+            account_type: accountType,
+            is_primary: isPrimary || bankAccounts.length === 0
+        }]);
+
+        if (error) throw error;
+
+        status.textContent = 'Bank account added successfully!';
+        status.className = 'status-message success';
+        status.style.display = 'block';
+
+        setTimeout(() => {
+            closeUniversalModal();
+            initPaymentsDashboard(); 
+        }, 1500);
+
+    } catch (error) {
+        console.error('Error saving bank account:', error);
+        status.textContent = error.message || 'Failed to save account. Check details.';
+        status.className = 'status-message error';
+        status.style.display = 'block';
+        btn.disabled = false;
+        btn.innerHTML = 'Save Bank Account';
+    }
+};
+
+// ==========================================
+// EVENT LISTENERS
+// ==========================================
 function bindEventListeners() {
-  document.getElementById('makePaymentBtn')?.addEventListener('click', () => openPaymentModal());
-  document.getElementById('addBankAccountBtn')?.addEventListener('click', addBankAccount);
-  document.getElementById('paymentForm')?.addEventListener('submit', handlePaymentSubmit);
+    document.getElementById('makePaymentBtn')?.addEventListener('click', () => alert('Payment Gateway Integration Pending'));
+    document.getElementById('addBankAccountBtn')?.addEventListener('click', openAddBankAccountModal);
+    
+    const select = document.getElementById('quickAccountSelect');
+    if (select) {
+        select.addEventListener('change', (e) => {
+            if (e.target.value) {
+                updateDefaultAccount(e.target.value);
+            }
+        });
+    }
 }
 
-// Navigation helpers
-function addBankAccount() { window.location.href = '/user-portal/?page=apply-loan-2'; }
-
-// Initialize
 initPaymentsDashboard();
-
-// SPA Event Handling
 window.addEventListener('pageLoaded', (e) => {
-  if (e.detail?.pageName === 'documents') initPaymentsDashboard();
+    if (e.detail?.pageName === 'documents') initPaymentsDashboard();
 });
