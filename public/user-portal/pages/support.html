@@ -1,224 +1,233 @@
-<!-- Support page -->
 <div class="page-container">
   <div class="content-wrapper">
-    <div class="dashboard-wrapper">
-      <div class="dashboard-container">
-        <!-- Header -->
-        <div class="dashboard-header">
-          <div class="header-left">
-            <h1>Support & Help Center</h1>
-            <p>Get help with your account, loans, and payments</p>
+    
+    <header class="minimal-header">
+      <div class="header-text">
+        <h1>Support & About Us</h1>
+        <p class="page-subtitle">Learn more about Zwane Financial Services and find a branch near you.</p>
+      </div>
+    </header>
+
+    <section class="carousel-section">
+      <div class="metrics-carousel">
+        
+        <div class="metric-card contact-carousel-card">
+          <div class="card-top-row">
+            <div class="metric-content">
+              <span class="metric-label">Email Support</span>
+              <span class="metric-value contact-val">admin@zwanefin.co.za</span>
+            </div>
+            <div class="metric-icon"><i class="fas fa-envelope"></i></div>
           </div>
+          <button class="action-btn primary outline-btn" onclick="window.location.href='mailto:admin@zwanefin.co.za'">
+            <i class="fas fa-paper-plane"></i> Send Email
+          </button>
         </div>
 
-        <!-- Contact Cards -->
-        <div class="top-section">
-          <div class="metrics-grid">
-            <div class="card">
-              <div class="card-label">
-                <i class="fas fa-envelope"></i> Email Support
-              </div>
-              <div class="card-value">support@example.com</div>
-              <div class="card-subtitle">Response within 24 hours</div>
-              <a href="mailto:support@example.com" class="btn-contact">
-                <i class="fas fa-paper-plane"></i> Send Email
-              </a>
+        <div class="metric-card contact-carousel-card">
+          <div class="card-top-row">
+            <div class="metric-content">
+              <span class="metric-label">Call Centre</span>
+              <span class="metric-value contact-val">010 500 0978</span>
             </div>
-            
-            <div class="card">
-              <div class="card-label">
-                <i class="fas fa-phone"></i> Phone Support
-              </div>
-              <div class="card-value">+27 10 500 09788</div>
-              <div class="card-subtitle">Mon - Fri, 8:00 AM - 5:00 PM</div>
-              <a href="tel:+27112345678" class="btn-contact">
-                <i class="fas fa-phone-alt"></i> Call Now
-              </a>
-            </div>
-            
-            <div class="card">
-              <div class="card-label">
-                <i class="fas fa-comments"></i> Live Chat
-              </div>
-              <div class="card-value">Chat with us</div>
-              <div class="card-subtitle">Available 24/7</div>
-              <button class="btn-contact" onclick="openLiveChat()">
-                <i class="fas fa-comment-dots"></i> Start Chat
-              </button>
-            </div>
-            
-            <div class="card">
-              <div class="card-label">
-                <i class="fas fa-map-marker-alt"></i> Visit Us
-              </div>
-              <div class="card-value">Head Office</div>
-              <div class="card-subtitle">123 Finance St, Johannesburg</div>
-              <a href="https://maps.google.com" target="_blank" class="btn-contact">
-                <i class="fas fa-directions"></i> Get Directions
-                <!-- we will add the actual location later -->
-              </a>
-            </div>
+            <div class="metric-icon"><i class="fas fa-phone-alt"></i></div>
           </div>
+          <button class="action-btn primary outline-btn" onclick="window.location.href='tel:0105000978'">
+            <i class="fas fa-phone"></i> Call Now
+          </button>
         </div>
 
-        <!-- FAQ Section -->
-        <div class="loans-section">
-          <div class="section-title-bar">
-            <h2><i class="fas fa-question-circle"></i> Frequently Asked Questions</h2>
+        <div class="metric-card contact-carousel-card">
+          <div class="card-top-row">
+            <div class="metric-content">
+              <span class="metric-label">Customer Care</span>
+              <span class="metric-value contact-val">069 119 5046</span>
+            </div>
+            <div class="metric-icon"><i class="fab fa-whatsapp"></i></div>
           </div>
-          <div class="faq-container">
-            <div class="faq-item">
-              <div class="faq-question" onclick="toggleFAQ(this)">
-                <i class="fas fa-chevron-right"></i>
-                <span>What service do you offer?</span>
-              </div>
-              <div class="faq-answer">
-                We provide financing and insurance solutions for both individuals and businesses.
-              </div>
-            </div>
-            
-            <div class="faq-item">
-              <div class="faq-question" onclick="toggleFAQ(this)">
-                <i class="fas fa-chevron-right"></i>
-                <span>How do I apply for financing?</span>
-              </div>
-              <div class="faq-answer">
-               Visit your nearest branch or contact our Customer Care Centre on 069 119 5046. Please remember to bring your:<br>
-               <br>
-
-Original ID document<br>
-Three months’ bank statements<br>
-Latest payslip<br>
-              </div>
-            </div>
-            
-            <div class="faq-item">
-              <div class="faq-question" onclick="toggleFAQ(this)">
-                <i class="fas fa-chevron-right"></i>
-                <span>How long does approval take?</span>
-              </div>
-              <div class="faq-answer">
-                Most applications are reviewed within 24-hours. You'll receive notifications about your application status. Once approved, funds are typically disbursed within 1-2 business days.
-              </div>
-            </div>
-            
-            <div class="faq-item">
-              <div class="faq-question" onclick="toggleFAQ(this)">
-                <i class="fas fa-chevron-right"></i>
-                <span>When will I be eligible for an increase in my loan amount?</span>
-              </div>
-              <div class="faq-answer">
-        Our company has a policy requiring all new clients to take at least three one-month loans, based on their affordability and credit report. After completing these three loans, we begin to consider increasing the loan amount and terms.
-              </div>
-            </div>
-            
-            <div class="faq-item">
-              <div class="faq-question" onclick="toggleFAQ(this)">
-                <i class="fas fa-chevron-right"></i>
-                <span>Does your financing require upfront payments?</span>
-              </div>
-              <div class="faq-answer">
-            We will never ask for an upfront fee. That is illegal. Please contact us should you be required to pay an upfront fee by any of our consultants.
-              </div>
-            </div>
-            
-            <div class="faq-item">
-              <div class="faq-question" onclick="toggleFAQ(this)">
-                <i class="fas fa-chevron-right"></i>
-                <span>Can I use my SRD SASSA grant to apply for financing?</span>
-              </div>
-              <div class="faq-answer">
-            No.
-              </div>
-            </div>
-            
-            <div class="faq-item">
-              <div class="faq-question" onclick="toggleFAQ(this)">
-                <i class="fas fa-chevron-right"></i>
-                <span>Which bank accounts do you accept?</span>
-              </div>
-              <div class="faq-answer">
-    All major bank accounts, except Discovery.
-Tymebank applications are processed in branch.
-              </div>
-            </div>
-            
-            <div class="faq-item">
-              <div class="faq-question" onclick="toggleFAQ(this)">
-                <i class="fas fa-chevron-right"></i>
-                <span>Will I qualify even if I have debt review on my credit reports?</span>
-              </div>
-              <div class="faq-answer">
-             Since everyone's financial situation is different, we recommend visiting your nearest branch or contact our WhatsApp client line for an assessment of your affordability and credit report.
-              </div>
-            </div>
-          </div>
+          <button class="action-btn primary outline-btn" onclick="window.location.href='tel:0691195046'">
+            <i class="fas fa-headset"></i> Contact Us
+          </button>
         </div>
 
-        <!-- Quick Help Resources -->
-        <div class="bottom-grid">
-          <div class="transactions-section">
-            <div class="section-title-bar">
-              <h2><i class="fas fa-book"></i> Help Resources</h2>
+        <div class="metric-card contact-carousel-card">
+          <div class="card-top-row">
+            <div class="metric-content">
+              <span class="metric-label">Visit Us</span>
+              <span class="metric-value contact-val">7 Branches</span>
             </div>
-            <div class="help-resources">
-              <a href="#" class="resource-link" onclick="openResource('user-guide')">
-                <i class="fas fa-file-alt"></i>
-                <div>
-                  <div class="resource-title">User Guide</div>
-                  <div class="resource-desc">Complete guide to using the platform</div>
-                </div>
-              </a>
-              <a href="#" class="resource-link" onclick="openResource('terms')">
-                <i class="fas fa-file-contract"></i>
-                <div>
-                  <div class="resource-title">Terms & Conditions</div>
-                  <div class="resource-desc">Loan terms and agreements</div>
-                </div>
-              </a>
-              <a href="#" class="resource-link" onclick="openResource('privacy')">
-                <i class="fas fa-shield-alt"></i>
-                <div>
-                  <div class="resource-title">Privacy Policy</div>
-                  <div class="resource-desc">How we protect your data</div>
-                </div>
-              </a>
-              <a href="#" class="resource-link" onclick="openResource('complaints')">
-                <i class="fas fa-exclamation-triangle"></i>
-                <div>
-                  <div class="resource-title">Complaints Procedure</div>
-                  <div class="resource-desc">How to lodge a complaint</div>
-                </div>
-              </a>
-            </div>
+            <div class="metric-icon"><i class="fas fa-map-marker-alt"></i></div>
           </div>
-
-          <div class="applications-section">
-            <div class="section-title-bar">
-              <h2><i class="fas fa-info-circle"></i> Need More Help?</h2>
-            </div>
-            <div class="contact-form-card card">
-              <p>
-                Can't find what you're looking for? Send us a message and we'll get back to you as soon as possible.
-              </p>
-              <form onsubmit="submitSupportRequest(event)">
-                <div>
-                  <label>Subject</label>
-                  <input type="text" id="supportSubject" placeholder="What do you need help with?" required>
-                </div>
-                <div>
-                  <label>Message</label>
-                  <textarea id="supportMessage" rows="4" placeholder="Describe your issue or question..." required></textarea>
-                </div>
-                <button type="submit">
-                  <i class="fas fa-paper-plane"></i> Send Message
-                </button>
-              </form>
-            </div>
-          </div>
+          <button class="action-btn primary outline-btn" onclick="openBranchesModal()">
+            <i class="fas fa-building"></i> View Locations
+          </button>
         </div>
 
       </div>
+    </section>
+
+    <div class="section-card">
+      <div class="section-header">
+        <h3><i class="fas fa-info-circle text-primary" style="margin-right: 8px;"></i> About Zwane Financial Services</h3>
+      </div>
+      
+      <div class="about-grid">
+        <div class="about-text-block">
+          <h4>What we stand for</h4>
+          <p>
+            Zwane Financial Services is a 100% black-owned, registered credit provider and FSP. We are committed to providing individuals and businesses who are financially excluded with easy and secure access to credit. We take pride in our dedication to serving and empowering low-income and underserved communities, while actively working to bridge the wealth gap by offering reliable financial services to disadvantaged populations.
+          </p>
+          <div class="code-of-conduct">
+            <h5>Our Strict Code of Conduct:</h5>
+            <ul>
+              <li><strong>Pre-Agreement Statement and Quotation:</strong> We provide all clients with a clear pre-agreement statement and a comprehensive quotation prior to entering into any agreement.</li>
+              <li><strong>Credit Agreement Transparency:</strong> We ensure that all clients receive a copy of their credit agreement, detailing the terms and conditions in an easily understandable format.</li>
+              <li><strong>Full Disclosure of Costs:</strong> We inform clients of all costs associated with the agreement, ensuring they are fully aware of their financial commitments.</li>
+              <li><strong>Credit Reporting:</strong> We adhere to the NCR, FSCA and FIC as required, maintaining the highest standards of compliance.</li>
+              <li><strong>Client Support in Default Situations:</strong> We assist clients who find themselves in default, ensuring they have the support needed to navigate difficult financial situations.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="about-text-block">
+          <h4>Our story</h4>
+          <p>
+            In South Africa, a significant portion of the population is excluded from formal banking systems and microfinance institutions. As a result, many financially disqualified individuals fall prey to loan sharks and unscrupulous credit providers who impose exorbitant interest rates, trapping them in a cycle of debt and further marginalizing them from the mainstream economy. 
+            <br><br>
+            This is the driving force behind the establishment of Zwane Financial Services. We recognized the need to empower individuals who lack access to essential economic services and, as a result, we offer a variety of quality and affordable financial products designed to meet their needs and help them build a better financial future.
+          </p>
+        </div>
+      </div>
+
+      <h4 class="why-us-title">Why Us</h4>
+      <div class="why-us-grid">
+        <div class="why-card">
+          <i class="fas fa-chart-pie"></i>
+          <h5>Credit Scoring</h5>
+          <p>We use a unique financial vetting process that considers everyone’s specific financial circumstances, ensuring a fair and tailored approach to credit approval.</p>
+        </div>
+        <div class="why-card">
+          <i class="fas fa-lightbulb"></i>
+          <h5>Solution Driven</h5>
+          <p>We offer tailored financial products that cater to the unique needs of our clients.</p>
+        </div>
+        <div class="why-card">
+          <i class="fas fa-door-open"></i>
+          <h5>Financial Access</h5>
+          <p>Granting access to formal financial services for all, regardless of income, location, or background.</p>
+        </div>
+        <div class="why-card">
+          <i class="fas fa-heart"></i>
+          <h5>Customer Care</h5>
+          <p>We take pride in providing high-quality customer service to ensure customer satisfaction and promptly address any concerns or issues.</p>
+        </div>
+      </div>
     </div>
+
+    <div class="support-bottom-grid">
+      
+      <div class="section-card" style="margin-bottom: 0;">
+        <div class="section-header">
+          <h3><i class="fas fa-question-circle text-primary" style="margin-right: 8px;"></i> Frequently Asked Questions</h3>
+        </div>
+        <div class="faq-container">
+          
+          <div class="faq-item">
+            <div class="faq-question" onclick="toggleFAQ(this)">
+              <i class="fas fa-chevron-right"></i>
+              <span>When will I be eligible for an increase in my loan amount?</span>
+            </div>
+            <div class="faq-answer">
+              Zwane Financial Services has a policy requiring all new clients to take at least three one-month loans, based on their affordability and credit report. After completing these three loans, we begin to consider increasing the loan amount and terms.
+            </div>
+          </div>
+          
+          <div class="faq-item">
+            <div class="faq-question" onclick="toggleFAQ(this)">
+              <i class="fas fa-chevron-right"></i>
+              <span>Does your financing require upfront payments?</span>
+            </div>
+            <div class="faq-answer">
+              We will never ask for an upfront fee. That is illegal. Please contact us should you be required to pay an upfront fee by any of our consultants.
+            </div>
+          </div>
+          
+          <div class="faq-item">
+            <div class="faq-question" onclick="toggleFAQ(this)">
+              <i class="fas fa-chevron-right"></i>
+              <span>Can I use my SRD SASSA grant to apply for financing?</span>
+            </div>
+            <div class="faq-answer">
+              No.
+            </div>
+          </div>
+          
+          <div class="faq-item">
+            <div class="faq-question" onclick="toggleFAQ(this)">
+              <i class="fas fa-chevron-right"></i>
+              <span>How do I lodge a complaint?</span>
+            </div>
+            <div class="faq-answer">
+              Email <strong>admin@zwanefin.co.za</strong> or contact <strong>069 119 5046</strong>.
+            </div>
+          </div>
+          
+          <div class="faq-item">
+            <div class="faq-question" onclick="toggleFAQ(this)">
+              <i class="fas fa-chevron-right"></i>
+              <span>Which bank accounts do you accept?</span>
+            </div>
+            <div class="faq-answer">
+              All major bank accounts, except Discovery.<br>
+              Tymebank applications are processed in branch.
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="section-card" style="margin-bottom: 0;">
+        <div class="section-header">
+          <h3><i class="fas fa-book text-primary" style="margin-right: 8px;"></i> Legal & Resources</h3>
+        </div>
+        <div class="help-resources">
+          <a href="#" class="modern-list-item resource-link" onclick="openResource('user-guide')">
+            <div class="resource-icon"><i class="fas fa-file-alt"></i></div>
+            <div class="resource-text">
+              <span class="resource-title">User Guide</span>
+              <span class="resource-desc">Complete guide to using the platform</span>
+            </div>
+          </a>
+          <a href="#" class="modern-list-item resource-link" onclick="openResource('terms')">
+            <div class="resource-icon"><i class="fas fa-file-contract"></i></div>
+            <div class="resource-text">
+              <span class="resource-title">Terms & Conditions</span>
+              <span class="resource-desc">Loan terms and agreements</span>
+            </div>
+          </a>
+          <a href="#" class="modern-list-item resource-link" onclick="openResource('privacy')">
+            <div class="resource-icon"><i class="fas fa-shield-alt"></i></div>
+            <div class="resource-text">
+              <span class="resource-title">Privacy Policy</span>
+              <span class="resource-desc">How we protect your data</span>
+            </div>
+          </a>
+        </div>
+      </div>
+
+    </div>
+
   </div>
 </div>
+
+<div id="modern-universal-modal" class="modern-modal-overlay hidden">
+    <div class="modern-modal-panel">
+        <div class="modern-modal-header">
+            <h2 id="modern-modal-title" class="modern-modal-title"></h2>
+            <button class="modern-modal-close" onclick="closeUniversalModal()"><i class="fas fa-times"></i></button>
+        </div>
+        <div id="modern-modal-body" class="modern-modal-body"></div>
+    </div>
+</div>
+
+<script src="/user-portal/pages-js/support.js"></script>
