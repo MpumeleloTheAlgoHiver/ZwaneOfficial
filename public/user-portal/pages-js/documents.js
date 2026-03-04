@@ -5,6 +5,10 @@ let activeLoans = [];
 let bankAccounts = [];
 let paymentHistory = [];
 
+// Pagination State
+let currentPaymentPage = 1;
+const PAYMENTS_PER_PAGE = 10;
+
 // ==========================================
 // UTILITY FORMATTERS
 // ==========================================
@@ -162,6 +166,7 @@ async function loadPaymentHistory(supabase, userId) {
             status: payment.status || 'completed', method: payment.payment_method || 'Card'
         }));
 
+        currentPaymentPage = 1; // Reset pagination on load
         return paymentHistory.reduce((acc, p) => {
             acc[p.loanId] = (acc[p.loanId] || 0) + (p.amount || 0);
             return acc;
@@ -236,7 +241,10 @@ function renderActiveLoans() {
         return;
     }
 
-    container.innerHTML = activeLoans.slice(0,3).map(loan => `
+    // Only show top 3 on the main dashboard
+    const visibleLoans = activeLoans.slice(0, 3);
+
+    let html = visibleLoans.map(loan => `
         <div class="modern-list-item" onclick="openLoansModule()">
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div>
@@ -250,6 +258,17 @@ function renderActiveLoans() {
             </div>
         </div>
     `).join('');
+
+    // View All button for active loans
+    if (activeLoans.length > 3) {
+        html += `
+            <button class="text-btn" onclick="openLoansModule()" style="width: 100%; text-align: center; margin-top: 16px; padding: 12px; font-weight: 600; color: var(--color-primary); background: rgba(231,118,46,0.05); border-radius: var(--radius-md); transition: 0.2s; cursor: pointer;">
+                View All ${activeLoans.length} Active Loans
+            </button>
+        `;
+    }
+
+    container.innerHTML = html;
 }
 
 function renderBankAccounts() {
@@ -261,7 +280,7 @@ function renderBankAccounts() {
         return;
     }
 
-    // SLICED: Only show top 3 on the main dashboard
+    // Only show top 3 on the main dashboard
     const visibleAccounts = bankAccounts.slice(0, 3);
 
     let html = visibleAccounts.map(account => `
@@ -286,7 +305,7 @@ function renderBankAccounts() {
         </div>
     `).join('');
 
-    // If more than 3 accounts exist, add a View All button
+    // View All button for bank accounts
     if (bankAccounts.length > 3) {
         html += `
             <button class="text-btn" onclick="openBankAccountsModule()" style="width: 100%; text-align: center; margin-top: 16px; padding: 12px; font-weight: 600; color: var(--color-primary); background: rgba(231,118,46,0.05); border-radius: var(--radius-md); transition: 0.2s; cursor: pointer;">
@@ -298,16 +317,34 @@ function renderBankAccounts() {
     container.innerHTML = html;
 }
 
+// Pagination Logic
+window.changePaymentPage = function(direction) {
+    const maxPage = Math.ceil(paymentHistory.length / PAYMENTS_PER_PAGE) || 1;
+    currentPaymentPage += direction;
+    if (currentPaymentPage < 1) currentPaymentPage = 1;
+    if (currentPaymentPage > maxPage) currentPaymentPage = maxPage;
+    renderPaymentHistory();
+};
+
 function renderPaymentHistory() {
     const tbody = document.getElementById('paymentHistoryBody');
     if (!tbody) return;
 
+    const tableContainer = tbody.closest('.table-container');
+
     if (paymentHistory.length === 0) {
         tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-muted); padding:30px; font-weight:500;">No payment history yet</td></tr>`;
+        const existingPg = tableContainer.querySelector('.pagination-controls');
+        if (existingPg) existingPg.remove();
         return;
     }
 
-    tbody.innerHTML = paymentHistory.slice(0, 10).map(p => `
+    // Handle Pagination Slice
+    const startIdx = (currentPaymentPage - 1) * PAYMENTS_PER_PAGE;
+    const paginatedPayments = paymentHistory.slice(startIdx, startIdx + PAYMENTS_PER_PAGE);
+    const maxPage = Math.ceil(paymentHistory.length / PAYMENTS_PER_PAGE) || 1;
+
+    tbody.innerHTML = paginatedPayments.map(p => `
         <tr>
             <td>${formatDate(p.date)}</td>
             <td style="color:var(--text-muted);">#${p.applicationId || p.loanId}</td>
@@ -317,6 +354,29 @@ function renderPaymentHistory() {
             <td><button class="btn-icon"><i class="fas fa-receipt"></i></button></td>
         </tr>
     `).join('');
+
+    // Generate/Update Pagination HTML below table
+    let paginationHtml = '';
+    if (maxPage > 1) {
+        paginationHtml = `
+            <div class="pagination-controls" style="display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 24px;">
+                <button onclick="changePaymentPage(-1)" ${currentPaymentPage === 1 ? 'disabled' : ''} style="width: 40px; height: 40px; border-radius: 50%; border: none; background: var(--color-white); box-shadow: var(--shadow-soft); color: var(--text-main); cursor: ${currentPaymentPage === 1 ? 'not-allowed' : 'pointer'}; opacity: ${currentPaymentPage === 1 ? '0.5' : '1'}; transition: 0.2s; display: grid; place-items: center;">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+                <span style="font-size: 13px; font-weight: 600; color: var(--text-muted);">Page ${currentPaymentPage} of ${maxPage}</span>
+                <button onclick="changePaymentPage(1)" ${currentPaymentPage === maxPage ? 'disabled' : ''} style="width: 40px; height: 40px; border-radius: 50%; border: none; background: var(--color-white); box-shadow: var(--shadow-soft); color: var(--text-main); cursor: ${currentPaymentPage === maxPage ? 'not-allowed' : 'pointer'}; opacity: ${currentPaymentPage === maxPage ? '0.5' : '1'}; transition: 0.2s; display: grid; place-items: center;">
+                    <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
+        `;
+    }
+
+    const existingPg = tableContainer.querySelector('.pagination-controls');
+    if (existingPg) existingPg.remove();
+    
+    if (paginationHtml) {
+        tableContainer.insertAdjacentHTML('beforeend', paginationHtml);
+    }
 }
 
 function renderAll() {
@@ -344,20 +404,10 @@ window.updateDefaultAccount = async function(accountId) {
     }
 };
 
-// ==========================================
-// DB ACTIONS: Update Default & Custom Confirm Delete
-// ==========================================
-
 window.confirmDeleteAccount = function(accountId) {
-    // FIX: Convert the ID from a String back to a Number so it matches the database
     const numericId = Number(accountId);
     const account = bankAccounts.find(a => a.id === numericId);
-    
-    // If it still can't find it, log an error so we know why
-    if (!account) {
-        console.error('Account not found in array. ID searched:', numericId);
-        return;
-    }
+    if (!account) return;
 
     const html = `
         <div style="text-align: center; padding: 10px 0;">
@@ -380,7 +430,6 @@ window.confirmDeleteAccount = function(accountId) {
 
 window.executeDeleteAccount = async function(accountId) {
     try {
-
         const btn = document.getElementById('confirmRemoveBtn');
         if (btn) {
             btn.disabled = true;
@@ -390,32 +439,21 @@ window.executeDeleteAccount = async function(accountId) {
         const { supabase } = await import('/Services/supabaseClient.js');
         const { data: { session } } = await supabase.auth.getSession();
         
-
         const numericId = Number(accountId);
-
-        const { error } = await supabase.from('bank_accounts')
-            .delete()
-            .eq('id', numericId)
-            .eq('user_id', session.user.id);
-            
+        const { error } = await supabase.from('bank_accounts').delete().eq('id', numericId).eq('user_id', session.user.id);
         if (error) throw error;
         
-        // Refresh data
         await loadBankAccounts(supabase, session.user.id);
         
-
         if (bankAccounts.length > 0 && !bankAccounts.some(acc => acc.isPrimary)) {
             await updateDefaultAccount(bankAccounts[0].id);
         } else {
             renderAll(); 
         }
-        
         closeUniversalModal(); 
     } catch (error) {
         console.error('Error deleting account:', error);
         alert('Failed to remove account.');
-        
-        // Reset button if it fails
         const btn = document.getElementById('confirmRemoveBtn');
         if (btn) {
             btn.disabled = false;
@@ -423,6 +461,7 @@ window.executeDeleteAccount = async function(accountId) {
         }
     }
 };
+
 // ==========================================
 // UNIVERSAL MODALS
 // ==========================================
@@ -611,11 +650,109 @@ window.saveNewBankAccount = async function(e) {
 };
 
 // ==========================================
+// PDF GENERATION (jsPDF & AutoTable)
+// ==========================================
+async function ensurePdfLibraries() {
+    if (typeof window.jspdf !== 'undefined') return true;
+    
+    return new Promise((resolve) => {
+        const script1 = document.createElement('script');
+        script1.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+        script1.onload = () => {
+            const script2 = document.createElement('script');
+            script2.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
+            script2.onload = () => resolve(true);
+            document.head.appendChild(script2);
+        };
+        document.head.appendChild(script1);
+    });
+}
+
+window.downloadStatement = async function() {
+    const btn = document.getElementById('downloadStatementBtn');
+    const originalText = btn.innerHTML;
+    
+    try {
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+        btn.disabled = true;
+
+        await ensurePdfLibraries();
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+
+        const { supabase } = await import('/Services/supabaseClient.js');
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        const displayName = session?.user?.user_metadata?.full_name || session?.user?.user_metadata?.name || 'Mufaro Ncube'; 
+        const uidShort = session?.user?.id ? session.user.id.substring(0, 6).toUpperCase() : '000000';
+
+        doc.setFontSize(24);
+        doc.setTextColor(231, 118, 46);
+        doc.setFont("helvetica", "bold");
+        doc.text("Zwane Financial Services", 14, 22);
+        
+        doc.setFontSize(16);
+        doc.setTextColor(28, 28, 30);
+        doc.setFont("helvetica", "normal");
+        doc.text("Payment History Statement", 14, 34);
+        
+        doc.setFontSize(10);
+        doc.setTextColor(142, 142, 147);
+        doc.text(`Account Holder: ${displayName}`, 14, 44);
+        doc.text(`Account Reference: #${uidShort}`, 14, 50);
+        doc.text(`Date Generated: ${new Date().toLocaleDateString('en-ZA')}`, 14, 56);
+
+        const tableColumn = ["Date", "Reference", "Amount", "Status", "Method"];
+        const tableRows = [];
+
+        paymentHistory.forEach(p => {
+            tableRows.push([
+                formatDate(p.date),
+                `#${p.applicationId || p.loanId}`,
+                formatCurrency(p.amount),
+                p.status.toUpperCase(),
+                p.method
+            ]);
+        });
+
+        doc.autoTable({
+            startY: 64,
+            head: [tableColumn],
+            body: tableRows,
+            theme: 'grid',
+            headStyles: { 
+                fillColor: [231, 118, 46], 
+                textColor: [255, 255, 255],
+                fontStyle: 'bold'
+            },
+            alternateRowStyles: {
+                fillColor: [250, 250, 250]
+            },
+            styles: { 
+                fontSize: 10, 
+                cellPadding: 6,
+                textColor: [28, 28, 30] 
+            }
+        });
+
+        doc.save(`Zwane Financial Services_Statement_${uidShort}.pdf`);
+
+    } catch (error) {
+        console.error("Error generating PDF:", error);
+        alert("Failed to generate PDF. Please try again.");
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+};
+
+// ==========================================
 // EVENT LISTENERS
 // ==========================================
 function bindEventListeners() {
     document.getElementById('makePaymentBtn')?.addEventListener('click', () => alert('Payment Gateway Integration Pending'));
     document.getElementById('addBankAccountBtn')?.addEventListener('click', openAddBankAccountModal);
+    document.getElementById('downloadStatementBtn')?.addEventListener('click', downloadStatement);
     
     const select = document.getElementById('quickAccountSelect');
     if (select) {
