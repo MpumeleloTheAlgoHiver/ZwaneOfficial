@@ -437,11 +437,7 @@ window.goToStep = function(step) {
   // Guard: Cannot proceed to step 2+ without consent and all documents
   if (step >= 2) {
     if (!window.consentGiven) {
-      if (typeof window.showToast === 'function') {
-        window.showToast('Consent Required', 'Please consent to the Privacy Policy first', 'warning');
-      } else {
-        showMinimalNotice('Consent required', 'Please consent to the Privacy Policy first.');
-      }
+      showMinimalNotice('Consent required', 'Please consent to the Privacy Policy first.');
       return;
     }
     
@@ -459,12 +455,7 @@ window.goToStep = function(step) {
       });
       
       const pendingNames = pending.join(', ');
-      
-      if (typeof window.showToast === 'function') {
-        window.showToast('Documents Required', `Please complete: ${pendingNames}`, 'warning');
-      } else {
-        showMinimalNotice('Documents required', `Please complete: ${pendingNames}`);
-      }
+      showMinimalNotice('Documents required', `Please complete: ${pendingNames}`);
       return;
     }
   }
