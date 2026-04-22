@@ -79,6 +79,14 @@ function initOffsetObservers() {
       window.__setNavbarOffsetTimeout = setTimeout(() => setNavbarOffset(), 60);
     }
 
+    // Disconnect any prior observers to prevent accumulation across page loads
+    if (window.__zw_ro && typeof window.__zw_ro.disconnect === 'function') {
+      try { window.__zw_ro.disconnect(); } catch (_) {}
+    }
+    if (window.__zw_mo && typeof window.__zw_mo.disconnect === 'function') {
+      try { window.__zw_mo.disconnect(); } catch (_) {}
+    }
+
     if (window.ResizeObserver) {
       const ro = new ResizeObserver(() => scheduleRecalc());
       if (navbar) ro.observe(navbar);
@@ -95,6 +103,11 @@ function initOffsetObservers() {
     console.warn('initOffsetObservers error', err);
   }
 }
+
+// Per-session asset version (set once at script load) so the browser can cache
+// page HTML/CSS/JS across tab switches instead of refetching every time.
+const ASSET_VERSION = (window.__ZW_ASSET_VERSION = window.__ZW_ASSET_VERSION || Date.now());
+const __pageHtmlCache = new Map();
 
 async function getSystemTheme(force = false) {
   const now = Date.now();
@@ -303,13 +316,13 @@ async function loadPage(pageName) {
     
     showLoading(true);
 
-    const htmlResponse = await fetch(`/user-portal/pages/${pageName}.html`);
-    if (!htmlResponse.ok) throw new Error(`Page not found: ${pageName}`);
-    const htmlContent = await htmlResponse.text();
-
-    const oldCss = document.getElementById('page-specific-css');
-    if (oldCss) {
-      oldCss.remove();
+    // Use in-memory cache for HTML; rely on browser cache for CSS/JS via stable version.
+    let htmlContent = __pageHtmlCache.get(pageName);
+    if (!htmlContent) {
+      const htmlResponse = await fetch(`/user-portal/pages/${pageName}.html`);
+      if (!htmlResponse.ok) throw new Error(`Page not found: ${pageName}`);
+      htmlContent = await htmlResponse.text();
+      __pageHtmlCache.set(pageName, htmlContent);
     }
 
     let cssPageName = pageName;
@@ -319,15 +332,17 @@ async function loadPage(pageName) {
     const cssUrl = `/user-portal/pages-css/${cssPageName}.css`;
 
     const mainContent = document.getElementById('main-content');
-    mainContent.style.visibility = 'hidden';
 
-    try {
-      await loadPageStylesheet(cssUrl);
-    } catch (e) {
+    // Kick off stylesheet load but don't block paint on it. We swap the active
+    // page CSS only after the new one is ready to avoid an unstyled flash.
+    loadPageStylesheet(cssUrl).catch(() => {
       console.warn(`Could not load CSS for ${pageName}.`);
-    }
+    });
 
     mainContent.innerHTML = htmlContent;
+    mainContent.classList.remove('fade-in');
+    // Force reflow so the animation re-triggers
+    void mainContent.offsetWidth;
     mainContent.classList.add('fade-in');
     mainContent.style.visibility = 'visible';
 
@@ -416,24 +431,39 @@ async function loadPage(pageName) {
 
 async function loadPageStylesheet(cssUrl) {
   return new Promise((resolve, reject) => {
+    const fullUrl = `${cssUrl}?v=${ASSET_VERSION}`;
+    const existing = document.getElementById('page-specific-css');
+
+    // Already the active stylesheet — nothing to do.
+    if (existing && existing.href && existing.href.endsWith(`${cssUrl}?v=${ASSET_VERSION}`)) {
+      resolve(true);
+      return;
+    }
+
     const link = document.createElement('link');
-    link.id = 'page-specific-css';
     link.rel = 'stylesheet';
-    link.href = `${cssUrl}?v=${Date.now()}`;
+    link.href = fullUrl;
 
     let settled = false;
     const complete = (ok) => {
       if (settled) return;
       settled = true;
-      if (ok) resolve(true);
-      else reject(new Error('Stylesheet failed to load'));
+      if (ok) {
+        // Only remove the previous page CSS once the new one is parsed,
+        // so we never get a flash of unstyled content.
+        if (existing) existing.remove();
+        link.id = 'page-specific-css';
+        resolve(true);
+      } else {
+        try { link.remove(); } catch (_) {}
+        reject(new Error('Stylesheet failed to load'));
+      }
     };
 
     link.onload = () => complete(true);
     link.onerror = () => complete(false);
 
     document.head.appendChild(link);
-    setTimeout(() => complete(true), 1200);
   });
 }
 
@@ -447,7 +477,8 @@ async function loadPageScript(pageName) {
     const script = document.createElement('script');
     script.id = 'page-specific-js';
     script.type = 'module';
-    script.src = `/user-portal/pages-js/${pageName}.js?t=${Date.now()}`;
+    // Stable per-session URL so the browser can cache the module.
+    script.src = `/user-portal/pages-js/${pageName}.js?v=${ASSET_VERSION}`;
     script.onload = () => resolve(true);
     script.onerror = () => {
       script.remove();
