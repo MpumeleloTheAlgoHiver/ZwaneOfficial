@@ -1387,35 +1387,41 @@ function unlockSidebar() {
 }
 window.unlockSidebar = unlockSidebar;
 
+let _logoutDelegationBound = false;
+let _logoutInProgress = false;
 async function setupLogout() {
-  const { supabase } = await import('/Services/supabaseClient.js');
-  
-  const logoutButtons = document.querySelectorAll('.logout-btn, .menu-logout-btn');
-  logoutButtons.forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      showToast('Signing Out', 'Please wait while we sign you out...', 'info', 2000);
-      await new Promise(resolve => setTimeout(resolve, 800));
-      
-      try {
-        const { error } = await supabase.auth.signOut();
-        if (error) {
-          showToast('Error', 'Failed to sign out. Please try again.', 'warning', 3000);
-          console.error('Sign out error:', error);
-          return;
-        }
-        
-        showToast('You have been signed out successfully.', 'success', 2000);
-        
-        setTimeout(() => {
-          window.location.href = '/auth/login.html';
-        }, 1500);
-        
-      } catch (err) {
-        console.error('Logout error:', err);
-        showToast('Error', 'Something went wrong. Please try again.', 'warning', 3000);
+  if (_logoutDelegationBound) return;
+  _logoutDelegationBound = true;
+
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.logout-btn, .menu-logout-btn');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (_logoutInProgress) return;
+    _logoutInProgress = true;
+
+    showToast('Signing Out', 'Please wait while we sign you out...', 'info', 2000);
+
+    try {
+      const { supabase } = await import('/Services/supabaseClient.js');
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('Sign out error:', error);
+        showToast('Error', 'Failed to sign out. Please try again.', 'warning', 3000);
+        _logoutInProgress = false;
+        return;
       }
-    });
-  });
+      showToast('Goodbye!', 'You have been signed out successfully.', 'success', 1500);
+      setTimeout(() => {
+        window.location.replace('/auth/login.html');
+      }, 800);
+    } catch (err) {
+      console.error('Logout error:', err);
+      showToast('Error', 'Something went wrong. Please try again.', 'warning', 3000);
+      _logoutInProgress = false;
+    }
+  }, true);
 }
 
 window.addEventListener('popstate', (e) => {
