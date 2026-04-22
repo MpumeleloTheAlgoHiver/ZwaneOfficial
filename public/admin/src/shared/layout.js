@@ -238,6 +238,11 @@ function renderSidebarNav(role) {
         </li>
       ` : ''}
       
+      ${isAdmin ? `
+        <p class="px-4 text-xs font-bold text-gray-400 uppercase tracking-wider mt-8 mb-3">Compliance</p>
+        <li><a href="/admin/sacrra" class="${linkBase} ${linkInactive}"><i class="fa-solid fa-file-contract w-5 h-5 mr-3 sidebar-nav-icon transition-colors"></i>SACRRA</a></li>
+      ` : ''}
+      
       ${isSuperAdmin ? `
         <p class="px-4 text-xs font-bold text-gray-400 uppercase tracking-wider mt-8 mb-3">System</p>
         <li><a href="/admin/settings" class="${linkBase} ${linkInactive}"><i class="fa-solid fa-sliders w-5 h-5 mr-3 sidebar-nav-icon transition-colors"></i>Config</a></li>

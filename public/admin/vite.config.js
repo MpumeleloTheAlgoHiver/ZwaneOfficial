@@ -32,7 +32,10 @@ export default {
         analytics: resolve(__dirname, 'analytics.html'),
 
         // Financials 
-        financials: resolve(__dirname, 'financials.html')
+        financials: resolve(__dirname, 'financials.html'),
+
+        // Compliance
+        sacrra: resolve(__dirname, 'sacrra.html')
       },
     },
   },

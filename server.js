@@ -1675,6 +1675,10 @@ app.get('/admin/settings', (req, res) => {
     sendAdminPage('settings.html', res);
 });
 
+app.get('/admin/sacrra', (req, res) => {
+    sendAdminPage('sacrra.html', res);
+});
+
 
 // --- 8. Start Server ---
 app.listen(PORT, () => {
