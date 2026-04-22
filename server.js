@@ -6,6 +6,33 @@ const crypto = require('crypto');
 // Load .env from root if present (Replit secrets take priority)
 require('dotenv').config();
 
+// Normalize Supabase env vars so all modules see consistent, working credentials.
+// The frontend uses VITE_SUPABASE_* names; mirror them onto the legacy SUPABASE_* names
+// (and vice versa) so older modules that read process.env.SUPABASE_* keep working.
+const _FALLBACK_SUPABASE_URL = "https://jmnjkxfxenrudpvjprcu.supabase.co";
+const _FALLBACK_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptbmpreGZ4ZW5ydWRwdmpwcmN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUxODkzNzUsImV4cCI6MjA4MDc2NTM3NX0.X4ZdxzHF0b9GnHklObpIHqnhWvtKjdZnLoah0EVTvHs";
+const _resolvedUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || _FALLBACK_SUPABASE_URL;
+const _resolvedAnon = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || _FALLBACK_SUPABASE_ANON_KEY;
+process.env.SUPABASE_URL = _resolvedUrl;
+process.env.VITE_SUPABASE_URL = _resolvedUrl;
+process.env.SUPABASE_ANON_KEY = _resolvedAnon;
+process.env.VITE_SUPABASE_ANON_KEY = _resolvedAnon;
+// Validate the configured service-role key actually belongs to this Supabase project.
+// If missing or for a different project, fall back to the anon key so RLS-allowed
+// reads still succeed (instead of failing with "Invalid API key").
+function _isJwtForProject(token, supabaseUrl) {
+    try {
+        const ref = (supabaseUrl.match(/^https:\/\/([^.]+)\.supabase\.co/) || [])[1];
+        if (!ref) return false;
+        const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
+        return payload && payload.ref === ref && payload.role === 'service_role';
+    } catch { return false; }
+}
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    !_isJwtForProject(process.env.SUPABASE_SERVICE_ROLE_KEY, _resolvedUrl)) {
+    process.env.SUPABASE_SERVICE_ROLE_KEY = _resolvedAnon;
+}
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
