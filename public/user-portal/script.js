@@ -109,6 +109,27 @@ function initOffsetObservers() {
 const ASSET_VERSION = (window.__ZW_ASSET_VERSION = window.__ZW_ASSET_VERSION || Date.now());
 const __pageHtmlCache = new Map();
 
+// Track the navigation generation so a slow load can't overwrite a newer click.
+let __navToken = 0;
+
+function renderPageSkeleton(pageName) {
+  const mainContent = document.getElementById('main-content');
+  if (!mainContent) return;
+  const cards = (n) => Array.from({ length: n }, () => '<div class="sk sk-card"></div>').join('');
+  const lines = (n) => Array.from({ length: n }, (_, i) =>
+    `<div class="sk sk-line${i % 3 === 2 ? ' short' : ''}"></div>`
+  ).join('');
+  mainContent.innerHTML = `
+    <div class="page-skeleton" aria-busy="true" aria-label="Loading">
+      <div class="sk sk-title"></div>
+      <div class="sk sk-sub"></div>
+      <div class="sk-row">${cards(3)}</div>
+      <div class="sk-row"><div class="sk sk-block"></div></div>
+      <div class="sk-row">${lines(3)}</div>
+    </div>`;
+  mainContent.style.visibility = 'visible';
+}
+
 async function getSystemTheme(force = false) {
   const now = Date.now();
   const isCacheFresh = !force && cachedSystemTheme && (now - systemThemeFetchedAt) < SYSTEM_THEME_CACHE_MS;
@@ -316,14 +337,9 @@ async function loadPage(pageName) {
     
     showLoading(true);
 
-    // Use in-memory cache for HTML; rely on browser cache for CSS/JS via stable version.
-    let htmlContent = __pageHtmlCache.get(pageName);
-    if (!htmlContent) {
-      const htmlResponse = await fetch(`/user-portal/pages/${pageName}.html`);
-      if (!htmlResponse.ok) throw new Error(`Page not found: ${pageName}`);
-      htmlContent = await htmlResponse.text();
-      __pageHtmlCache.set(pageName, htmlContent);
-    }
+    // Show a skeleton immediately so the user never sees unstyled content.
+    const myToken = ++__navToken;
+    renderPageSkeleton(pageName);
 
     let cssPageName = pageName;
     if (pageName.startsWith('apply-loan-')) {
@@ -331,14 +347,27 @@ async function loadPage(pageName) {
     }
     const cssUrl = `/user-portal/pages-css/${cssPageName}.css`;
 
-    const mainContent = document.getElementById('main-content');
+    // Fetch HTML and stylesheet in parallel; await both before swapping.
+    const htmlPromise = (async () => {
+      let cached = __pageHtmlCache.get(pageName);
+      if (cached) return cached;
+      const htmlResponse = await fetch(`/user-portal/pages/${pageName}.html`);
+      if (!htmlResponse.ok) throw new Error(`Page not found: ${pageName}`);
+      const text = await htmlResponse.text();
+      __pageHtmlCache.set(pageName, text);
+      return text;
+    })();
 
-    // Kick off stylesheet load but don't block paint on it. We swap the active
-    // page CSS only after the new one is ready to avoid an unstyled flash.
-    loadPageStylesheet(cssUrl).catch(() => {
-      console.warn(`Could not load CSS for ${pageName}.`);
+    const cssPromise = loadPageStylesheet(cssUrl).catch((e) => {
+      console.warn(`Could not load CSS for ${pageName}.`, e?.message || e);
     });
 
+    const [htmlContent] = await Promise.all([htmlPromise, cssPromise]);
+
+    // If the user clicked another tab while we were loading, abandon this swap.
+    if (myToken !== __navToken) return;
+
+    const mainContent = document.getElementById('main-content');
     mainContent.innerHTML = htmlContent;
     mainContent.classList.remove('fade-in');
     // Force reflow so the animation re-triggers
@@ -369,7 +398,7 @@ async function loadPage(pageName) {
       const modules = ['tillslip', 'bankstatement', 'idcard'];
       for (const module of modules) {
         try {
-          await import(`/user-portal/modules-js/${module}.js?t=${Date.now()}`);
+          await import(`/user-portal/modules-js/${module}.js?v=${ASSET_VERSION}`);
         } catch (error) {
           console.error(`❌ Failed to load ${module} module:`, error);
         }
@@ -378,7 +407,7 @@ async function loadPage(pageName) {
 
     if (pageName === 'apply-loan-2') {
       try {
-        const scriptUrl = `/user-portal/modules-js/credit-check.js?t=${Date.now()}`;
+        const scriptUrl = `/user-portal/modules-js/credit-check.js?v=${ASSET_VERSION}`;
         fetch(scriptUrl)
           .then(response => response.text())
           .then(scriptContent => {
@@ -394,7 +423,7 @@ async function loadPage(pageName) {
 
     if (pageName === 'apply-loan-3') {
       try {
-        const scriptUrl = `/user-portal/modules-js/loan-config.js?t=${Date.now()}`;
+        const scriptUrl = `/user-portal/modules-js/loan-config.js?v=${ASSET_VERSION}`;
         fetch(scriptUrl)
           .then(response => response.text())
           .then(scriptContent => {

@@ -660,3 +660,30 @@ p {
 #page-transition:not(.transition-hidden) .transition-backdrop {
   backdrop-filter: blur(8px) saturate(1.1);
 }
+/* ====== Page skeleton loader (shown during tab switches) ====== */
+.page-skeleton {
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+.page-skeleton .sk-row { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+.page-skeleton .sk {
+  background: linear-gradient(90deg, #ececec 0%, #f6f6f6 50%, #ececec 100%);
+  background-size: 200% 100%;
+  border-radius: 12px;
+  animation: skShimmer 1.2s ease-in-out infinite;
+}
+.page-skeleton .sk-title { height: 28px; width: 240px; max-width: 60%; margin-bottom: 16px; }
+.page-skeleton .sk-sub { height: 14px; width: 360px; max-width: 80%; margin-bottom: 24px; }
+.page-skeleton .sk-card { height: 120px; flex: 1 1 220px; min-width: 200px; }
+.page-skeleton .sk-block { height: 220px; flex: 1 1 100%; }
+.page-skeleton .sk-line { height: 14px; flex: 1 1 100%; max-width: 100%; }
+.page-skeleton .sk-line.short { max-width: 40%; }
+@keyframes skShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+[data-theme="dark"] .page-skeleton .sk {
+  background: linear-gradient(90deg, #2a2a2a 0%, #3a3a3a 50%, #2a2a2a 100%);
+}
