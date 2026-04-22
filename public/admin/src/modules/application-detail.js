@@ -1251,7 +1251,6 @@ const renderDocuments = (docs, truidInfo, kycInfo) => {
   const docCount = document.getElementById('doc-count');
   if (!docList || !docCount) return;
 
-  // Standard document types expected from the wizard
   const docTypes = [
       { key: 'idcard', label: 'ID Document' }, 
       { key: 'till_slip', label: 'Latest Payslip' }, 
@@ -1265,15 +1264,20 @@ const renderDocuments = (docs, truidInfo, kycInfo) => {
     if (kycInfo.selfie_image_url) kycCount++;
   }
   
-  // Update count to include manual docs + the TruID record + KYC records
   docCount.textContent = (docs?.length || 0) + (truidInfo ? 1 : 0) + kycCount;
   docList.innerHTML = '';
 
-  // 1. Render Manual Uploads
+  // 1. Render Manual Uploads (with KYC awareness for the ID)
   docTypes.forEach(type => {
-      const existing = docs.find(d => d.file_type === type.key);
-      const statusColor = existing ? 'text-green-600 bg-green-100' : 'text-gray-400 bg-gray-100';
-      const icon = existing ? 'fa-check-circle' : 'fa-upload';
+      const manualDoc = docs.find(d => d.file_type === type.key);
+      
+      // NEW LOGIC: Check if this is an ID card AND if we have KYC session images
+      const hasKycId = type.key === 'idcard' && (kycInfo?.id_front_image_url || kycInfo?.id_back_image_url);
+      
+      const isVerified = manualDoc || hasKycId;
+      const statusColor = isVerified ? 'text-green-600 bg-green-100' : 'text-gray-400 bg-gray-100';
+      const icon = isVerified ? 'fa-check-circle' : 'fa-upload';
+      const subtext = hasKycId ? 'Verified via KYC Session' : (manualDoc ? 'File Verified' : 'Missing Document');
 
       const div = document.createElement('div');
       div.className = 'flex items-center justify-between p-4 bg-white border border-gray-200 rounded-xl hover:border-orange-300 transition-all group';
@@ -1285,17 +1289,17 @@ const renderDocuments = (docs, truidInfo, kycInfo) => {
             </div>
             <div class="flex-grow min-w-0">
                 <p class="text-sm font-bold text-gray-900">${type.label}</p>
-                <p class="text-xs text-gray-500">${existing ? 'File Verified' : 'Missing Document'}</p>
+                <p class="text-xs text-gray-500">${subtext}</p>
             </div>
         </div>
         <div class="flex items-center gap-2">
-            ${existing ? `
-            <button onclick="handleSmartDownload('${existing.file_path}')" class="w-10 h-10 rounded-full flex items-center justify-center text-blue-600 hover:bg-blue-50 transition-all">
+            ${manualDoc ? `
+            <button onclick="handleSmartDownload('${manualDoc.file_path}')" class="w-10 h-10 rounded-full flex items-center justify-center text-blue-600 hover:bg-blue-50 transition-all">
                 <i class="fa-solid fa-eye"></i>
             </button>` : ''}
             
             <label class="cursor-pointer bg-gray-900 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-black transition-all">
-                ${existing ? 'Replace' : 'Upload'}
+                ${isVerified ? 'Replace' : 'Upload'}
                 <input type="file" class="hidden admin-doc-upload" data-type="${type.key}" accept=".pdf,.jpg,.png,.jpeg">
             </label>
         </div>
@@ -1303,7 +1307,7 @@ const renderDocuments = (docs, truidInfo, kycInfo) => {
       docList.appendChild(div);
   });
 
-  // 2. NEW: Render TruID Card
+  // 2. Render TruID Card
   if (truidInfo) {
     const isVerified = truidInfo.verified === true;
     const truidStatus = truidInfo.normalized_status || truidInfo.status || 'Linked';
@@ -1321,7 +1325,7 @@ const renderDocuments = (docs, truidInfo, kycInfo) => {
                 <p class="text-sm font-bold text-gray-900">TruID Digital Verification</p>
                 <div class="flex items-center gap-2">
                     <span class="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-blue-100 text-blue-700">${truidStatus}</span>
-                    <p class="text-[10px] text-gray-400 font-medium">Ref: ${truidInfo.collection_id.slice(0,8)}</p>
+                    <p class="text-[10px] text-gray-400 font-medium">Ref: ${(truidInfo.collection_id || '').slice(0,8)}</p>
                 </div>
             </div>
         </div>
@@ -1332,12 +1336,12 @@ const renderDocuments = (docs, truidInfo, kycInfo) => {
     docList.appendChild(truidDiv);
   }
 
-  // 3. Render KYC Images
+  // 3. Render Detailed KYC Image Cards
   if (kycInfo) {
     const kycDocs = [
-      { key: 'id_front', label: 'ID Document Front', url: kycInfo.id_front_image_url },
-      { key: 'id_back', label: 'ID Document Back', url: kycInfo.id_back_image_url },
-      { key: 'selfie', label: 'Selfie Image', url: kycInfo.selfie_image_url }
+      { key: 'id_front', label: 'KYC ID Front', url: kycInfo.id_front_image_url },
+      { key: 'id_back', label: 'KYC ID Back', url: kycInfo.id_back_image_url },
+      { key: 'selfie', label: 'KYC Selfie', url: kycInfo.selfie_image_url }
     ].filter(d => d.url);
 
     kycDocs.forEach(doc => {
@@ -1352,11 +1356,12 @@ const renderDocuments = (docs, truidInfo, kycInfo) => {
               <div class="flex-grow min-w-0">
                   <p class="text-sm font-bold text-gray-900">${doc.label}</p>
                   <div class="flex items-center gap-2">
-                      <span class="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-purple-100 text-purple-700">KYC Image</span>
+                      <span class="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-purple-100 text-purple-700">Digital KYC</span>
+                      <p class="text-[10px] text-gray-400 font-medium">Session ID: ${(kycInfo.session_id || '').slice(0,8)}</p>
                   </div>
               </div>
           </div>
-          <button onclick="window.open('${doc.url}', '_blank')" class="px-4 py-2 bg-white border border-purple-600 text-purple-600 rounded-lg text-xs font-bold hover:bg-purple-50 transition-all">
+          <button onclick="window.open('${doc.url}', '_blank')" class="px-4 py-2 bg-white border border-purple-600 text-blue-600 rounded-lg text-xs font-bold hover:bg-purple-50 transition-all">
               <i class="fa-solid fa-external-link-alt mr-1"></i> View
           </button>
       `;
