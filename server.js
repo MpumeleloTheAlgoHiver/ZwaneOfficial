@@ -342,47 +342,107 @@ async function docuSealRequest(method, endpoint, data) {
     });
 }
 
-function buildDocuSealSubmission(applicationData = {}, profileData = {}) {
+/**
+ * buildDocuSealSubmission
+ * Maps dynamic data to the Zwane Financial Services Small Credit Agreement.
+ * * @param {Object} applicationData - Data from public.loan_applications
+ * @param {Object} profileData - Data from public.profiles
+ * @param {Object} branchData - Data from public.branches
+ * @param {string} creditProviderEmail - Email of the ZFS representative
+ */
+function buildDocuSealSubmission(applicationData = {}, profileData = {}, branchData = {}, creditProviderEmail) {
+    // Standard formatters for South African compliance
+    const formatCurrency = (val) => `R ${parseFloat(val || 0).toFixed(2)}`;
+    const formatDate = (date) => date ? new Date(date).toLocaleDateString('en-ZA') : 'N/A';
+
+    // 1. Logic for Calculated Financial Fields
+    const principal = parseFloat(applicationData.offer_principal || 0);
+    const thirdParty = parseFloat(applicationData.offer_details?.third_party_payment || 0);
+    const totalLoanC = principal + thirdParty; // Field (c) 
+
+    const interest = parseFloat(applicationData.offer_total_interest || 0);
+    const initiation = parseFloat(applicationData.offer_total_initiation_fees || 0);
+    const serviceFees = parseFloat(applicationData.offer_total_admin_fees || 0);
+    const creditLife = parseFloat(applicationData.offer_credit_life_monthly || 0);
+    
+    // e.5 VAT: Usually 15% of Initiation + Service Fees 
+    const vatE5 = (initiation + serviceFees) * 0.15;
+    
+    // d) Total Cost of Credit: sum of all credit charges 
+    const tccD = interest + initiation + serviceFees + creditLife + vatE5;
+    
+    // i) NCR Total Cost of Credit & j) Multiple 
+    const ncrTotalI = tccD; 
+    const costMultipleJ = totalLoanC > 0 ? (ncrTotalI / totalLoanC).toFixed(2) : "0.00";
+
+    // 2. Logic for Dates & Contacts
+    const borrowerMobile = profileData.cell_tel_no || profileData.contact_number || '';
+    const startDate = applicationData.repayment_start_date ? new Date(applicationData.repayment_start_date) : null;
+    let finalPaybackDate = 'N/A';
+    
+    if (startDate) {
+        const tempDate = new Date(startDate);
+        tempDate.setMonth(tempDate.getMonth() + (applicationData.term_months || 0));
+        finalPaybackDate = tempDate.toLocaleDateString('en-ZA');
+    }
+
     return {
         template_id: parseInt(DOCUSEAL_TEMPLATE_ID, 10),
         send_email: true,
         submitters: [
             {
+                role: 'Credit Provider',
+                email: creditProviderEmail,
+                values: {
+                    provider_name: "Zwane Financial Services", // 
+                    provider_ncr: "NCRCP13510", // 
+                    provider_branch_code: "ZFS", // [cite: 6, 46]
+                    provider_tel: branchData.phone || "0691195046", // [cite: 6, 46]
+                    provider_physical_address: branchData.address || "Soweto", // [cite: 6, 46]
+                    provider_postal_address: branchData.address || "Soweto" // [cite: 6, 46]
+                }
+            },
+            {
                 role: 'Borrower',
                 email: profileData.email,
                 name: profileData.full_name,
                 values: {
-                    borrower_name: profileData.full_name,
+                    // Borrower Identification [cite: 6, 46]
+                    borrower_fullname: profileData.full_name,
+                    borrower_id: profileData.identity_number,
+                    borrower_address: profileData.address || '',
                     borrower_email: profileData.email,
-                    borrower_phone: profileData.contact_number || '',
-                    borrower_id: profileData.id,
-                    loan_amount: applicationData.requested_amount?.toString() || '0',
-                    interest_rate: applicationData.interest_rate?.toString() || '20',
-                    loan_term: applicationData.term_months?.toString() || '1',
-                    monthly_payment: applicationData.monthly_payment?.toString() || '0',
-                    total_repayment: applicationData.total_repayment?.toString() || '0',
-                    application_id: applicationData.id,
-                    application_date: applicationData.created_at
-                        ? new Date(applicationData.created_at).toLocaleDateString('en-ZA')
-                        : '',
-                    contract_date: new Date().toLocaleDateString('en-ZA'),
-                    first_payment_date: applicationData.repayment_start_date
-                        ? new Date(applicationData.repayment_start_date).toLocaleDateString('en-ZA')
-                        : ''
-                },
-                metadata: {
-                    application_id: applicationData.id,
-                    user_id: profileData.id,
-                    loan_amount: applicationData.requested_amount
+                    borrower_mobile: borrowerMobile,
+                    borrower_sms_address: borrowerMobile, // SMS Address is borrower phone 
+
+                    // Transaction Detail & Cost Elements [cite: 34, 37]
+                    loan_amount_a: formatCurrency(principal),
+                    payment_to_third_party: formatCurrency(thirdParty),
+                    total_loan_amount_c: formatCurrency(totalLoanC),
+                    total_cost_of_credit_d: formatCurrency(tccD),
+                    credit_life_e1: formatCurrency(creditLife),
+                    initiation_fee_e2: formatCurrency(initiation),
+                    service_fees_e3: formatCurrency(serviceFees),
+                    interest_charges_e4: formatCurrency(interest),
+                    vat_charges_e5: formatCurrency(vatE5),
+                    total_repayable: formatCurrency(applicationData.offer_total_repayment),
+                    ncr_total_cost_i: formatCurrency(ncrTotalI),
+                    credit_cost_multiple_j: costMultipleJ,
+
+                    // Payment Schedule 
+                    interest_rate_monthly: `${applicationData.offer_interest_rate || 0}%`,
+                    first_payment_date: formatDate(applicationData.repayment_start_date),
+                    final_payback_date: finalPaybackDate,
+                    num_installments: applicationData.term_months?.toString(),
+                    payment_method: "Debit Order", // Standard for ZFS mandates [cite: 54, 59]
+                    installment_amount: formatCurrency(applicationData.offer_monthly_repayment),
+
+                    // Sign-off [cite: 39, 93, 94]
+                    signed_at_city: branchData.region || "Soweto",
+                    signed_date: formatDate(new Date())
                 }
             }
-        ],
-        metadata: {
-            application_id: applicationData.id,
-            user_id: profileData.id,
-            loan_amount: applicationData.requested_amount,
-            status: 'sent'
-        }
+        ]
     };
 }
 
@@ -967,7 +1027,9 @@ app.post('/api/docuseal/send-contract', async (req, res) => {
     }
 
     try {
-        const payload = buildDocuSealSubmission(applicationData, profileData);
+        const branchData = {}; // Optional: fetch from DB if needed
+        const creditProviderEmail = process.env.CREDIT_PROVIDER_EMAIL || "info@zfs.co.za";
+        const payload = buildDocuSealSubmission(applicationData, profileData, branchData, creditProviderEmail);
         const response = await docuSealRequest('post', '/submissions', payload);
         return res.json(response.data);
     } catch (error) {
