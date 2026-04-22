@@ -23,40 +23,42 @@ const getBrandSlug = () => {
  * HARDCODED EXCEL ENGINE (No External Dependencies)
  * Generates a UTF-8 CSV compatible with Excel for offline exports.
  */
-window.XLSX = {
-    utils: {
-        json_to_sheet: (data) => data,
-        book_new: () => ({ Sheets: {}, SheetNames: [] }),
-        book_append_sheet: (wb, ws, name) => {
-            wb.Sheets[name] = ws;
-            wb.SheetNames.push(name);
+if (!window.XLSX) {
+    window.XLSX = {
+        utils: {
+            json_to_sheet: (data) => data,
+            book_new: () => ({ Sheets: {}, SheetNames: [] }),
+            book_append_sheet: (wb, ws, name) => {
+                wb.Sheets[name] = ws;
+                wb.SheetNames.push(name);
+            }
+        },
+        writeFile: (wb, filename) => {
+            const sheetName = wb.SheetNames[0];
+            const data = wb.Sheets[sheetName];
+            if (!data || data.length === 0) return;
+
+            const headers = Object.keys(data[0]);
+            const csvContent = [
+                headers.join(","),
+                ...data.map(row => headers.map(header => {
+                    const cell = row[header] === null || row[header] === undefined ? "" : row[header];
+                    return typeof cell === 'string' ? `"${cell.replace(/"/g, '""')}"` : cell;
+                }).join(","))
+            ].join("\n");
+
+            const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", filename.replace(".xlsx", ".csv"));
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         }
-    },
-    writeFile: (wb, filename) => {
-        const sheetName = wb.SheetNames[0];
-        const data = wb.Sheets[sheetName];
-        if (!data || data.length === 0) return;
-
-        const headers = Object.keys(data[0]);
-        const csvContent = [
-            headers.join(","),
-            ...data.map(row => headers.map(header => {
-                const cell = row[header] === null || row[header] === undefined ? "" : row[header];
-                return typeof cell === 'string' ? `"${cell.replace(/"/g, '""')}"` : cell;
-            }).join(","))
-        ].join("\n");
-
-        const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        const url = URL.createObjectURL(blob);
-        link.setAttribute("href", url);
-        link.setAttribute("download", filename.replace(".xlsx", ".csv"));
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    }
-};
+    };
+}
 
 let currentRange = 'YTD'; 
 
