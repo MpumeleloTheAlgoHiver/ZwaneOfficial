@@ -750,7 +750,8 @@ window.downloadStatement = async function() {
 // EVENT LISTENERS
 // ==========================================
 function bindEventListeners() {
-    document.getElementById('makePaymentBtn')?.addEventListener('click', () => {
+    const makePaymentBtn = document.getElementById('makePaymentBtn');
+    if (makePaymentBtn) makePaymentBtn.onclick = () => {
         const html = `
             <div style="text-align: center; padding: 8px 0 4px;">
                 <div style="width: 56px; height: 56px; border-radius: 50%; background: #FFF3E0; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
@@ -770,7 +771,7 @@ function bindEventListeners() {
                 </button>
             </div>`;
         openUniversalModal('Payment Gateway', html, false);
-    });
+    };
     document.getElementById('addBankAccountBtn')?.addEventListener('click', openAddBankAccountModal);
     document.getElementById('downloadStatementBtn')?.addEventListener('click', downloadStatement);
     
