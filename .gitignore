@@ -7,9 +7,10 @@ node_modules/
 # Logs
 npm-debug.log*
 
-# Env
-#.env
-#.env.*.local
+# Env - never commit secrets
+.env
+.env.*
+.env.*.local
 
 # OS files
 .DS_Store
