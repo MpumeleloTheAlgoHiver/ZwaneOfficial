@@ -798,9 +798,11 @@ window.makePayment = () => {
             <p style="color: var(--text-sub); font-size: 13px; line-height: 1.6; margin: 0 0 20px;">
                 Please contact your loan officer or visit a branch to make a payment at this time.
             </p>
-            <button onclick="closeUniversalModal()" class="action-btn primary" style="display: block; width: 100%; max-width: 200px; margin: 0 auto;">
-                Got it
-            </button>
+            <div style="display: flex; justify-content: center; width: 100%;">
+                <button onclick="closeUniversalModal()" class="action-btn primary" style="width: 200px !important; max-width: 200px !important; margin: 0 auto !important; padding: 12px 24px;">
+                    Got it
+                </button>
+            </div>
         </div>`;
     if (typeof openUniversalModal === 'function') {
         openUniversalModal('Payment Gateway', html, false);
