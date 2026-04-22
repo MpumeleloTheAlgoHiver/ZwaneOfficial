@@ -948,6 +948,36 @@ app.post('/api/suresystems/activate-application', async (req, res) => {
     }
 });
 
+app.get('/api/suresystems/mandates/history', async (req, res) => {
+    try {
+        const { data, error } = await supabaseService
+            .from(SURESYSTEMS_MANDATES_TABLE)
+            .select(`
+                *,
+                loan_applications (
+                    user_id,
+                    amount,
+                    status
+                ),
+                profiles:user_id (
+                    full_name,
+                    email
+                )
+            `)
+            .order('updated_at', { ascending: false })
+            .limit(100);
+
+        if (error) {
+            throw error;
+        }
+
+        return res.json({ success: true, data: data || [] });
+    } catch (error) {
+        console.error('SureSystems history fetch error:', error);
+        return res.status(500).json({ success: false, error: 'Unable to load mandate history' });
+    }
+});
+
 // DocuSeal proxy endpoints
 app.get('/api/docuseal/config', (req, res) => {
     return res.json({

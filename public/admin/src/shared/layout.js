@@ -226,6 +226,7 @@ function renderSidebarNav(role) {
       ${isAdmin ? `
         <p class="px-4 text-xs font-bold text-gray-400 uppercase tracking-wider mt-8 mb-3">Finance</p>
         <li><a href="/admin/users" class="${linkBase} ${linkInactive}"><i class="fa-solid fa-users w-5 h-5 mr-3 sidebar-nav-icon transition-colors"></i>Customers</a></li>
+        <li><a href="/admin/mandates.html" class="${linkBase} ${linkInactive}"><i class="fa-solid fa-file-invoice w-5 h-5 mr-3 sidebar-nav-icon transition-colors"></i>Mandates</a></li>
         <li>
           <button type="button" id="payments-toggle" class="w-full flex items-center justify-between ${linkBase} ${linkInactive}">
             <span class="flex items-center"><i class="fa-solid fa-coins w-5 h-5 mr-3 sidebar-nav-icon transition-colors"></i>Payments</span>
