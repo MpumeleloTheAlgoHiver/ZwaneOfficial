@@ -67,10 +67,10 @@ let carouselInterval;
 async function ensureBrandingTheme(force = false) {
     try {
         const theme = await ensureThemeLoaded({ force });
-        brandingTheme = theme;
+        brandingTheme = theme || {};
         carouselSlides = sanitizeCarouselSlides(theme?.carousel_slides);
         currentSlideIndex = 0;
-        return theme;
+        return brandingTheme;
     } catch (error) {
         console.warn('Auth theme load failed:', error);
         const cached = getCachedTheme();

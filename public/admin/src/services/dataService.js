@@ -648,7 +648,7 @@ export async function fetchSystemSettings() {
     }
 
     return {
-      data: hydrateSystemSettings(data),
+      data: hydrateSystemSettings(data || {}),
       error: null
     };
   } catch (error) {
@@ -686,7 +686,7 @@ export async function updateSystemSettings(settings) {
       .single();
 
     return {
-      data: hydrateSystemSettings(data),
+      data: hydrateSystemSettings(data || {}),
       error: error ? error.message : null
     };
   } catch (error) {

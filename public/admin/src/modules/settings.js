@@ -163,10 +163,10 @@ const cloneSystemSettings = (settings = {}) => ({
   auth_overlay_color: normalizeHex(settings?.auth_overlay_color) || DEFAULT_SYSTEM_SETTINGS.auth_overlay_color,
   auth_overlay_enabled: normalizeBooleanSetting(settings?.auth_overlay_enabled, DEFAULT_SYSTEM_SETTINGS.auth_overlay_enabled),
   auth_background_flip: normalizeBooleanSetting(settings?.auth_background_flip, DEFAULT_SYSTEM_SETTINGS.auth_background_flip),
-  carousel_slides: ensureCarouselSlides(settings.carousel_slides)
+  carousel_slides: ensureCarouselSlides(settings?.carousel_slides)
 });
 
-const getCarouselSlidesDraft = () => ensureCarouselSlides(systemSettingsDraft?.carousel_slides);
+const getCarouselSlidesDraft = () => ensureCarouselSlides(systemSettingsDraft?.carousel_slides || []);
 
 const escapeHtmlAttr = (value = '') => (value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 const escapeHtmlContent = (value = '') => (value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
