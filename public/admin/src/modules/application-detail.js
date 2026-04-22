@@ -687,27 +687,40 @@ const getSubmissionStatusIcon = (status) => {
 
 // Global functions for button onclick handlers
 window.viewSubmission = async (slug, submitterId, embedSrc) => {
+  const cleanStr = (v) => (v && v !== 'undefined' && v !== 'null' ? v : null);
+  // Open the tab synchronously so popup blockers don't kill it during the async fetch.
+  const newTab = window.open('', '_blank');
   try {
-    const cleanStr = (v) => (v && v !== 'undefined' && v !== 'null' ? v : null);
-    let url = cleanStr(embedSrc);
-    if (!url) {
-      const cleanSlug = cleanStr(slug);
-      if (cleanSlug) {
-        url = getEmbedUrl(cleanSlug);
-      } else if (cleanStr(submitterId)) {
+    let url = null;
+    // Prefer a live lookup via the DocuSeal API: the stored "slug" field has historically
+    // been the submission slug (not the submitter signing slug), which yields a 404.
+    if (cleanStr(submitterId)) {
+      try {
         const details = await getSubmitterDetails(submitterId);
         const resolvedSlug = details?.slug || details?.submitter?.slug;
         const resolvedEmbed = details?.embed_src || details?.submitter?.embed_src;
         url = cleanStr(resolvedEmbed) || (cleanStr(resolvedSlug) ? getEmbedUrl(resolvedSlug) : null);
+      } catch (apiErr) {
+        console.warn('Live submitter lookup failed, falling back to stored values:', apiErr);
       }
     }
+    // Fallbacks
+    if (!url) url = cleanStr(embedSrc);
+    if (!url && cleanStr(slug)) url = getEmbedUrl(slug);
+
     if (!url) {
+      if (newTab) newTab.close();
       alert('Unable to open this contract — the signing link is missing. Try resending the contract.');
       return;
     }
-    window.open(url, '_blank');
+    if (newTab) {
+      newTab.location.href = url;
+    } else {
+      window.open(url, '_blank');
+    }
   } catch (err) {
     console.error('viewSubmission error:', err);
+    if (newTab) newTab.close();
     alert(`Could not open contract: ${err.message || err}`);
   }
 };
