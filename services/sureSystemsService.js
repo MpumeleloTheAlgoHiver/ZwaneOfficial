@@ -266,7 +266,7 @@ function buildMandatePayload(input = {}) {
         typeOfAuthorizationRequired: Number(input.typeOfAuthorizationRequired || 1),
         initialAmount: safeAmount,
         firstCollectionDate: collectionDate,
-        maximumCollectionAmount: Number(input.maximumCollectionAmount || safeAmount * 1.5),
+        maximumCollectionAmount: Number(input.maximumCollectionAmount || Math.max(safeAmount * 1.5, 1)),
         adjustmentCategory: Number(input.adjustmentCategory || 1),
         adjustmentAmount: Number(input.adjustmentAmount || 0),
         adjustmentRate: Number(input.adjustmentRate || 0),
@@ -278,9 +278,9 @@ function buildMandatePayload(input = {}) {
         debtorAccountName: input.debtorAccountName || '',
         debtorIdentificationType: Number(input.debtorIdentificationType || 1),
         debtorIdentificationNo: input.debtorIdentificationNo || '',
-        debtorAccountNumber: input.debtorAccountNumber || '',
+        debtorAccountNumber: String(input.debtorAccountNumber || '').replace(/[\s\-]/g, ''),
         debtorAccountType: Number(input.debtorAccountType || 1),
-        debtorBranchNumber: input.debtorBranchNumber || '',
+        debtorBranchNumber: String(input.debtorBranchNumber || '').replace(/[\s\-]/g, ''),
         entryClass: input.entryClass || '0033',
         debtorTelephone: input.debtorTelephone || '',
         debtorEmail: input.debtorEmail || '',
@@ -435,5 +435,29 @@ module.exports = {
   cancelMandate,
   createInstallmentRequest,
   updateInstallmentRequest,
-  cancelInstallment
+  cancelInstallment,
+  // Exposed for unit testing only — do not use in production code
+  _test: {
+    config,
+    readEnv,
+    toBoolean,
+    toNumber,
+    isPlaceholderValue,
+    getMissingConfig,
+    buildBasicAuthHeader,
+    buildSignatureHeaders,
+    buildContractReference,
+    buildMandatePayload,
+    isExactMandatePayload,
+    normalizeError,
+    getToday,
+    getNow,
+    assertConfigured,
+    toSureSystemsDate: (v) => {
+      if (!v) return null;
+      const d = new Date(v);
+      if (Number.isNaN(d.getTime())) return null;
+      return d.toISOString().slice(0, 10).replace(/-/g, '');
+    }
+  }
 };
