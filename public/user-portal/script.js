@@ -537,6 +537,8 @@ function setupNavigation() {
     if (navLink) {
       e.preventDefault();
       const pageName = navLink.dataset.page;
+      // Highlight immediately so the user sees the click register before loading.
+      updateActiveNavLink(pageName);
       loadPage(pageName);
     }
   });
