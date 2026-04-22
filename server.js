@@ -1599,7 +1599,16 @@ if (adminBuildExists) {
 }
 
 // 5c. Serve the REST of the 'public' folder (for login.html, etc.)
-app.use(express.static(path.join(__dirname, 'public')));
+const publicStaticOptions = process.env.NODE_ENV === 'production'
+    ? {}
+    : {
+        setHeaders: (res) => {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+        }
+    };
+app.use(express.static(path.join(__dirname, 'public'), publicStaticOptions));
 
 
 // --- 6. Root Redirect & Auth Helpers ---
