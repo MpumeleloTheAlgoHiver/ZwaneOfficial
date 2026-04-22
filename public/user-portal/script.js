@@ -1428,3 +1428,10 @@ window.addEventListener('popstate', (e) => {
   const pageName = e.state?.page || 'dashboard';
   loadPage(pageName);
 });
+
+// Bind logout delegation as early as possible (independent of sidebar load).
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => setupLogout());
+} else {
+  setupLogout();
+}
