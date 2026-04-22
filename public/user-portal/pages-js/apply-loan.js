@@ -1019,6 +1019,31 @@ async function handlePopupDeclarationsSave(e) {
 
     const userId = session.user.id;
 
+    // Check for duplicate ID number on another account
+    if (identityNumber) {
+      const { data: dupProfiles, error: dupErr } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('identity_number', identityNumber)
+        .neq('id', userId);
+      if (!dupErr && dupProfiles && dupProfiles.length > 0) {
+        const idEl = document.getElementById('popup_identity_number');
+        if (idEl) {
+          idEl.classList.add('popup-required-missing');
+          idEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          try { idEl.focus({ preventScroll: true }); } catch (_) {}
+        }
+        if (typeof window.showToast === 'function') {
+          window.showToast('Duplicate ID', 'This ID number is already registered on another account. Please use a different ID number.', 'error');
+        } else {
+          alert('⚠️ This ID number is already registered on another account. Please use a different ID number.');
+        }
+        btn.disabled = false;
+        btn.innerHTML = origHTML;
+        return;
+      }
+    }
+
     const profilePayload = {
         first_name: firstName,
         last_name: lastName,
@@ -1180,11 +1205,26 @@ async function handlePopupDeclarationsSave(e) {
     }
   } catch (err) {
     console.error('Failed to save declarations from popup:', err);
-    if (typeof window.showToast === 'function') {
+    const isDuplicateId = err?.code === '23505' && /identity_number/i.test(err?.message || '');
+    if (isDuplicateId) {
+      const idEl = document.getElementById('popup_identity_number');
+      if (idEl) {
+        idEl.classList.add('popup-required-missing');
+        idEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        try { idEl.focus({ preventScroll: true }); } catch (_) {}
+      }
+      if (typeof window.showToast === 'function') {
+        window.showToast('Duplicate ID', 'This ID number is already registered on another account. Please use a different ID number.', 'error');
+      } else {
+        alert('⚠️ This ID number is already registered on another account. Please use a different ID number.');
+      }
+    } else if (typeof window.showToast === 'function') {
       window.showToast('Error', 'Failed to save declarations. Please try again.', 'error');
     } else {
       showMinimalNotice('Error', 'Failed to save. Please try again.');
     }
+    btn.disabled = false;
+    btn.innerHTML = origHTML;
   }
 
   btn.disabled = false;
