@@ -445,7 +445,8 @@ function renderPaymentHistory() {
 // Bind event listeners
 function bindEventListeners() {
   // Make payment button
-  document.getElementById('makePaymentBtn')?.addEventListener('click', () => openPaymentModal());
+  const makePaymentBtn = document.getElementById('makePaymentBtn');
+  if (makePaymentBtn) makePaymentBtn.onclick = () => openPaymentModal();
   
   // Close modal buttons
   document.getElementById('closePaymentModal')?.addEventListener('click', closePaymentModal);
