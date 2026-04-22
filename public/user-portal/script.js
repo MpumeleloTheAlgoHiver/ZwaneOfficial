@@ -1403,23 +1403,31 @@ async function setupLogout() {
 
     showToast('Signing Out', 'Please wait while we sign you out...', 'info', 2000);
 
+    const forceLocalLogoutAndRedirect = () => {
+      try {
+        Object.keys(localStorage)
+          .filter((k) => k.startsWith('sb-') || k.includes('supabase'))
+          .forEach((k) => localStorage.removeItem(k));
+        Object.keys(sessionStorage)
+          .filter((k) => k.startsWith('sb-') || k.includes('supabase'))
+          .forEach((k) => sessionStorage.removeItem(k));
+      } catch (_) {}
+      window.location.replace('/auth/login.html');
+    };
+
     try {
       const { supabase } = await import('/Services/supabaseClient.js');
-      const { error } = await supabase.auth.signOut();
+      let { error } = await supabase.auth.signOut();
       if (error) {
-        console.error('Sign out error:', error);
-        showToast('Error', 'Failed to sign out. Please try again.', 'warning', 3000);
-        _logoutInProgress = false;
-        return;
+        console.warn('Server signOut error, falling back to local signOut:', error);
+        try { await supabase.auth.signOut({ scope: 'local' }); } catch (_) {}
       }
       showToast('Goodbye!', 'You have been signed out successfully.', 'success', 1500);
-      setTimeout(() => {
-        window.location.replace('/auth/login.html');
-      }, 800);
+      setTimeout(forceLocalLogoutAndRedirect, 600);
     } catch (err) {
       console.error('Logout error:', err);
-      showToast('Error', 'Something went wrong. Please try again.', 'warning', 3000);
-      _logoutInProgress = false;
+      showToast('Signed out', 'Redirecting to login...', 'info', 1500);
+      setTimeout(forceLocalLogoutAndRedirect, 600);
     }
   }, true);
 }
