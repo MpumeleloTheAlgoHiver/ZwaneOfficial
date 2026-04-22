@@ -1027,17 +1027,7 @@ async function handlePopupDeclarationsSave(e) {
         .eq('identity_number', identityNumber)
         .neq('id', userId);
       if (!dupErr && dupProfiles && dupProfiles.length > 0) {
-        const idEl = document.getElementById('popup_identity_number');
-        if (idEl) {
-          idEl.classList.add('popup-required-missing');
-          idEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          try { idEl.focus({ preventScroll: true }); } catch (_) {}
-        }
-        if (typeof window.showToast === 'function') {
-          window.showToast('Duplicate ID', 'This ID number is already registered on another account. Please use a different ID number.', 'error');
-        } else {
-          alert('⚠️ This ID number is already registered on another account. Please use a different ID number.');
-        }
+        showDuplicateIdError();
         btn.disabled = false;
         btn.innerHTML = origHTML;
         return;
@@ -1207,17 +1197,7 @@ async function handlePopupDeclarationsSave(e) {
     console.error('Failed to save declarations from popup:', err);
     const isDuplicateId = err?.code === '23505' && /identity_number/i.test(err?.message || '');
     if (isDuplicateId) {
-      const idEl = document.getElementById('popup_identity_number');
-      if (idEl) {
-        idEl.classList.add('popup-required-missing');
-        idEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        try { idEl.focus({ preventScroll: true }); } catch (_) {}
-      }
-      if (typeof window.showToast === 'function') {
-        window.showToast('Duplicate ID', 'This ID number is already registered on another account. Please use a different ID number.', 'error');
-      } else {
-        alert('⚠️ This ID number is already registered on another account. Please use a different ID number.');
-      }
+      showDuplicateIdError();
     } else if (typeof window.showToast === 'function') {
       window.showToast('Error', 'Failed to save declarations. Please try again.', 'error');
     } else {
@@ -1226,9 +1206,32 @@ async function handlePopupDeclarationsSave(e) {
     btn.disabled = false;
     btn.innerHTML = origHTML;
   }
+}
 
-  btn.disabled = false;
-  btn.innerHTML = origHTML;
+function showDuplicateIdError() {
+  const idEl = document.getElementById('popup_identity_number');
+  if (idEl) {
+    idEl.classList.add('popup-required-missing');
+    let errEl = document.getElementById('popup_identity_number_error');
+    if (!errEl) {
+      errEl = document.createElement('div');
+      errEl.id = 'popup_identity_number_error';
+      errEl.style.cssText = 'color: #d32f2f; background: #ffebee; border: 1px solid #ef9a9a; border-radius: 6px; padding: 8px 12px; margin-top: 6px; font-size: 13px; font-weight: 600; line-height: 1.4;';
+      errEl.textContent = '⚠️ This ID number is already registered on another account. Please use a different ID number.';
+      idEl.parentNode?.insertBefore(errEl, idEl.nextSibling);
+    }
+    idEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    try { idEl.focus({ preventScroll: true }); } catch (_) {}
+    const removeOnInput = () => {
+      errEl?.remove();
+      idEl.classList.remove('popup-required-missing');
+      idEl.removeEventListener('input', removeOnInput);
+    };
+    idEl.addEventListener('input', removeOnInput);
+  }
+  if (typeof window.showToast === 'function') {
+    window.showToast('Duplicate ID', 'This ID number is already registered on another account.', 'error', 5000);
+  }
 }
 
 let declarationsStatusPromise = null;
