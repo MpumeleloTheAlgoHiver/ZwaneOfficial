@@ -1,6 +1,16 @@
 // Handles page switching
 // Main Dashboard Script
 
+// Safe global stubs for page-specific handlers — prevents inline onclick="..."
+// from crashing during SPA page transitions when the owning script isn't loaded.
+['toggleConsent'].forEach((fn) => {
+  if (typeof window[fn] !== 'function') {
+    window[fn] = function () {
+      console.warn(`[stub] ${fn}() called before its module loaded — ignored`);
+    };
+  }
+});
+
 const NAV_SEARCH_ITEMS = [
   { label: 'Dashboard', page: 'dashboard', keywords: ['home', 'overview', 'metrics'] },
   { label: 'Apply Loan', page: 'apply-loan', keywords: ['documents', 'upload', 'kyc'] },
