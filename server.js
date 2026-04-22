@@ -107,6 +107,11 @@ async function recordSureSystemsActivation(entry = {}) {
     };
 
     sureSystemsActivationStore.byApplication.set(normalized.applicationId, normalized);
+    // Cap the Map at 500 entries to prevent unbounded memory growth
+    if (sureSystemsActivationStore.byApplication.size > 500) {
+        const oldest = sureSystemsActivationStore.byApplication.keys().next().value;
+        sureSystemsActivationStore.byApplication.delete(oldest);
+    }
     sureSystemsActivationStore.history.unshift(normalized);
     if (sureSystemsActivationStore.history.length > 200) {
         sureSystemsActivationStore.history = sureSystemsActivationStore.history.slice(0, 200);
@@ -405,6 +410,11 @@ async function triggerSureSystemsMandateForApplication(applicationId) {
         .eq('id', application.user_id)
         .maybeSingle();
 
+    const loanAmount = Number(application.amount || 0);
+    if (loanAmount <= 0) {
+        throw new Error(`Application ${applicationId} has an invalid amount (${loanAmount}). Cannot create SureSystems mandate for R0.`);
+    }
+
     const collectionDate = toSureSystemsDate(application.repayment_start_date) || sureSystemsService.getToday();
     const debtorIdentificationNo = profile?.id_number || profile?.idNumber || application.user_id;
 
@@ -416,7 +426,7 @@ async function triggerSureSystemsMandateForApplication(applicationId) {
         debtorAccountNumber: bankAccount.account_number,
         debtorBranchNumber: bankAccount.branch_code,
         debtorEmail: profile?.email || '',
-        amount: Number(application.amount || 0),
+        amount: loanAmount,
         collectionDate,
         dateList: collectionDate,
         userReference: `APP-${application.id}`
