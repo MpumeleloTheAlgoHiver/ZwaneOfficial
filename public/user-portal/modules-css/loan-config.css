@@ -660,14 +660,20 @@
   .loan-modal-content {
     width: 100vw !important;
     max-width: 100vw !important;
-    height: calc(100vh - var(--navbar-offset, 64px) - 8px) !important;
-    max-height: calc(100vh - var(--navbar-offset, 64px) - 8px) !important;
+    height: calc(100dvh - var(--navbar-offset, 64px) - 8px) !important;
+    max-height: calc(100dvh - var(--navbar-offset, 64px) - 8px) !important;
     position: relative !important;
     margin: 0 auto !important;
     border-radius: 0 !important;
-    padding: 1rem !important;
+    padding: 1rem 1rem calc(env(safe-area-inset-bottom, 0px) + 6rem) 1rem !important;
     overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
     background: #ffffff !important;
+  }
+
+  /* Ensure last action buttons are never trapped under mobile browser chrome */
+  .loan-modal-content .action-buttons {
+    margin-bottom: calc(env(safe-area-inset-bottom, 0px) + 1.5rem) !important;
   }
 
   .loan-selection-card {
