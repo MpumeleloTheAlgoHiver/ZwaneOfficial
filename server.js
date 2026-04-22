@@ -3,11 +3,11 @@ const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
 const crypto = require('crypto');
-// Your .env config is correct
-require('dotenv').config({ path: path.join(__dirname, 'public', 'user', '.env') });
+// Load .env from root if present (Replit secrets take priority)
+require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(express.json({
