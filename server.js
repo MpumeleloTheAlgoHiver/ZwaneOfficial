@@ -351,39 +351,30 @@ async function docuSealRequest(method, endpoint, data) {
  * @param {string} creditProviderEmail - Email of the ZFS representative
  */
 function buildDocuSealSubmission(applicationData = {}, profileData = {}, branchData = {}, creditProviderEmail) {
-    // Standard formatters for South African compliance
     const formatCurrency = (val) => `R ${parseFloat(val || 0).toFixed(2)}`;
     const formatDate = (date) => date ? new Date(date).toLocaleDateString('en-ZA') : 'N/A';
 
-    // 1. Logic for Calculated Financial Fields
+    // Financial Calculations [cite: 34, 37]
     const principal = parseFloat(applicationData.offer_principal || 0);
     const thirdParty = parseFloat(applicationData.offer_details?.third_party_payment || 0);
-    const totalLoanC = principal + thirdParty; // Field (c) 
-
+    const totalLoanC = principal + thirdParty;
     const interest = parseFloat(applicationData.offer_total_interest || 0);
     const initiation = parseFloat(applicationData.offer_total_initiation_fees || 0);
     const serviceFees = parseFloat(applicationData.offer_total_admin_fees || 0);
     const creditLife = parseFloat(applicationData.offer_credit_life_monthly || 0);
-    
-    // e.5 VAT: Usually 15% of Initiation + Service Fees 
     const vatE5 = (initiation + serviceFees) * 0.15;
-    
-    // d) Total Cost of Credit: sum of all credit charges 
     const tccD = interest + initiation + serviceFees + creditLife + vatE5;
-    
-    // i) NCR Total Cost of Credit & j) Multiple 
-    const ncrTotalI = tccD; 
+    const ncrTotalI = tccD;
     const costMultipleJ = totalLoanC > 0 ? (ncrTotalI / totalLoanC).toFixed(2) : "0.00";
 
-    // 2. Logic for Dates & Contacts
     const borrowerMobile = profileData.cell_tel_no || profileData.contact_number || '';
-    const startDate = applicationData.repayment_start_date ? new Date(applicationData.repayment_start_date) : null;
-    let finalPaybackDate = 'N/A';
     
-    if (startDate) {
-        const tempDate = new Date(startDate);
-        tempDate.setMonth(tempDate.getMonth() + (applicationData.term_months || 0));
-        finalPaybackDate = tempDate.toLocaleDateString('en-ZA');
+    // Calculate Final Payback Date
+    let finalPaybackDate = 'N/A';
+    if (applicationData.repayment_start_date) {
+        const d = new Date(applicationData.repayment_start_date);
+        d.setMonth(d.getMonth() + (applicationData.term_months || 0));
+        finalPaybackDate = d.toLocaleDateString('en-ZA');
     }
 
     return {
@@ -394,12 +385,14 @@ function buildDocuSealSubmission(applicationData = {}, profileData = {}, branchD
                 role: 'Credit Provider',
                 email: creditProviderEmail,
                 values: {
-                    provider_name: "Zwane Financial Services", // 
-                    provider_ncr: "NCRCP13510", // 
-                    provider_branch_code: "ZFS", // [cite: 6, 46]
-                    provider_tel: branchData.phone || "0691195046", // [cite: 6, 46]
-                    provider_physical_address: branchData.address || "Soweto", // [cite: 6, 46]
-                    provider_postal_address: branchData.address || "Soweto" // [cite: 6, 46]
+                    provider_name: "Zwane Financial Services",
+                    provider_ncr: "NCRCP13510",
+                    provider_branch_code: "ZFS",
+                    provider_reg_no: "2023/123456/07", // Static or from settings
+                    provider_vat_no: "4012345678",    // Static or from settings
+                    provider_tel: branchData.phone || "0691195046",
+                    provider_physical_address: branchData.address || "Soweto",
+                    provider_postal_address: branchData.address || "Soweto"
                 }
             },
             {
@@ -407,15 +400,19 @@ function buildDocuSealSubmission(applicationData = {}, profileData = {}, branchD
                 email: profileData.email,
                 name: profileData.full_name,
                 values: {
-                    // Borrower Identification [cite: 6, 46]
+                    // Borrower Personal Info 
                     borrower_fullname: profileData.full_name,
                     borrower_id: profileData.identity_number,
                     borrower_address: profileData.address || '',
                     borrower_email: profileData.email,
                     borrower_mobile: borrowerMobile,
-                    borrower_sms_address: borrowerMobile, // SMS Address is borrower phone 
+                    borrower_sms_address: borrowerMobile,
+                    
+                    // Fields missing from your SQL but present in DocuSeal 
+                    borrower_employer: profileData.employer_name || 'N/A',
+                    borrower_work_address: profileData.work_address || 'N/A',
 
-                    // Transaction Detail & Cost Elements [cite: 34, 37]
+                    // Financials [cite: 34, 37]
                     loan_amount_a: formatCurrency(principal),
                     payment_to_third_party: formatCurrency(thirdParty),
                     total_loan_amount_c: formatCurrency(totalLoanC),
@@ -429,15 +426,15 @@ function buildDocuSealSubmission(applicationData = {}, profileData = {}, branchD
                     ncr_total_cost_i: formatCurrency(ncrTotalI),
                     credit_cost_multiple_j: costMultipleJ,
 
-                    // Payment Schedule 
+                    // Schedule
                     interest_rate_monthly: `${applicationData.offer_interest_rate || 0}%`,
                     first_payment_date: formatDate(applicationData.repayment_start_date),
                     final_payback_date: finalPaybackDate,
                     num_installments: applicationData.term_months?.toString(),
-                    payment_method: "Debit Order", // Standard for ZFS mandates [cite: 54, 59]
+                    payment_method: "Debit Order",
                     installment_amount: formatCurrency(applicationData.offer_monthly_repayment),
 
-                    // Sign-off [cite: 39, 93, 94]
+                    // Sign-off [cite: 39]
                     signed_at_city: branchData.region || "Soweto",
                     signed_date: formatDate(new Date())
                 }
@@ -1027,9 +1024,21 @@ app.post('/api/docuseal/send-contract', async (req, res) => {
     }
 
     try {
-        const branchData = {}; // Optional: fetch from DB if needed
-        const creditProviderEmail = process.env.CREDIT_PROVIDER_EMAIL || "info@zfs.co.za";
-        const payload = buildDocuSealSubmission(applicationData, profileData, branchData, creditProviderEmail);
+        // FIX: Actually fetch the branch from the database
+        const branchId = applicationData.branch_id || profileData.branch_id || 1;
+        const { data: branchData, error: branchError } = await supabaseService
+            .from('branches')
+            .select('*')
+            .eq('id', branchId)
+            .maybeSingle();
+
+        if (branchError) console.error('Error fetching branch:', branchError);
+
+        const creditProviderEmail = process.env.CREDIT_PROVIDER_EMAIL || "info@zwanefinancial.co.za";
+        
+        // Pass the real branchData now
+        const payload = buildDocuSealSubmission(applicationData, profileData, branchData || {}, creditProviderEmail);
+        
         const response = await docuSealRequest('post', '/submissions', payload);
         return res.json(response.data);
     } catch (error) {

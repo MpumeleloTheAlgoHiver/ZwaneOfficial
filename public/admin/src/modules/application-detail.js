@@ -1246,7 +1246,7 @@ const renderFinancials = (financials, creditChecks) => {
 /**
  * Renders Document List with Admin Upload/Replace capability
  */
-const renderDocuments = (docs, truidInfo) => {
+const renderDocuments = (docs, truidInfo, kycInfo) => {
   const docList = document.getElementById('documents-list');
   const docCount = document.getElementById('doc-count');
   if (!docList || !docCount) return;
@@ -1258,8 +1258,15 @@ const renderDocuments = (docs, truidInfo) => {
       { key: 'bank_statement', label: 'Bank Statement' }
   ];
   
-  // Update count to include manual docs + the TruID record if it exists
-  docCount.textContent = (docs?.length || 0) + (truidInfo ? 1 : 0);
+  let kycCount = 0;
+  if (kycInfo) {
+    if (kycInfo.id_front_image_url) kycCount++;
+    if (kycInfo.id_back_image_url) kycCount++;
+    if (kycInfo.selfie_image_url) kycCount++;
+  }
+  
+  // Update count to include manual docs + the TruID record + KYC records
+  docCount.textContent = (docs?.length || 0) + (truidInfo ? 1 : 0) + kycCount;
   docList.innerHTML = '';
 
   // 1. Render Manual Uploads
@@ -1323,6 +1330,38 @@ const renderDocuments = (docs, truidInfo) => {
         </button>
     `;
     docList.appendChild(truidDiv);
+  }
+
+  // 3. Render KYC Images
+  if (kycInfo) {
+    const kycDocs = [
+      { key: 'id_front', label: 'ID Document Front', url: kycInfo.id_front_image_url },
+      { key: 'id_back', label: 'ID Document Back', url: kycInfo.id_back_image_url },
+      { key: 'selfie', label: 'Selfie Image', url: kycInfo.selfie_image_url }
+    ].filter(d => d.url);
+
+    kycDocs.forEach(doc => {
+      const div = document.createElement('div');
+      div.className = 'flex items-center justify-between p-4 bg-purple-50/50 border border-purple-200 rounded-xl hover:border-purple-400 transition-all mt-4';
+      
+      div.innerHTML = `
+          <div class="flex items-center gap-4">
+              <div class="w-12 h-12 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center shadow-sm">
+                  <i class="fa-solid fa-id-card text-xl"></i>
+              </div>
+              <div class="flex-grow min-w-0">
+                  <p class="text-sm font-bold text-gray-900">${doc.label}</p>
+                  <div class="flex items-center gap-2">
+                      <span class="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-purple-100 text-purple-700">KYC Image</span>
+                  </div>
+              </div>
+          </div>
+          <button onclick="window.open('${doc.url}', '_blank')" class="px-4 py-2 bg-white border border-purple-600 text-purple-600 rounded-lg text-xs font-bold hover:bg-purple-50 transition-all">
+              <i class="fa-solid fa-external-link-alt mr-1"></i> View
+          </button>
+      `;
+      docList.appendChild(div);
+    });
   }
 
   attachAdminUploadListeners();
@@ -1746,8 +1785,8 @@ const loadApplicationData = async () => {
       // Part 3: Financials & Bureau PDF (Steps 2 & 3)
       renderFinancials(data.financial_profiles, data.credit_checks); 
 
-      // --- UPDATED: Passing both manual documents and truid_info ---
-      renderDocuments(data.documents, data.truid_info); 
+      // --- UPDATED: Passing manual documents, truid_info, and kyc_info ---
+      renderDocuments(data.documents, data.truid_info, data.kyc_info); 
       
       await renderLoanHistory(data.loan_history, data.application_history, data);
       
