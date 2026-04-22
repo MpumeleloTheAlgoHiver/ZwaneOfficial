@@ -252,10 +252,14 @@ function renderSidebarNav(role) {
 function attachEventListeners() {
   const signOutBtn = document.getElementById('sign-out-btn');
   if (signOutBtn) {
-    signOutBtn.addEventListener('click', async (e) => {
+    signOutBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      await supabase.auth.signOut();
-      window.location.href = '/auth/login.html';
+      // Fire signOut but don't block redirect on it; clear storage and navigate immediately
+      // so the user is never stuck if the network call hangs.
+      try { supabase.auth.signOut(); } catch (_) { /* noop */ }
+      try { sessionStorage.clear(); } catch (_) { /* noop */ }
+      try { localStorage.clear(); } catch (_) { /* noop */ }
+      window.location.replace('/auth/login.html');
     });
   }
 
