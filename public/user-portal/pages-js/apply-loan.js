@@ -308,8 +308,12 @@ async function initKycButton() {
   await refreshKycStatus();
 }
 
-window.toggleConsent = function () {
-  // If declarations haven't been completed yet, show the popup instead of toggling
+window.toggleConsent = async function () {
+  // If we don't yet know the declarations are saved, re-check the database before
+  // popping the form — avoids re-asking when the initial check hasn't returned yet.
+  if (!declarationsCompleted) {
+    await ensureDeclarationsKnown();
+  }
   if (!declarationsCompleted) {
     pendingActionAfterDeclarations = () => {
       // After declarations are saved, activate consent automatically
@@ -365,7 +369,12 @@ window.showApplyLoan2 = function() {
 }
 
 async function loadModule(name) {
-  // Gate: if declarations haven't been completed, show popup first
+  // Re-check declarations from DB before showing the popup, in case the initial
+  // async check is still in flight.
+  if (!declarationsCompleted) {
+    await ensureDeclarationsKnown();
+  }
+  // Gate: if declarations still aren't completed after the check, show popup first
   if (!declarationsCompleted) {
     pendingActionAfterDeclarations = () => {
       // After declarations saved, auto-consent and then open the module
@@ -1182,39 +1191,54 @@ async function handlePopupDeclarationsSave(e) {
   btn.innerHTML = origHTML;
 }
 
+let declarationsStatusPromise = null;
 async function checkDeclarationsStatus() {
-  try {
-    const supabase = await getSupabaseClient();
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user?.id) return;
+  // Reuse an in-flight check so multiple callers await the same network round-trip.
+  if (declarationsStatusPromise) return declarationsStatusPromise;
+  declarationsStatusPromise = (async () => {
+    try {
+      const supabase = await getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) return declarationsCompleted;
 
-    const userId = session.user.id;
-    const [profileResult, financialResult, declarationResult] = await Promise.all([
-      supabase.from('profiles').select('identity_number, first_name, last_name, gender, date_of_birth, address, postal_code').eq('id', userId).maybeSingle(),
-      supabase.from('financial_profiles').select('monthly_income').eq('user_id', userId).maybeSingle(),
-      supabase.from('declarations').select('accepted_std_conditions').eq('user_id', userId).maybeSingle()
-    ]);
+      const userId = session.user.id;
+      const [profileResult, financialResult, declarationResult] = await Promise.all([
+        supabase.from('profiles').select('identity_number, first_name, last_name, gender, date_of_birth, address, postal_code').eq('id', userId).maybeSingle(),
+        supabase.from('financial_profiles').select('monthly_income').eq('user_id', userId).maybeSingle(),
+        supabase.from('declarations').select('accepted_std_conditions').eq('user_id', userId).maybeSingle()
+      ]);
 
-    const hasId = !!profileResult?.data?.identity_number;
-    const hasExperianProfile = !!(
-      profileResult?.data?.first_name
-      && profileResult?.data?.last_name
-      && profileResult?.data?.gender
-      && profileResult?.data?.date_of_birth
-      && profileResult?.data?.address
-      && profileResult?.data?.postal_code
-    );
-    const hasFinancial = (Number(financialResult?.data?.monthly_income) || 0) > 0;
-    const hasStdConditions = declarationResult?.data?.accepted_std_conditions === true;
+      const hasId = !!profileResult?.data?.identity_number;
+      const hasExperianProfile = !!(
+        profileResult?.data?.first_name
+        && profileResult?.data?.last_name
+        && profileResult?.data?.gender
+        && profileResult?.data?.date_of_birth
+        && profileResult?.data?.address
+        && profileResult?.data?.postal_code
+      );
+      const hasFinancial = (Number(financialResult?.data?.monthly_income) || 0) > 0;
+      const hasStdConditions = declarationResult?.data?.accepted_std_conditions === true;
 
-    declarationsCompleted = hasId && hasExperianProfile && hasFinancial && hasStdConditions;
+      declarationsCompleted = hasId && hasExperianProfile && hasFinancial && hasStdConditions;
+    } catch (err) {
+      console.error('Failed to check declarations status:', err);
+      // Don't flip to false on transient errors — keep last known good state.
+    } finally {
+      // Allow next call to refresh from the server
+      setTimeout(() => { declarationsStatusPromise = null; }, 0);
+    }
+    return declarationsCompleted;
+  })();
+  return declarationsStatusPromise;
+}
 
-    // If declarations are already done, also check if consent was given in a prior visit
-    // (consent is page-session state, so we just leave it as-is)
-  } catch (err) {
-    console.error('Failed to check declarations status:', err);
-    declarationsCompleted = false;
-  }
+// Ensure declarations status is fresh before deciding whether to show the popup.
+// This closes the race where a click happens before the initial async check resolves.
+async function ensureDeclarationsKnown() {
+  if (declarationsCompleted) return true;
+  await checkDeclarationsStatus();
+  return declarationsCompleted;
 }
 
 // ═══════════════════════════════════════════════════════════
