@@ -1390,7 +1390,7 @@ window.unlockSidebar = unlockSidebar;
 async function setupLogout() {
   const { supabase } = await import('/Services/supabaseClient.js');
   
-  const logoutButtons = document.querySelectorAll('.logout-btn');
+  const logoutButtons = document.querySelectorAll('.logout-btn, .menu-logout-btn');
   logoutButtons.forEach((btn) => {
     btn.addEventListener('click', async () => {
       showToast('Signing Out', 'Please wait while we sign you out...', 'info', 2000);
