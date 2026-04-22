@@ -16,7 +16,8 @@ import {
   resendContract, 
   voidSubmission, 
   isDocuSealConfigured,
-  getSubmitterIdFromSubmission
+  getSubmitterIdFromSubmission,
+  getSubmitterDetails
 } from '../services/docusealService.js';
 
 let currentApplication = null;
@@ -597,7 +598,7 @@ const renderContractSubmissions = (submissions) => {
           <span class="px-3 py-1 text-xs font-bold rounded-full ${statusColor.badge}">${sub.status}</span>
         </div>
         <div class="flex gap-2">
-          <button onclick="window.viewSubmission('${sub.slug}')" class="flex-1 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-xs font-semibold">
+          <button onclick="window.viewSubmission('${sub.slug || ''}', '${sub.submitter_id || ''}', '${sub.embed_src || ''}')" class="flex-1 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-xs font-semibold">
             <i class="fa-solid fa-eye mr-1"></i> View
           </button>
           ${sub.status === 'pending' ? `
@@ -685,8 +686,30 @@ const getSubmissionStatusIcon = (status) => {
 };
 
 // Global functions for button onclick handlers
-window.viewSubmission = (slug) => {
-  window.open(getEmbedUrl(slug), '_blank');
+window.viewSubmission = async (slug, submitterId, embedSrc) => {
+  try {
+    const cleanStr = (v) => (v && v !== 'undefined' && v !== 'null' ? v : null);
+    let url = cleanStr(embedSrc);
+    if (!url) {
+      const cleanSlug = cleanStr(slug);
+      if (cleanSlug) {
+        url = getEmbedUrl(cleanSlug);
+      } else if (cleanStr(submitterId)) {
+        const details = await getSubmitterDetails(submitterId);
+        const resolvedSlug = details?.slug || details?.submitter?.slug;
+        const resolvedEmbed = details?.embed_src || details?.submitter?.embed_src;
+        url = cleanStr(resolvedEmbed) || (cleanStr(resolvedSlug) ? getEmbedUrl(resolvedSlug) : null);
+      }
+    }
+    if (!url) {
+      alert('Unable to open this contract — the signing link is missing. Try resending the contract.');
+      return;
+    }
+    window.open(url, '_blank');
+  } catch (err) {
+    console.error('viewSubmission error:', err);
+    alert(`Could not open contract: ${err.message || err}`);
+  }
 };
 window.resendSubmission = async (submitterId, submissionId = null) => {
   if (!confirm('Resend contract email to the applicant?')) return;
