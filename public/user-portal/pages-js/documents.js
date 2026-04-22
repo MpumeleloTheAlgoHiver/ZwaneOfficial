@@ -750,7 +750,27 @@ window.downloadStatement = async function() {
 // EVENT LISTENERS
 // ==========================================
 function bindEventListeners() {
-    document.getElementById('makePaymentBtn')?.addEventListener('click', () => alert('Payment Gateway Integration Pending'));
+    document.getElementById('makePaymentBtn')?.addEventListener('click', () => {
+        const html = `
+            <div style="text-align: center; padding: 8px 0 4px;">
+                <div style="width: 56px; height: 56px; border-radius: 50%; background: #FFF3E0; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect>
+                        <line x1="1" y1="10" x2="23" y2="10"></line>
+                    </svg>
+                </div>
+                <p style="color: var(--text-main); font-size: 15px; line-height: 1.6; margin: 0 0 8px;">
+                    Online payments are <strong>coming soon</strong>.
+                </p>
+                <p style="color: var(--text-sub); font-size: 13px; line-height: 1.6; margin: 0 0 20px;">
+                    Please contact your loan officer or visit a branch to make a payment at this time.
+                </p>
+                <button onclick="closeUniversalModal()" class="action-btn primary" style="width: 100%; max-width: 200px;">
+                    Got it
+                </button>
+            </div>`;
+        openUniversalModal('Payment Gateway', html, false);
+    });
     document.getElementById('addBankAccountBtn')?.addEventListener('click', openAddBankAccountModal);
     document.getElementById('downloadStatementBtn')?.addEventListener('click', downloadStatement);
     
