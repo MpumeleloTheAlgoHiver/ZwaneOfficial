@@ -15,7 +15,6 @@ window.loadLoanModule = function() {
         await fetchAffordabilityRatio();
         initializeLoanSlider();
         initializePeriodSlider();
-        initializeDatePicker();
         initializeSignatureCanvas();
         calculateAndUpdateSummary();
       }, 100);
@@ -32,7 +31,6 @@ window.closeModule = function() {
 let loanConfig = {
   amount: 5000,
   period: 1,
-  startDate: null,
   interestRate: 0.20, // 20% annual simple interest
   signature: null,
   maxAllowedPeriod: 1, // Will be updated based on loan history
@@ -40,43 +38,6 @@ let loanConfig = {
   maxLoanAmount: 10000, // Will be calculated dynamically based on affordability
   affordabilityRatio: null // Max monthly payment from financial profile
 };
-
-function parseDateInputValue(value) {
-  if (!value) return null;
-  const parts = value.split('-').map(Number);
-  if (parts.length !== 3 || parts.some((part) => Number.isNaN(part))) {
-    return null;
-  }
-  const [year, month, day] = parts;
-  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-}
-
-function formatDateForInput(date) {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-    return '';
-  }
-  const working = new Date(date);
-  working.setUTCHours(0, 0, 0, 0);
-  return working.toISOString().split('T')[0];
-}
-
-function toIsoDateMidnight(date) {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-    return null;
-  }
-  const normalized = new Date(date);
-  normalized.setUTCHours(0, 0, 0, 0);
-  return normalized.toISOString();
-}
-
-function getConfiguredStartDate() {
-  const value = loanConfig.startDate;
-  if (!value) return null;
-  if (value instanceof Date) {
-    return value;
-  }
-  return parseDateInputValue(value);
-}
 
 // Check user's loan history to determine max allowed period
 async function checkLoanHistory() {
@@ -208,7 +169,6 @@ document.addEventListener('DOMContentLoaded', () => {
   checkLoanHistory().then(() => {
     initializeLoanSlider();
     initializePeriodSlider();
-    initializeDatePicker();
     initializeSignatureCanvas();
     calculateAndUpdateSummary();
   });
@@ -326,91 +286,15 @@ function initializePeriodSlider() {
   slider.max = loanConfig.maxAllowedPeriod;
 }
 
-// Date Picker Initialization
-function initializeDatePicker() {
-  const dateInput = document.getElementById('startDate');
-  if (!dateInput) return;
-  const icon = document.querySelector('.date-input-icon');
-
-  // Set minimum date to today
-  const today = new Date();
-  today.setHours(12, 0, 0, 0);
-  dateInput.min = formatDateForInput(today);
-
-  const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-  lastDayOfMonth.setHours(12, 0, 0, 0);
-  dateInput.max = formatDateForInput(lastDayOfMonth);
-
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  const defaultValue = tomorrow.getMonth() !== today.getMonth()
-    ? formatDateForInput(lastDayOfMonth)
-    : formatDateForInput(tomorrow);
-
-  dateInput.value = defaultValue;
-  loanConfig.startDate = parseDateInputValue(defaultValue);
-
-  dateInput.addEventListener('change', (e) => {
-    loanConfig.startDate = parseDateInputValue(e.target.value);
-  });
-
-  if (icon && !icon.dataset.pickerBound) {
-    icon.addEventListener('click', () => {
-      if (dateInput.showPicker) {
-        dateInput.showPicker();
-      } else {
-        dateInput.focus();
-        // Fallback: trigger click to open native picker on some browsers
-        dateInput.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      }
-    });
-    icon.dataset.pickerBound = 'true';
-  }
-}
-
 function getLoanSummary() {
   // Normalize core inputs to avoid zero/NaN edge cases before math
   const amount = Math.max(0, Number(loanConfig.amount) || 0);
   const period = Math.max(1, Number(loanConfig.period) || 1);
   const interestRate = Number(loanConfig.interestRate) || 0;
-  const MONTHLY_FEE = 60; // R60 admin fee per 30-day period
+  const MONTHLY_FEE = 60; // R60 admin fee per month
   const INITIATION_FEE_RATE = 0.15; // 15% of loan amount per month
-  const DAYS_PER_MONTH = 30; // Standard 30-day month for calculations
-  
-  // Calculate prorated admin fee based on repayment schedule
-  let totalMonthlyFees = 0;
-  
-  const configuredStartDate = getConfiguredStartDate();
-  if (configuredStartDate) {
-    // Calculate days from loan start to first payment date
-    const start = new Date();
-    start.setHours(12, 0, 0, 0);
-    const paymentDate = new Date(configuredStartDate);
-    paymentDate.setHours(12, 0, 0, 0);
-    
-    // Calculate actual days between today and payment date
-    const daysUntilPayment = Math.max(1, Math.ceil((paymentDate - start) / (1000 * 60 * 60 * 24)));
-    
-    // Prorate the first month's admin fee: (days used / 30 days) * R60
-    const proratedDays = Math.min(daysUntilPayment, DAYS_PER_MONTH);
-    const firstMonthFee = (MONTHLY_FEE / DAYS_PER_MONTH) * proratedDays;
-    
-    // For multi-month loans, add full fees for remaining months
-    const remainingMonthsFees = period > 1 ? MONTHLY_FEE * (period - 1) : 0;
-    totalMonthlyFees = firstMonthFee + remainingMonthsFees;
-    
-    console.log(`📊 Admin fee prorated: First month ${proratedDays} days @ R${(MONTHLY_FEE / DAYS_PER_MONTH).toFixed(2)}/day = R${firstMonthFee.toFixed(2)}${period > 1 ? ` + ${period - 1} months @ R60 = R${totalMonthlyFees.toFixed(2)}` : ''}`);
-  } else {
-    // If no start date, charge full monthly fee per month
-    totalMonthlyFees = MONTHLY_FEE * period;
-  }
-  
-  // NOTE: Admin fee charging logic:
-  // - First payment period: Fee is prorated based on days from loan disbursement to payment date
-  // - Example: 15 days until first payment = (15/30) × R60 = R30
-  // - Subsequent months: Full R60 fee charged per month
-  // - Early repayment will trigger recalculation and refund of unused fees
+  // Admin fee charged per month (repayment date is scheduled by admin after review)
+  const totalMonthlyFees = MONTHLY_FEE * period;
   
   // Simple interest calculation: I = P × R × T
   // Total interest = principal × annual rate × (months / 12)
@@ -454,7 +338,6 @@ function getLoanSummary() {
 
 // Calculate Interest and Update Summary
 function calculateAndUpdateSummary() {
-  const configuredStartDate = getConfiguredStartDate();
   const summary = getLoanSummary();
 
   document.getElementById('summaryAmount').textContent = `R ${formatCurrency(loanConfig.amount)}`;
@@ -462,44 +345,17 @@ function calculateAndUpdateSummary() {
   document.getElementById('summaryPeriod').textContent = `${loanConfig.period} Month${loanConfig.period > 1 ? 's' : ''}`;
   document.getElementById('summaryInterest').textContent = `R ${formatCurrency(summary.totalInterest)}`;
   
-  // Update admin fee display with proration notice
+  // Update admin fee display
   const summaryFeeElement = document.getElementById('summaryFee');
   if (summaryFeeElement) {
     summaryFeeElement.textContent = `R ${formatCurrency(summary.totalMonthlyFees)}`;
-    
-    // Add proration notice for all loans with start date
-    if (configuredStartDate) {
-      const start = new Date();
-      start.setHours(12, 0, 0, 0);
-      const paymentDate = new Date(configuredStartDate);
-      paymentDate.setHours(12, 0, 0, 0);
-      const daysUntilPayment = Math.max(1, Math.ceil((paymentDate - start) / (1000 * 60 * 60 * 24)));
-      const proratedDays = Math.min(daysUntilPayment, 30);
-      
-      // Update the label to show prorated calculation
-      const labelElement = summaryFeeElement.previousElementSibling;
-      if (labelElement && labelElement.classList.contains('summary-label')) {
-        if (loanConfig.period === 1) {
-          labelElement.innerHTML = `
-            Total Admin Fees (${proratedDays} days @ R2/day)
-            <i class="fas fa-info-circle" style="color: var(--color-primary); font-size: 0.8rem; margin-left: 4px;" title="Prorated based on ${proratedDays} days until first payment"></i>
-          `;
-        } else {
-          labelElement.innerHTML = `
-            Total Admin Fees (1st: ${proratedDays} days, then R60/month)
-            <i class="fas fa-info-circle" style="color: var(--color-primary); font-size: 0.8rem; margin-left: 4px;" title="First payment prorated for ${proratedDays} days, then R60 per month"></i>
-          `;
-        }
-      }
-    } else {
-      // Reset to standard label when no start date
-      const labelElement = summaryFeeElement.previousElementSibling;
-      if (labelElement && labelElement.classList.contains('summary-label')) {
-        labelElement.innerHTML = `
-          Total Admin Fees (R60/month)
-          <i class="fas fa-info-circle" style="color: var(--color-primary); font-size: 0.8rem; margin-left: 4px;" title="R60 per month"></i>
-        `;
-      }
+
+    const labelElement = summaryFeeElement.previousElementSibling;
+    if (labelElement && labelElement.classList.contains('summary-label')) {
+      labelElement.innerHTML = `
+        Total Admin Fees (R60/month)
+        <i class="fas fa-info-circle" style="color: var(--color-primary); font-size: 0.8rem; margin-left: 4px;" title="R60 per month"></i>
+      `;
     }
   }
   
@@ -609,7 +465,6 @@ window.clearSignature = function() {
 window.prepareLoanApplication = function() {
   const submitBtn = document.getElementById('submitBtn');
   const termsCheckbox = document.getElementById('termsCheckbox');
-  const configuredStartDate = getConfiguredStartDate();
 
   if (!loanConfig.signature) {
     if (typeof showToast === 'function') {
@@ -629,26 +484,15 @@ window.prepareLoanApplication = function() {
     return;
   }
 
-  if (!configuredStartDate) {
-    if (typeof showToast === 'function') {
-      showToast('Date Required', 'Please select a first repayment date to continue.', 'warning', 3000);
-    } else {
-      alert('⚠️ Please select a first repayment date');
-    }
-    return;
-  }
-
   if (submitBtn) {
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
   }
 
   const summary = getLoanSummary();
-  const firstPaymentDateIso = configuredStartDate ? toIsoDateMidnight(configuredStartDate) : null;
   const pendingLoanPayload = {
     amount: loanConfig.amount,
     period: loanConfig.period,
-    startDate: firstPaymentDateIso,
     interestRate: loanConfig.interestRate,
     signature: loanConfig.signature,
     summary,

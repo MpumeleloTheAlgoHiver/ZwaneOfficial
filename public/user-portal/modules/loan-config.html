@@ -60,22 +60,6 @@
       </div>
     </div>
 
-    <!-- Repayment Start Date -->
-    <div class="config-group">
-      <label class="config-label">
-        <i class="fas fa-calendar-check" style="color: var(--color-primary) !important;"></i>
-        First Repayment Date
-      </label>
-      <div class="date-input-wrapper">
-        <input 
-          type="date" 
-          id="startDate" 
-          class="date-input"
-        >
-        <i class="fas fa-calendar-alt date-input-icon" aria-hidden="true"></i>
-      </div>
-      <small class="helper-text">Your first payment will be due on this date (within the current month)</small>
-    </div>
   </div>
 
   <!-- Loan Summary Preview -->
@@ -88,7 +72,7 @@
         • <strong>Initiation Fee:</strong> 15% of loan amount (charged every month)<br>
         • <strong>Admin Fee:</strong> R60/month<br>
         <small style="color: var(--color-primary); font-size: 0.85rem; display: block; margin-top: 0.5rem;">
-          <i class="fas fa-calendar-day" style="color: inherit;"></i> Admin fee is prorated based on actual days until first payment (R2/day)
+          <i class="fas fa-calendar-day" style="color: inherit;"></i> First repayment date is scheduled by admin after application review
         </small>
       </div>
     </div>
@@ -113,7 +97,7 @@
       <div class="summary-item">
         <span class="summary-label">
           Total Admin Fees (R60/month)
-          <i class="fas fa-info-circle" style="color: var(--color-primary); font-size: 0.8rem; margin-left: 4px;" title="Prorated for 1-month loans based on days"></i>
+          <i class="fas fa-info-circle" style="color: var(--color-primary); font-size: 0.8rem; margin-left: 4px;" title="R60 charged per month"></i>
         </span>
         <span class="summary-value" id="summaryFee">R 60.00</span>
       </div>
