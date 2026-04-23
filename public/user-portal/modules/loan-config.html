@@ -71,10 +71,18 @@
         <strong>Monthly Loan Fees:</strong><br>
         • <strong>Initiation Fee:</strong> 15% of loan amount (charged every month)<br>
         • <strong>Admin Fee:</strong> R60/month<br>
+        • <strong>Credit Life (Aspis):</strong> Optional 0.45% of loan amount<br>
         <small style="color: var(--color-primary); font-size: 0.85rem; display: block; margin-top: 0.5rem;">
           <i class="fas fa-calendar-day" style="color: inherit;"></i> First repayment date is scheduled by admin after application review
         </small>
       </div>
+    </div>
+    <div class="summary-item" style="margin-bottom: 1rem; border: 1px dashed rgb(var(--color-primary-rgb) / 0.35); border-radius: 10px;">
+      <label class="summary-label" for="creditLifeCheckbox" style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+        <input type="checkbox" id="creditLifeCheckbox">
+        Add Credit Life Insurance (Aspis 0.45%)
+      </label>
+      <span class="summary-value" id="summaryCreditLifeToggle">Not included</span>
     </div>
     <div class="summary-grid">
       <div class="summary-item">
@@ -107,6 +115,10 @@
           <i class="fas fa-info-circle" style="color: var(--color-primary); font-size: 0.8rem; margin-left: 4px;" title="15% of loan amount charged every month"></i>
         </span>
         <span class="summary-value" id="summaryInitiationFee">R 165.00</span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">Credit Life (0.45% of loan)</span>
+        <span class="summary-value" id="summaryCreditLife">R 0.00</span>
       </div>
       <div class="summary-item highlight">
         <span class="summary-label">Monthly Repayment</span>

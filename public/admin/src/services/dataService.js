@@ -63,7 +63,12 @@ async function ensureLoanFromApplication(application) {
     next_payment_date: repaymentDate,
     // Initialize balance to TOTAL contractual debt
     outstanding_balance: totalRepayment, 
-    total_repayment: totalRepayment
+    total_repayment: totalRepayment,
+    has_credit_life_insurance: Boolean(
+      application.has_credit_life_insurance
+      ?? application.offer_details?.credit_life_enabled
+      ?? false
+    )
   };
 
   // 4. Insert the single record into the loans table
@@ -752,7 +757,12 @@ export async function syncApplicationToLoans(applicationId) {
       status: 'active',
       start_date: new Date().toISOString(),
       next_payment_date: nextPaymentDate.toISOString(),
-      outstanding_balance: principal
+      outstanding_balance: principal,
+      has_credit_life_insurance: Boolean(
+        app.has_credit_life_insurance
+        ?? offerDetails.credit_life_enabled
+        ?? false
+      )
     };
     if (firstPaymentIso) {
       loanPayload.first_payment_date = firstPaymentIso;
