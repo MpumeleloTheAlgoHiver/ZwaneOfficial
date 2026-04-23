@@ -418,20 +418,9 @@ async function handleAuth(e) {
             const { data: rpcAllowed, error: rpcError } = await supabase.rpc('is_role_or_higher', { p_min_role: 'base_admin' });
 
             if (rpcError) {
-                console.warn('is_role_or_higher RPC failed, falling back to profile lookup:', rpcError);
-                const userId = data?.user?.id;
-                if (userId) {
-                    const { data: profile, error: profileErr } = await supabase
-                        .from('profiles')
-                        .select('role')
-                        .eq('id', userId)
-                        .maybeSingle();
-                    if (profileErr) {
-                        console.warn('Profile role lookup failed:', profileErr);
-                    }
-                    const role = (profile?.role || '').toLowerCase();
-                    isAllowed = ['base_admin', 'admin', 'super_admin', 'owner'].includes(role);
-                }
+                console.warn('is_role_or_higher RPC failed, falling back to JWT app_metadata role:', rpcError);
+                const role = (data?.user?.app_metadata?.role || data?.user?.user_metadata?.role || '').toLowerCase();
+                isAllowed = ['base_admin', 'admin', 'super_admin', 'owner'].includes(role);
             } else {
                 isAllowed = !!rpcAllowed;
             }
