@@ -212,6 +212,35 @@ const pageTemplate = `
             <div id="contract-status-empty" class="text-sm text-gray-500 bg-gray-50 border border-dashed border-gray-200 rounded-xl px-4 py-6 text-center">
               No contracts sent yet.
             </div>
+              <div id="contract-repayment-section" class="mt-4 border-t border-gray-100 pt-4">
+                <h4 class="text-xs font-bold text-gray-400 uppercase mb-3">Repayment Date</h4>
+                <div class="bg-orange-50 border border-orange-100 rounded-xl p-3">
+                  <div class="mb-2 flex items-center justify-end">
+                    <span id="contract-date-status-badge" class="px-2 py-0.5 text-[10px] font-bold rounded-full bg-yellow-100 text-yellow-700">Not set</span>
+                  </div>
+                  <div id="contract-date-view" class="flex items-center justify-between gap-3">
+                    <span class="text-xs text-orange-800 font-medium">First Repayment:</span>
+                    <div class="flex items-center gap-2">
+                      <span id="contract-date-label" class="text-xs font-bold text-orange-900">Not Scheduled</span>
+                      <button id="contract-set-date-btn" onclick="window.toggleContractDateEdit()" class="px-2.5 py-1 text-[11px] font-bold rounded-md bg-orange-600 text-white hover:bg-orange-700 transition-colors">
+                        Set date
+                      </button>
+                    </div>
+                  </div>
+                  <div id="contract-date-edit" class="hidden mt-2">
+                    <div class="flex items-center gap-2">
+                      <input type="date" id="new-repayment-date"
+                             class="flex-1 text-xs p-1.5 rounded-lg border border-orange-300 bg-white focus:ring-2 focus:ring-orange-500 outline-none">
+                      <button id="btn-save-date" onclick="window.saveRepaymentDate()" class="px-3 py-1.5 bg-orange-600 text-white text-xs font-bold rounded-lg hover:bg-orange-700 shadow-sm">
+                        Save
+                      </button>
+                      <button onclick="window.toggleContractDateEdit()" class="px-2 py-1.5 text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-xmark"></i>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             <div id="contract-status-section" class="hidden mt-4 border-t border-gray-100 pt-4">
               <h4 class="text-xs font-bold text-gray-400 uppercase mb-3">History</h4>
               <div id="contract-status-content" class="space-y-2">
@@ -880,11 +909,43 @@ window.saveRepaymentDate = async () => {
     }
 };
 
-// Simple toggle helper for the UI
-window.toggleDateEdit = () => {
-    const viewMode = document.getElementById('date-view-mode');
-    const editMode = document.getElementById('date-edit-mode');
-    if(viewMode && editMode) {
+const renderContractRepaymentScheduler = (app) => {
+  const label = document.getElementById('contract-date-label');
+  const badge = document.getElementById('contract-date-status-badge');
+  const setBtn = document.getElementById('contract-set-date-btn');
+  const input = document.getElementById('new-repayment-date');
+  const viewMode = document.getElementById('contract-date-view');
+  const editMode = document.getElementById('contract-date-edit');
+
+  if (!label || !badge || !setBtn || !input || !viewMode || !editMode || !app) {
+    return;
+  }
+
+  const scheduledDate = app.repayment_start_date || app.offer_details?.first_payment_date;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  label.textContent = scheduledDate ? formatDate(scheduledDate) : 'Not Scheduled';
+  badge.textContent = scheduledDate ? 'Date set' : 'Not set';
+  badge.className = scheduledDate
+    ? 'px-2 py-0.5 text-[10px] font-bold rounded-full bg-green-100 text-green-700'
+    : 'px-2 py-0.5 text-[10px] font-bold rounded-full bg-yellow-100 text-yellow-700';
+  input.value = scheduledDate ? new Date(scheduledDate).toISOString().split('T')[0] : '';
+  input.min = today.toISOString().split('T')[0];
+
+  const isLocked = app.status === 'DISBURSED';
+  setBtn.disabled = isLocked;
+  setBtn.classList.toggle('opacity-50', isLocked);
+  setBtn.classList.toggle('cursor-not-allowed', isLocked);
+
+  viewMode.classList.remove('hidden');
+  editMode.classList.add('hidden');
+};
+
+window.toggleContractDateEdit = () => {
+    const viewMode = document.getElementById('contract-date-view');
+    const editMode = document.getElementById('contract-date-edit');
+    if (viewMode && editMode) {
         viewMode.classList.toggle('hidden');
         editMode.classList.toggle('hidden');
     }
@@ -1637,34 +1698,15 @@ const renderSidePanel = (app) => {
     </div>
     
     <div class="mt-4">
-        <label class="text-[10px] text-gray-400 uppercase font-bold tracking-widest mb-1 block">Scheduled Payout Info</label>
-        <div class="p-3 bg-orange-50 border border-orange-100 rounded-xl transition-all">
-            <div id="date-view-mode" class="flex items-center justify-between">
-                <span class="text-xs text-orange-800 font-medium">First Repayment:</span>
-                <div class="flex items-center gap-2">
-                    <span class="text-xs font-bold text-orange-900">
-                        ${scheduledDate ? formatDate(scheduledDate) : 'Not Scheduled'}
-                    </span>
-                    ${status !== 'DISBURSED' ? `
-                    <button onclick="window.toggleDateEdit()" class="w-6 h-6 flex items-center justify-center rounded-full hover:bg-orange-100 text-orange-600 transition-colors" title="Change Date">
-                        <i class="fa-solid fa-pen text-[10px]"></i>
-                    </button>` : ''}
-                </div>
-            </div>
-            <div id="date-edit-mode" class="hidden mt-1">
-                <div class="flex items-center gap-2">
-                    <input type="date" id="new-repayment-date" 
-                           class="flex-1 text-xs p-1.5 rounded-lg border border-orange-300 bg-white focus:ring-2 focus:ring-orange-500 outline-none"
-                           value="${scheduledDate ? new Date(scheduledDate).toISOString().split('T')[0] : ''}">
-                    <button id="btn-save-date" onclick="window.saveRepaymentDate()" class="px-3 py-1.5 bg-orange-600 text-white text-xs font-bold rounded-lg hover:bg-orange-700 shadow-sm">
-                        Save
-                    </button>
-                    <button onclick="window.toggleDateEdit()" class="px-2 py-1.5 text-gray-500 hover:text-gray-700">
-                        <i class="fa-solid fa-xmark"></i>
-                    </button>
-                </div>
-            </div>
+      <label class="text-[10px] text-gray-400 uppercase font-bold tracking-widest mb-1 block">Scheduled Payout Info</label>
+      <div class="p-3 bg-orange-50 border border-orange-100 rounded-xl transition-all">
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-orange-800 font-medium">First Repayment:</span>
+          <span class="text-xs font-bold text-orange-900">
+            ${scheduledDate ? formatDate(scheduledDate) : 'Not Scheduled'}
+          </span>
         </div>
+      </div>
     </div>
   `;
 
@@ -1797,6 +1839,7 @@ const loadApplicationData = async () => {
       
       // Part 1: Side Panel with Tiered Rates (Step 5)
       renderSidePanel(data); 
+      renderContractRepaymentScheduler(data);
 
       // 3. Initialize Signatures & Visibility
       await initDocuSealCard();
