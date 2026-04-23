@@ -83,6 +83,15 @@ const hasMinimumRole = (role, minimumRole = 'base_admin') => {
 };
 
 async function resolveAdminAccess(session, minimumRole = 'base_admin') {
+    // Primary: read role from JWT app_metadata (set by Supabase auth hooks)
+    const jwtRole = session?.user?.app_metadata?.role
+        || session?.user?.user_metadata?.role
+        || '';
+    if (jwtRole && hasMinimumRole(jwtRole, minimumRole)) {
+        return true;
+    }
+
+    // Fallback: try the RPC (in case roles ever live in DB)
     const { data: rpcAllowed, error: rpcError } = await supabase.rpc('is_role_or_higher', {
         p_min_role: minimumRole
     });
@@ -91,22 +100,8 @@ async function resolveAdminAccess(session, minimumRole = 'base_admin') {
         return Boolean(rpcAllowed);
     }
 
-    console.warn('Role RPC unavailable, using profile fallback:', rpcError.message || rpcError);
-    const userId = session?.user?.id;
-    if (!userId) return false;
-
-    const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', userId)
-        .maybeSingle();
-
-    if (profileError) {
-        console.error('Profile fallback role check failed:', profileError.message || profileError);
-        return false;
-    }
-
-    return hasMinimumRole(profile?.role, minimumRole);
+    console.warn('Role RPC unavailable, JWT role insufficient:', jwtRole || '(none)');
+    return false;
 }
 
 async function ensureBrandingTheme(force = false) {
