@@ -414,13 +414,17 @@ async function handleAuth(e) {
             
             if (error) throw error;
 
-            const { data: isAllowed, error: rpcError } = await supabase.rpc('is_role_or_higher', { p_min_role: 'base_admin' });
-            
+            let isAllowed = false;
+            const { data: rpcAllowed, error: rpcError } = await supabase.rpc('is_role_or_higher', { p_min_role: 'base_admin' });
+
             if (rpcError) {
-                await supabase.auth.signOut();
-                throw new Error('Verification failed.');
+                console.warn('is_role_or_higher RPC failed, falling back to JWT app_metadata role:', rpcError);
+                const role = (data?.user?.app_metadata?.role || data?.user?.user_metadata?.role || '').toLowerCase();
+                isAllowed = ['base_admin', 'admin', 'super_admin', 'owner'].includes(role);
+            } else {
+                isAllowed = !!rpcAllowed;
             }
-            
+
             window.location.replace(isAllowed ? '/admin/dashboard' : '/user-portal/index.html');
 
         } else if (viewState === 'signup') {

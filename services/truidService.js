@@ -16,6 +16,7 @@ const COMPLETE_STATUSES = new Set([
 const sessionsByCollectionId = new Map();
 const latestCollectionByUser = new Map();
 const TRUID_COLLECTIONS_TABLE = 'truid_collections';
+const TRUID_SNAPSHOTS_TABLE = 'truid_bank_snapshots';
 
 class TruIDClient {
   constructor() {
@@ -210,8 +211,21 @@ class TruIDClient {
   async getCollectionData(collectionId) {
     this.validateSetup();
     try {
-      const response = await this.fetchApi('delivery-api', 'GET', `/collections/${collectionId}/products/summary`);
-      return { success: true, status: response.status, data: response.data };
+      const summaryRes = await this.fetchApi('delivery-api', 'GET', `/collections/${collectionId}/products/summary`);
+      const transactionsRes = await this.fetchApi('delivery-api', 'GET', `/collections/${collectionId}/products/transactions`)
+        .then((result) => result)
+        .catch(() => ({ data: null }));
+      const incomeRes = await this.fetchApi('delivery-api', 'GET', `/collections/${collectionId}/products/income`)
+        .then((result) => result)
+        .catch(() => ({ data: null }));
+
+      const payload = {
+        ...(summaryRes.data || {}),
+        truid_transactions: transactionsRes.data || null,
+        truid_income: incomeRes.data || null
+      };
+
+      return { success: true, status: summaryRes.status, data: payload };
     } catch (error) {
       throw this.normalizeError(error, 'Failed to download collection data');
     }
@@ -222,6 +236,206 @@ const truIDClient = new TruIDClient();
 
 function isMissingTableError(error) {
   return error?.code === '42P01' || /relation .* does not exist/i.test(error?.message || '');
+}
+
+function isMissingColumnError(error) {
+  const message = (error?.message || '').toLowerCase();
+  return error?.code === '42703'
+    || message.includes('column')
+    || message.includes('could not find the')
+    || message.includes('schema cache');
+}
+
+function parseDateValue(value) {
+  if (!value) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  if (/^\d{8}$/.test(text)) {
+    return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`;
+  }
+
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+}
+
+function collectByKeyHints(input, hints = [], found = []) {
+  if (input === null || input === undefined) return found;
+
+  if (Array.isArray(input)) {
+    input.forEach((item) => collectByKeyHints(item, hints, found));
+    return found;
+  }
+
+  if (typeof input !== 'object') {
+    return found;
+  }
+
+  Object.entries(input).forEach(([key, value]) => {
+    const normalizedKey = key.toLowerCase();
+    const keyMatches = hints.some((hint) => normalizedKey.includes(hint));
+
+    if (keyMatches && (typeof value === 'string' || typeof value === 'number')) {
+      found.push(value);
+    }
+
+    if (value && typeof value === 'object') {
+      collectByKeyHints(value, hints, found);
+    }
+  });
+
+  return found;
+}
+
+function extractSalaryInsights(payload = {}) {
+  const incomeSource = payload?.truid_income || payload || {};
+
+  const amountCandidates = collectByKeyHints(incomeSource, [
+    'salary',
+    'income',
+    'netincome',
+    'monthlyincome'
+  ]);
+
+  const salaryAmount = amountCandidates
+    .map((value) => Number(value))
+    .find((value) => Number.isFinite(value) && value > 0) || null;
+
+  const dateCandidatesRaw = collectByKeyHints(incomeSource, [
+    'salarydate',
+    'paydate',
+    'payoutdate',
+    'paymentdate',
+    'nextsalary',
+    'salary_day'
+  ]);
+
+  const salaryDates = [...new Set(dateCandidatesRaw.map(parseDateValue).filter(Boolean))];
+
+  return {
+    salaryAmount,
+    salaryDate: salaryDates[0] || null,
+    salaryDates: salaryDates.length ? salaryDates : null,
+    incomePayload: payload?.truid_income || null,
+    transactionsPayload: payload?.truid_transactions || null,
+    rawPayload: payload || null
+  };
+}
+
+function toSafeNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function pickFirstTextValue(payload = {}, hints = []) {
+  const candidates = collectByKeyHints(payload, hints)
+    .map((value) => (value === null || value === undefined ? '' : String(value).trim()))
+    .filter(Boolean);
+
+  return candidates[0] || null;
+}
+
+function pickFirstNumericValue(payload = {}, hints = []) {
+  const candidates = collectByKeyHints(payload, hints)
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+
+  return candidates[0] ?? null;
+}
+
+function collectPossibleTransactions(payload = {}) {
+  const source = payload?.truid_transactions;
+  if (!source) return [];
+
+  if (Array.isArray(source)) return source;
+
+  if (typeof source === 'object') {
+    const arrays = Object.values(source).filter(Array.isArray);
+    if (arrays.length) return arrays.flat();
+  }
+
+  return [];
+}
+
+function estimateMonthsCaptured(payload = {}) {
+  const monthsHint = pickFirstNumericValue(payload, ['months', 'periodmonths', 'monthscaptured', 'month_count']);
+  if (Number.isFinite(monthsHint) && monthsHint > 0) {
+    return Math.max(0, Math.round(monthsHint));
+  }
+
+  const transactions = collectPossibleTransactions(payload);
+  if (!transactions.length) return 0;
+
+  const monthSet = new Set();
+  transactions.forEach((tx) => {
+    const dateText = parseDateValue(
+      tx?.date || tx?.transactionDate || tx?.bookingDate || tx?.postedDate || tx?.valueDate
+    );
+    if (dateText) {
+      monthSet.add(dateText.slice(0, 7));
+    }
+  });
+
+  return monthSet.size;
+}
+
+function extractSnapshotMetrics(payload = {}) {
+  const summarySource = payload?.truid_income || payload || {};
+  const transactions = collectPossibleTransactions(payload);
+  const salaryInsights = extractSalaryInsights(payload);
+
+  const totalIncomeHint = pickFirstNumericValue(summarySource, ['total_income', 'totalincome', 'income_total']);
+  const totalExpensesHint = pickFirstNumericValue(summarySource, ['total_expenses', 'totalexpenses', 'expense_total']);
+  const avgIncomeHint = pickFirstNumericValue(summarySource, ['avg_monthly_income', 'average_monthly_income', 'monthly_income', 'avgincome']);
+  const avgExpensesHint = pickFirstNumericValue(summarySource, ['avg_monthly_expenses', 'average_monthly_expenses', 'monthly_expenses', 'avgexpenses']);
+  const netIncomeHint = pickFirstNumericValue(summarySource, ['net_monthly_income', 'netincome', 'net_income']);
+
+  let transactionCredits = 0;
+  let transactionDebits = 0;
+  transactions.forEach((tx) => {
+    const amount = toSafeNumber(tx?.amount || tx?.value || tx?.transactionAmount || tx?.transaction_amount, 0);
+    const direction = String(tx?.direction || tx?.type || tx?.transactionType || '').toLowerCase();
+
+    if (direction.includes('credit') || direction.includes('income')) {
+      transactionCredits += Math.abs(amount);
+    } else if (direction.includes('debit') || direction.includes('expense')) {
+      transactionDebits += Math.abs(amount);
+    } else if (amount >= 0) {
+      transactionCredits += amount;
+    } else {
+      transactionDebits += Math.abs(amount);
+    }
+  });
+
+  const monthsCaptured = estimateMonthsCaptured(payload);
+  const totalIncome = toSafeNumber(totalIncomeHint, transactionCredits);
+  const totalExpenses = toSafeNumber(totalExpensesHint, transactionDebits);
+  const avgMonthlyIncome = toSafeNumber(avgIncomeHint, monthsCaptured > 0 ? totalIncome / monthsCaptured : totalIncome);
+  const avgMonthlyExpenses = toSafeNumber(avgExpensesHint, monthsCaptured > 0 ? totalExpenses / monthsCaptured : totalExpenses);
+  const netMonthlyIncome = toSafeNumber(netIncomeHint, avgMonthlyIncome - avgMonthlyExpenses);
+
+  const salaryDate = salaryInsights.salaryDate ? `${salaryInsights.salaryDate}T00:00:00.000Z` : null;
+
+  return {
+    bankName: pickFirstTextValue(payload, ['bank_name', 'bankname', 'institution', 'provider']),
+    customerName: pickFirstTextValue(payload, ['customer_name', 'customername', 'account_holder', 'fullname', 'name']),
+    monthsCaptured,
+    totalIncome,
+    totalExpenses,
+    avgMonthlyIncome,
+    avgMonthlyExpenses,
+    netMonthlyIncome,
+    mainSalary: toSafeNumber(salaryInsights.salaryAmount, 0),
+    salaryPaymentDate: salaryDate,
+    summaryData: payload || null,
+    rawStatement: {
+      summary: payload || null,
+      income: payload?.truid_income || null,
+      transactions: payload?.truid_transactions || null
+    }
+  };
 }
 
 function createMissingTableError() {
@@ -236,7 +450,7 @@ async function upsertCollectionRecord(record = {}) {
     return null;
   }
 
-  const payload = {
+  const basePayload = {
     collection_id: record.collection_id,
     user_id: record.user_id || null,
     application_id: record.application_id || null,
@@ -254,11 +468,32 @@ async function upsertCollectionRecord(record = {}) {
     updated_at: new Date().toISOString()
   };
 
-  const { data, error } = await supabaseService
+  const extendedPayload = {
+    ...basePayload,
+    raw_payload: record.raw_payload || null,
+    income_payload: record.income_payload || null,
+    transactions_payload: record.transactions_payload || null,
+    salary_amount: record.salary_amount || null,
+    salary_date: record.salary_date || null,
+    salary_dates: record.salary_dates || null
+  };
+
+  let data;
+  let error;
+
+  ({ data, error } = await supabaseService
     .from(TRUID_COLLECTIONS_TABLE)
-    .upsert(payload, { onConflict: 'collection_id' })
+    .upsert(extendedPayload, { onConflict: 'collection_id' })
     .select('*')
-    .maybeSingle();
+    .maybeSingle());
+
+  if (error && isMissingColumnError(error)) {
+    ({ data, error } = await supabaseService
+      .from(TRUID_COLLECTIONS_TABLE)
+      .upsert(basePayload, { onConflict: 'collection_id' })
+      .select('*')
+      .maybeSingle());
+  }
 
   if (error) {
     if (isMissingTableError(error)) {
@@ -268,6 +503,59 @@ async function upsertCollectionRecord(record = {}) {
   }
 
   return data;
+}
+
+async function upsertBankSnapshot(record = {}) {
+  if (!record.user_id || !record.collection_id) {
+    return null;
+  }
+
+  const payload = {
+    user_id: record.user_id,
+    collection_id: record.collection_id,
+    bank_name: record.bank_name || null,
+    customer_name: record.customer_name || null,
+    captured_at: record.captured_at || new Date().toISOString(),
+    months_captured: Math.max(0, Math.round(toSafeNumber(record.months_captured, 0))),
+    total_income: toSafeNumber(record.total_income, 0),
+    total_expenses: toSafeNumber(record.total_expenses, 0),
+    avg_monthly_income: toSafeNumber(record.avg_monthly_income, 0),
+    avg_monthly_expenses: toSafeNumber(record.avg_monthly_expenses, 0),
+    net_monthly_income: toSafeNumber(record.net_monthly_income, 0),
+    main_salary: toSafeNumber(record.main_salary, 0),
+    salary_payment_date: record.salary_payment_date || null,
+    summary_data: record.summary_data || null,
+    raw_statement: record.raw_statement || null
+  };
+
+  let data;
+  let error;
+
+  ({ data, error } = await supabaseService
+    .from(TRUID_SNAPSHOTS_TABLE)
+    .upsert(payload, { onConflict: 'collection_id' })
+    .select('*')
+    .maybeSingle());
+
+  if (error && (error?.code === '42P10' || /no unique|constraint/i.test(error?.message || ''))) {
+    ({ data, error } = await supabaseService
+      .from(TRUID_SNAPSHOTS_TABLE)
+      .insert(payload)
+      .select('*')
+      .maybeSingle());
+  }
+
+  if (error) {
+    if (isMissingTableError(error)) {
+      const missingTableError = new Error('TruID snapshot table is missing. Run sql/truid_bank_snapshots.sql first.');
+      missingTableError.status = 500;
+      missingTableError.code = 'TRUID_SNAPSHOT_TABLE_MISSING';
+      throw missingTableError;
+    }
+    throw new Error(error.message || 'Unable to upsert TruID bank snapshot');
+  }
+
+  return data || null;
 }
 
 async function getCollectionRecord(collectionId) {
@@ -678,7 +966,9 @@ async function captureCollectionData({ collectionId, userId, applicationId } = {
 
   const dbRecord = await getCollectionRecord(collectionId);
   const summary = await truIDClient.getCollectionData(collectionId);
+  const collectionDetails = await truIDClient.getCollection(collectionId).catch(() => null);
   const status = summary.data?.status || 'data_ready';
+  const insights = extractSalaryInsights(summary.data || {});
 
   const existing = sessionsByCollectionId.get(collectionId) || {
     collectionId,
@@ -712,11 +1002,42 @@ async function captureCollectionData({ collectionId, userId, applicationId } = {
     status,
     correlation: dbRecord?.correlation || null,
     summary_payload: summary.data || null,
+    raw_payload: insights.rawPayload,
+    income_payload: insights.incomePayload,
+    transactions_payload: insights.transactionsPayload,
+    salary_amount: insights.salaryAmount,
+    salary_date: insights.salaryDate,
+    salary_dates: insights.salaryDates,
     verified,
     capture_attempts: nextCaptureAttempts,
     captured_at: new Date().toISOString(),
     last_error: null
   });
+
+  if (existing.userId) {
+    const snapshotMetrics = extractSnapshotMetrics({
+      ...(summary.data || {}),
+      truid_collection: collectionDetails?.data || null
+    });
+
+    await upsertBankSnapshot({
+      user_id: existing.userId,
+      collection_id: collectionId,
+      bank_name: snapshotMetrics.bankName,
+      customer_name: snapshotMetrics.customerName,
+      captured_at: new Date().toISOString(),
+      months_captured: snapshotMetrics.monthsCaptured,
+      total_income: snapshotMetrics.totalIncome,
+      total_expenses: snapshotMetrics.totalExpenses,
+      avg_monthly_income: snapshotMetrics.avgMonthlyIncome,
+      avg_monthly_expenses: snapshotMetrics.avgMonthlyExpenses,
+      net_monthly_income: snapshotMetrics.netMonthlyIncome,
+      main_salary: snapshotMetrics.mainSalary,
+      salary_payment_date: snapshotMetrics.salaryPaymentDate,
+      summary_data: snapshotMetrics.summaryData,
+      raw_statement: snapshotMetrics.rawStatement
+    });
+  }
 
   if (verified && existing.userId) {
     await recordBankStatementCompletion(existing.userId, collectionId, {
@@ -742,5 +1063,6 @@ module.exports = {
   getUserStatus,
   getAllSessions,
   captureCollectionData,
-  recordBankStatementCompletion
+  recordBankStatementCompletion,
+  upsertBankSnapshot
 };

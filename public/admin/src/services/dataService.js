@@ -259,7 +259,8 @@ export async function fetchApplicationDetail(applicationId) {
     creditRes,
     loansRes,
     appHistoryRes,
-    truidRes 
+    truidRes,
+    kycRes
   ] = await Promise.all([
     supabase.from('financial_profiles').select('*').eq('user_id', userId).maybeSingle(),
     supabase.from('document_uploads')
@@ -271,7 +272,8 @@ export async function fetchApplicationDetail(applicationId) {
     supabase.from('credit_checks').select('*').eq('user_id', userId).order('checked_at', { ascending: false }),
     supabase.from('loans').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
     supabase.from('loan_applications').select('id, status, amount, created_at, purpose').eq('user_id', userId).neq('id', applicationId).order('created_at', { ascending: false }),
-    supabase.from('truid_collections').select('*').eq('user_id', userId).maybeSingle() // <--- ADD THIS
+    supabase.from('truid_collections').select('*').eq('user_id', userId).maybeSingle(),
+    supabase.from('kyc_sessions').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(1).maybeSingle()
   ]);
 
   return {
@@ -283,7 +285,8 @@ export async function fetchApplicationDetail(applicationId) {
     credit_checks: creditRes.data || [],
     loan_history: loansRes.data || [],
     application_history: appHistoryRes.data || [],
-    truid_info: truidRes.data || null 
+    truid_info: truidRes.data || null,
+    kyc_info: kycRes.data || null
   };
 }
 

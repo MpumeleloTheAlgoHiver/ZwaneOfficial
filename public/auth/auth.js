@@ -64,6 +64,46 @@ let carouselSlides = sanitizeCarouselSlides();
 let currentSlideIndex = 0;
 let carouselInterval;
 
+const ADMIN_ROLE_LEVELS = {
+    borrower: 0,
+    user: 0,
+    support: 1,
+    admin: 2,
+    base_admin: 2,
+    super_admin: 3,
+    owner: 4
+};
+
+const hasMinimumRole = (role, minimumRole = 'base_admin') => {
+    const normalizedRole = String(role || '').trim().toLowerCase();
+    const normalizedMinimum = String(minimumRole || 'base_admin').trim().toLowerCase();
+    const roleLevel = ADMIN_ROLE_LEVELS[normalizedRole] ?? 0;
+    const minimumLevel = ADMIN_ROLE_LEVELS[normalizedMinimum] ?? 2;
+    return roleLevel >= minimumLevel;
+};
+
+async function resolveAdminAccess(session, minimumRole = 'base_admin') {
+    // Primary: read role from JWT app_metadata (set by Supabase auth hooks)
+    const jwtRole = session?.user?.app_metadata?.role
+        || session?.user?.user_metadata?.role
+        || '';
+    if (jwtRole && hasMinimumRole(jwtRole, minimumRole)) {
+        return true;
+    }
+
+    // Fallback: try the RPC (in case roles ever live in DB)
+    const { data: rpcAllowed, error: rpcError } = await supabase.rpc('is_role_or_higher', {
+        p_min_role: minimumRole
+    });
+
+    if (!rpcError) {
+        return Boolean(rpcAllowed);
+    }
+
+    console.warn('Role RPC unavailable, JWT role insufficient:', jwtRole || '(none)');
+    return false;
+}
+
 async function ensureBrandingTheme(force = false) {
     try {
         const theme = await ensureThemeLoaded({ force });
@@ -110,19 +150,7 @@ async function checkSession() {
             return;
         }
 
-        const { data: isAllowed, error } = await withTimeout(
-            supabase.rpc('is_role_or_higher', {
-                p_min_role: 'base_admin'
-            }),
-            7000
-        );
-
-        if (error) {
-            console.error('Error checking role:', error.message);
-            await supabase.auth.signOut();
-            render();
-            return;
-        }
+        const isAllowed = await withTimeout(resolveAdminAccess(session, 'base_admin'), 7000);
 
         if (isAllowed) {
             window.location.replace('/admin/dashboard');
@@ -437,12 +465,7 @@ async function handleAuth(e) {
             
             if (error) throw error;
 
-            const { data: isAllowed, error: rpcError } = await supabase.rpc('is_role_or_higher', { p_min_role: 'base_admin' });
-            
-            if (rpcError) {
-                await supabase.auth.signOut();
-                throw new Error('Verification failed.');
-            }
+            const isAllowed = await resolveAdminAccess(data?.session, 'base_admin');
             
             window.location.replace(isAllowed ? '/admin/dashboard' : '/user-portal/index.html');
 
