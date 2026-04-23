@@ -15,6 +15,7 @@ window.loadLoanModule = function() {
         await fetchAffordabilityRatio();
         initializeLoanSlider();
         initializePeriodSlider();
+        initializeCreditLifeOption();
         initializeSignatureCanvas();
         calculateAndUpdateSummary();
       }, 100);
@@ -32,6 +33,7 @@ let loanConfig = {
   amount: 5000,
   period: 1,
   interestRate: 0.20, // 20% annual simple interest
+  hasCreditLifeInsurance: false,
   signature: null,
   maxAllowedPeriod: 1, // Will be updated based on loan history
   completedOneMonthLoans: 0,
@@ -169,6 +171,7 @@ document.addEventListener('DOMContentLoaded', () => {
   checkLoanHistory().then(() => {
     initializeLoanSlider();
     initializePeriodSlider();
+    initializeCreditLifeOption();
     initializeSignatureCanvas();
     calculateAndUpdateSummary();
   });
@@ -286,6 +289,17 @@ function initializePeriodSlider() {
   slider.max = loanConfig.maxAllowedPeriod;
 }
 
+function initializeCreditLifeOption() {
+  const checkbox = document.getElementById('creditLifeCheckbox');
+  if (!checkbox) return;
+
+  checkbox.checked = Boolean(loanConfig.hasCreditLifeInsurance);
+  checkbox.addEventListener('change', () => {
+    loanConfig.hasCreditLifeInsurance = checkbox.checked;
+    calculateAndUpdateSummary();
+  });
+}
+
 function getLoanSummary() {
   // Normalize core inputs to avoid zero/NaN edge cases before math
   const amount = Math.max(0, Number(loanConfig.amount) || 0);
@@ -293,6 +307,7 @@ function getLoanSummary() {
   const interestRate = Number(loanConfig.interestRate) || 0;
   const MONTHLY_FEE = 60; // R60 admin fee per month
   const INITIATION_FEE_RATE = 0.15; // 15% of loan amount per month
+  const CREDIT_LIFE_RATE = 0.0045; // 0.45% of loan amount
   // Admin fee charged per month (repayment date is scheduled by admin after review)
   const totalMonthlyFees = MONTHLY_FEE * period;
   
@@ -305,11 +320,15 @@ function getLoanSummary() {
   
   // Total initiation fees (charged every month)
   const totalInitiationFees = initiationFeePerMonth * period;
+
+  // Optional Credit Life insurance (Aspis)
+  const totalCreditLife = loanConfig.hasCreditLifeInsurance
+    ? amount * CREDIT_LIFE_RATE
+    : 0;
+  const creditLifeMonthly = totalCreditLife / period;
   
   // Combined total fees
-  const totalFees = totalMonthlyFees + totalInitiationFees;
-  const totalCreditLife = 0;
-  const creditLifeMonthly = 0;
+  const totalFees = totalMonthlyFees + totalInitiationFees + totalCreditLife;
   const combinedFees = totalFees;
   
   // Total repayment = principal + total interest + all fees
@@ -363,6 +382,18 @@ function calculateAndUpdateSummary() {
   const initiationFeeElement = document.getElementById('summaryInitiationFee');
   if (initiationFeeElement) {
     initiationFeeElement.textContent = `R ${formatCurrency(summary.totalInitiationFees)}`;
+  }
+
+  const creditLifeElement = document.getElementById('summaryCreditLife');
+  if (creditLifeElement) {
+    creditLifeElement.textContent = `R ${formatCurrency(summary.totalCreditLife)}`;
+  }
+
+  const creditLifeToggleElement = document.getElementById('summaryCreditLifeToggle');
+  if (creditLifeToggleElement) {
+    creditLifeToggleElement.textContent = loanConfig.hasCreditLifeInsurance
+      ? `Included (+R ${formatCurrency(summary.totalCreditLife)})`
+      : 'Not included';
   }
 
   document.getElementById('summaryMonthly').textContent = `R ${formatCurrency(summary.monthlyPayment)}`;
@@ -494,6 +525,7 @@ window.prepareLoanApplication = function() {
     amount: loanConfig.amount,
     period: loanConfig.period,
     interestRate: loanConfig.interestRate,
+    hasCreditLifeInsurance: Boolean(loanConfig.hasCreditLifeInsurance),
     signature: loanConfig.signature,
     summary,
     offer_principal: Number(loanConfig.amount) || 0,
@@ -501,6 +533,8 @@ window.prepareLoanApplication = function() {
     offer_total_interest: Number(summary.totalInterest) || 0,
     offer_total_admin_fees: Number(summary.totalMonthlyFees) || 0,
     offer_total_initiation_fees: Number(summary.totalInitiationFees) || 0,
+    offer_credit_life_monthly: Number(summary.creditLifeMonthly) || 0,
+    offer_credit_life_total: Number(summary.totalCreditLife) || 0,
     offer_monthly_repayment: Number(summary.monthlyPayment) || 0,
     offer_total_repayment: Number(summary.totalRepayment) || 0,
     stagedAt: new Date().toISOString()

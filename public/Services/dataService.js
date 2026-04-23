@@ -173,7 +173,12 @@ export async function updateApplicationStatus(applicationId, newStatus) {
             status: 'active',
             start_date: new Date().toISOString(),
             next_payment_date: nextPaymentDate.toISOString(),
-            outstanding_balance: principal
+                        outstanding_balance: principal,
+                        has_credit_life_insurance: Boolean(
+                            updatedApp.has_credit_life_insurance
+                            ?? offerDetails.credit_life_enabled
+                            ?? false
+                        )
         };
         if (firstPaymentIso) {
             loanBase.first_payment_date = firstPaymentIso;
@@ -298,7 +303,12 @@ export async function createLoanFromApplication(applicationId) {
         status: 'active',
         start_date: new Date().toISOString(),
         next_payment_date: nextPaymentDate.toISOString(),
-        outstanding_balance: principal
+                outstanding_balance: principal,
+                has_credit_life_insurance: Boolean(
+                    app.has_credit_life_insurance
+                    ?? offerDetails.credit_life_enabled
+                    ?? false
+                )
     };
     if (firstPaymentIso) {
         baseLoanData.first_payment_date = firstPaymentIso;

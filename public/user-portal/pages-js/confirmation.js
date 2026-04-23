@@ -451,6 +451,7 @@ async function handleBankFormSubmit() {
       offer_total_interest: Number(summary?.totalInterest) || 0,
       offer_total_admin_fees: Number(summary?.totalMonthlyFees) || 0,
       offer_total_initiation_fees: Number(summary?.totalInitiationFees) || 0,
+      offer_credit_life_monthly: Number(summary?.creditLifeMonthly) || 0,
       offer_monthly_repayment: Number(summary?.monthlyPayment) || 0,
       offer_total_repayment: Number(summary?.totalRepayment) || 0
     };
@@ -475,12 +476,17 @@ async function handleBankFormSubmit() {
             purpose: 'Personal Loan',
             status: 'STARTED',
             bank_account_id: bankAccountId,
+            has_credit_life_insurance: Boolean(pendingLoanConfig?.hasCreditLifeInsurance),
             ...offerFields,
             offer_details: {
               interest_rate: pendingLoanConfig.interestRate,
               total_interest: summary?.totalInterest,
               total_repayment: summary?.totalRepayment,
               monthly_payment: summary?.monthlyPayment,
+              credit_life_enabled: Boolean(pendingLoanConfig?.hasCreditLifeInsurance),
+              credit_life_rate: 0.0045,
+              credit_life_total: Number(summary?.totalCreditLife) || 0,
+              credit_life_monthly: Number(summary?.creditLifeMonthly) || 0,
               first_payment_date: null,
               signature_data: pendingLoanConfig.signature
             }
@@ -513,12 +519,17 @@ async function handleBankFormSubmit() {
         purpose: 'Personal Loan',
         status: 'STARTED',
         bank_account_id: bankAccountId,
+        has_credit_life_insurance: Boolean(pendingLoanConfig?.hasCreditLifeInsurance),
         ...offerFields,
         offer_details: {
           interest_rate: pendingLoanConfig.interestRate,
           total_interest: summary?.totalInterest,
           total_repayment: summary?.totalRepayment,
           monthly_payment: summary?.monthlyPayment,
+          credit_life_enabled: Boolean(pendingLoanConfig?.hasCreditLifeInsurance),
+          credit_life_rate: 0.0045,
+          credit_life_total: Number(summary?.totalCreditLife) || 0,
+          credit_life_monthly: Number(summary?.creditLifeMonthly) || 0,
           first_payment_date: null,
           signature_data: pendingLoanConfig.signature
         }
