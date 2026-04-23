@@ -1,6 +1,16 @@
 // Handles page switching
 // Main Dashboard Script
 
+// Safe global stubs for page-specific handlers — prevents inline onclick="..."
+// from crashing during SPA page transitions when the owning script isn't loaded.
+['toggleConsent'].forEach((fn) => {
+  if (typeof window[fn] !== 'function') {
+    window[fn] = function () {
+      console.warn(`[stub] ${fn}() called before its module loaded — ignored`);
+    };
+  }
+});
+
 const NAV_SEARCH_ITEMS = [
   { label: 'Dashboard', page: 'dashboard', keywords: ['home', 'overview', 'metrics'] },
   { label: 'Apply Loan', page: 'apply-loan', keywords: ['documents', 'upload', 'kyc'] },
@@ -250,18 +260,28 @@ async function checkAuth() {
     return null;
   }
   
+  const role = session.user?.app_metadata?.role || session.user?.user_metadata?.role || 'borrower';
+  if (role !== 'borrower') {
+    console.log('⛔ Access denied. Not a borrower. Role:', role);
+    await supabase.auth.signOut();
+    window.location.replace('/auth/login.html');
+    return null;
+  }
+
   const { data: profile } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', session.user.id)
     .single();
-  
-  if (!profile || profile.role !== 'borrower') {
-    console.log('⛔ Access denied. Not a borrower. Role:', profile?.role);
+
+  if (!profile) {
+    console.log('⛔ No profile row found for user');
     await supabase.auth.signOut();
     window.location.replace('/auth/login.html');
     return null;
   }
+  profile.role = role;
+  profile.email = profile.email || session.user?.email;
   
   const { data: financialProfile } = await supabase
     .from('financial_profiles')
@@ -1377,38 +1397,59 @@ function unlockSidebar() {
 }
 window.unlockSidebar = unlockSidebar;
 
+let _logoutDelegationBound = false;
+let _logoutInProgress = false;
 async function setupLogout() {
-  const { supabase } = await import('/Services/supabaseClient.js');
-  
-  const logoutButtons = document.querySelectorAll('.logout-btn');
-  logoutButtons.forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      showToast('Signing Out', 'Please wait while we sign you out...', 'info', 2000);
-      await new Promise(resolve => setTimeout(resolve, 800));
-      
+  if (_logoutDelegationBound) return;
+  _logoutDelegationBound = true;
+
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.logout-btn, .menu-logout-btn');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (_logoutInProgress) return;
+    _logoutInProgress = true;
+
+    showToast('Signing Out', 'Please wait while we sign you out...', 'info', 2000);
+
+    const forceLocalLogoutAndRedirect = () => {
       try {
-        const { error } = await supabase.auth.signOut();
-        if (error) {
-          showToast('Error', 'Failed to sign out. Please try again.', 'warning', 3000);
-          console.error('Sign out error:', error);
-          return;
-        }
-        
-        showToast('You have been signed out successfully.', 'success', 2000);
-        
-        setTimeout(() => {
-          window.location.href = '/auth/login.html';
-        }, 1500);
-        
-      } catch (err) {
-        console.error('Logout error:', err);
-        showToast('Error', 'Something went wrong. Please try again.', 'warning', 3000);
+        Object.keys(localStorage)
+          .filter((k) => k.startsWith('sb-') || k.includes('supabase'))
+          .forEach((k) => localStorage.removeItem(k));
+        Object.keys(sessionStorage)
+          .filter((k) => k.startsWith('sb-') || k.includes('supabase'))
+          .forEach((k) => sessionStorage.removeItem(k));
+      } catch (_) {}
+      window.location.replace('/auth/login.html');
+    };
+
+    try {
+      const { supabase } = await import('/Services/supabaseClient.js');
+      let { error } = await supabase.auth.signOut();
+      if (error) {
+        console.warn('Server signOut error, falling back to local signOut:', error);
+        try { await supabase.auth.signOut({ scope: 'local' }); } catch (_) {}
       }
-    });
-  });
+      showToast('Goodbye!', 'You have been signed out successfully.', 'success', 1500);
+      setTimeout(forceLocalLogoutAndRedirect, 600);
+    } catch (err) {
+      console.error('Logout error:', err);
+      showToast('Signed out', 'Redirecting to login...', 'info', 1500);
+      setTimeout(forceLocalLogoutAndRedirect, 600);
+    }
+  }, true);
 }
 
 window.addEventListener('popstate', (e) => {
   const pageName = e.state?.page || 'dashboard';
   loadPage(pageName);
 });
+
+// Bind logout delegation as early as possible (independent of sidebar load).
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => setupLogout());
+} else {
+  setupLogout();
+}

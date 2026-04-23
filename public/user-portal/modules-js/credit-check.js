@@ -581,7 +581,30 @@ async function runCreditCheck() {
       button.style.opacity = '1';
       return;
     }
-    
+
+    // Check for duplicate ID number on another account
+    try {
+      const { data: { session: dupSession } } = await supabase.auth.getSession();
+      const currentUserId = dupSession?.user?.id;
+      const { data: existingProfiles, error: dupError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('identity_number', identity_number)
+        .neq('id', currentUserId || '00000000-0000-0000-0000-000000000000');
+
+      if (dupError) {
+        console.warn('Duplicate ID check failed (continuing):', dupError);
+      } else if (existingProfiles && existingProfiles.length > 0) {
+        alert('⚠️ This ID number is already registered on another account. Please use a different ID number, or contact support if you believe this is an error.');
+        isProcessing = false;
+        button.disabled = false;
+        button.style.opacity = '1';
+        return;
+      }
+    } catch (dupCheckErr) {
+      console.warn('Duplicate ID check threw (continuing):', dupCheckErr);
+    }
+
     if (postal_code.length !== 4) {
       alert('⚠️ Postal code must be 4 digits');
       isProcessing = false;

@@ -342,47 +342,104 @@ async function docuSealRequest(method, endpoint, data) {
     });
 }
 
-function buildDocuSealSubmission(applicationData = {}, profileData = {}) {
+/**
+ * buildDocuSealSubmission
+ * Maps dynamic data to the Zwane Financial Services Small Credit Agreement.
+ * * @param {Object} applicationData - Data from public.loan_applications
+ * @param {Object} profileData - Data from public.profiles
+ * @param {Object} branchData - Data from public.branches
+ * @param {string} creditProviderEmail - Email of the ZFS representative
+ */
+function buildDocuSealSubmission(applicationData = {}, profileData = {}, branchData = {}, creditProviderEmail) {
+    const formatCurrency = (val) => `R ${parseFloat(val || 0).toFixed(2)}`;
+    const formatDate = (date) => date ? new Date(date).toLocaleDateString('en-ZA') : 'N/A';
+
+    // Financial Calculations [cite: 34, 37]
+    const principal = parseFloat(applicationData.offer_principal || 0);
+    const thirdParty = parseFloat(applicationData.offer_details?.third_party_payment || 0);
+    const totalLoanC = principal + thirdParty;
+    const interest = parseFloat(applicationData.offer_total_interest || 0);
+    const initiation = parseFloat(applicationData.offer_total_initiation_fees || 0);
+    const serviceFees = parseFloat(applicationData.offer_total_admin_fees || 0);
+    const creditLife = parseFloat(applicationData.offer_credit_life_monthly || 0);
+    const vatE5 = (initiation + serviceFees) * 0.15;
+    const tccD = interest + initiation + serviceFees + creditLife + vatE5;
+    const ncrTotalI = tccD;
+    const costMultipleJ = totalLoanC > 0 ? (ncrTotalI / totalLoanC).toFixed(2) : "0.00";
+
+    const borrowerMobile = profileData.cell_tel_no || profileData.contact_number || '';
+    
+    // Calculate Final Payback Date
+    let finalPaybackDate = 'N/A';
+    if (applicationData.repayment_start_date) {
+        const d = new Date(applicationData.repayment_start_date);
+        d.setMonth(d.getMonth() + (applicationData.term_months || 0));
+        finalPaybackDate = d.toLocaleDateString('en-ZA');
+    }
+
     return {
         template_id: parseInt(DOCUSEAL_TEMPLATE_ID, 10),
         send_email: true,
         submitters: [
             {
+                role: 'Credit Provider',
+                email: creditProviderEmail,
+                values: {
+                    provider_name: "Zwane Financial Services",
+                    provider_ncr: "NCRCP13510",
+                    provider_branch_code: "ZFS",
+                    provider_reg_no: "2023/123456/07", // Static or from settings
+                    provider_vat_no: "4012345678",    // Static or from settings
+                    provider_tel: branchData.phone || "0691195046",
+                    provider_physical_address: branchData.address || "Soweto",
+                    provider_postal_address: branchData.address || "Soweto"
+                }
+            },
+            {
                 role: 'Borrower',
                 email: profileData.email,
                 name: profileData.full_name,
                 values: {
-                    borrower_name: profileData.full_name,
+                    // Borrower Personal Info 
+                    borrower_fullname: profileData.full_name,
+                    borrower_id: profileData.identity_number,
+                    borrower_address: profileData.address || '',
                     borrower_email: profileData.email,
-                    borrower_phone: profileData.contact_number || '',
-                    borrower_id: profileData.id,
-                    loan_amount: applicationData.requested_amount?.toString() || '0',
-                    interest_rate: applicationData.interest_rate?.toString() || '20',
-                    loan_term: applicationData.term_months?.toString() || '1',
-                    monthly_payment: applicationData.monthly_payment?.toString() || '0',
-                    total_repayment: applicationData.total_repayment?.toString() || '0',
-                    application_id: applicationData.id,
-                    application_date: applicationData.created_at
-                        ? new Date(applicationData.created_at).toLocaleDateString('en-ZA')
-                        : '',
-                    contract_date: new Date().toLocaleDateString('en-ZA'),
-                    first_payment_date: applicationData.repayment_start_date
-                        ? new Date(applicationData.repayment_start_date).toLocaleDateString('en-ZA')
-                        : ''
-                },
-                metadata: {
-                    application_id: applicationData.id,
-                    user_id: profileData.id,
-                    loan_amount: applicationData.requested_amount
+                    borrower_mobile: borrowerMobile,
+                    borrower_sms_address: borrowerMobile,
+                    
+                    // Fields missing from your SQL but present in DocuSeal 
+                    borrower_employer: profileData.employer_name || 'N/A',
+                    borrower_work_address: profileData.work_address || 'N/A',
+
+                    // Financials [cite: 34, 37]
+                    loan_amount_a: formatCurrency(principal),
+                    payment_to_third_party: formatCurrency(thirdParty),
+                    total_loan_amount_c: formatCurrency(totalLoanC),
+                    total_cost_of_credit_d: formatCurrency(tccD),
+                    credit_life_e1: formatCurrency(creditLife),
+                    initiation_fee_e2: formatCurrency(initiation),
+                    service_fees_e3: formatCurrency(serviceFees),
+                    interest_charges_e4: formatCurrency(interest),
+                    vat_charges_e5: formatCurrency(vatE5),
+                    total_repayable: formatCurrency(applicationData.offer_total_repayment),
+                    ncr_total_cost_i: formatCurrency(ncrTotalI),
+                    credit_cost_multiple_j: costMultipleJ,
+
+                    // Schedule
+                    interest_rate_monthly: `${applicationData.offer_interest_rate || 0}%`,
+                    first_payment_date: formatDate(applicationData.repayment_start_date),
+                    final_payback_date: finalPaybackDate,
+                    num_installments: applicationData.term_months?.toString(),
+                    payment_method: "Debit Order",
+                    installment_amount: formatCurrency(applicationData.offer_monthly_repayment),
+
+                    // Sign-off [cite: 39]
+                    signed_at_city: branchData.region || "Soweto",
+                    signed_date: formatDate(new Date())
                 }
             }
-        ],
-        metadata: {
-            application_id: applicationData.id,
-            user_id: profileData.id,
-            loan_amount: applicationData.requested_amount,
-            status: 'sent'
-        }
+        ]
     };
 }
 
@@ -997,7 +1054,21 @@ app.post('/api/docuseal/send-contract', async (req, res) => {
     }
 
     try {
-        const payload = buildDocuSealSubmission(applicationData, profileData);
+        // FIX: Actually fetch the branch from the database
+        const branchId = applicationData.branch_id || profileData.branch_id || 1;
+        const { data: branchData, error: branchError } = await supabaseService
+            .from('branches')
+            .select('*')
+            .eq('id', branchId)
+            .maybeSingle();
+
+        if (branchError) console.error('Error fetching branch:', branchError);
+
+        const creditProviderEmail = process.env.CREDIT_PROVIDER_EMAIL || "info@zwanefinancial.co.za";
+        
+        // Pass the real branchData now
+        const payload = buildDocuSealSubmission(applicationData, profileData, branchData || {}, creditProviderEmail);
+        
         const response = await docuSealRequest('post', '/submissions', payload);
         return res.json(response.data);
     } catch (error) {
@@ -1558,7 +1629,16 @@ if (adminBuildExists) {
 }
 
 // 5c. Serve the REST of the 'public' folder (for login.html, etc.)
-app.use(express.static(path.join(__dirname, 'public')));
+const publicStaticOptions = process.env.NODE_ENV === 'production'
+    ? {}
+    : {
+        setHeaders: (res) => {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+        }
+    };
+app.use(express.static(path.join(__dirname, 'public'), publicStaticOptions));
 
 
 // --- 6. Root Redirect & Auth Helpers ---
@@ -1632,6 +1712,10 @@ app.get('/admin/users', (req, res) => {
 
 app.get('/admin/settings', (req, res) => {
     sendAdminPage('settings.html', res);
+});
+
+app.get('/admin/sacrra', (req, res) => {
+    sendAdminPage('sacrra.html', res);
 });
 
 

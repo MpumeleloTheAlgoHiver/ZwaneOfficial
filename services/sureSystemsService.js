@@ -195,6 +195,9 @@ async function request(endpoint, payload) {
   };
 
   // Log outbound SureSystems request
+  console.log('=============================================');
+  console.log('[SureSystems DEBUG] EXACT REQUEST URL:', url);
+  console.log('=============================================');
   console.log('[SureSystems] Outbound Request:', {
     url,
     payload
