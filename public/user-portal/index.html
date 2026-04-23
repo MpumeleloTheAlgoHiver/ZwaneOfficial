@@ -31,14 +31,9 @@
         throw new Error('Not authenticated');
       }
       
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', session.user.id)
-        .single();
-      
-      if (!profile || profile.role !== 'borrower') {
-        console.log('⛔ Not a borrower - redirecting to login');
+      const role = session.user?.app_metadata?.role || session.user?.user_metadata?.role || 'borrower';
+      if (role !== 'borrower') {
+        console.log('⛔ Not a borrower - redirecting to login. Role:', role);
         await supabase.auth.signOut();
         window.location.replace('/auth/login.html');
         throw new Error('Unauthorized role');
