@@ -26,21 +26,29 @@ export async function initLayout() {
     return null; 
   }
 
-  const [roleRes, profileRes, authRes] = await Promise.all([
-    supabase.rpc('get_my_role'),
-    supabase.rpc('get_my_profile').single(),
-    supabase.rpc('is_role_or_higher', { p_min_role: 'base_admin' })
-  ]);
+  const ADMIN_ROLES = ['base_admin', 'admin', 'super_admin', 'owner'];
+  const role = (session.user?.app_metadata?.role || session.user?.user_metadata?.role || 'borrower').toLowerCase();
+  const isAllowed = ADMIN_ROLES.includes(role);
 
-  const { data: role, error: roleError } = roleRes;
-  const { data: profile, error: profileError } = profileRes;
-  const { data: isAllowed, error: authError } = authRes;
-
-  if (roleError || profileError || authError || !isAllowed) {
+  if (!isAllowed) {
     await supabase.auth.signOut();
-    window.location.replace('/auth/login.html'); 
-    return null; 
+    window.location.replace('/auth/login.html');
+    return null;
   }
+
+  const { data: profileRow } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', session.user.id)
+    .maybeSingle();
+
+  const profile = {
+    id: session.user.id,
+    email: session.user.email,
+    full_name: profileRow?.full_name || session.user?.user_metadata?.full_name || session.user.email,
+    avatar_url: profileRow?.avatar_url || null,
+    ...(profileRow || {})
+  };
 
   userProfile = profile;
   userRole = role;
