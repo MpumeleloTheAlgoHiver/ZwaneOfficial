@@ -1,4 +1,6 @@
 // Module loading functions
+const PENDING_LOAN_KEY = 'pendingLoanConfig';
+
 window.loadLoanModule = function() {
   const moduleContainer = document.getElementById('module-container');
   const moduleContent = document.getElementById('module-content');
@@ -8,6 +10,7 @@ window.loadLoanModule = function() {
     .then(html => {
       moduleContent.innerHTML = html;
       moduleContainer.classList.remove('hidden');
+      hydrateLoanConfigFromPendingStorage();
       
       // Initialize after loading
       setTimeout(async () => {
@@ -34,12 +37,50 @@ let loanConfig = {
   period: 1,
   interestRate: 0.20, // 20% annual simple interest
   hasCreditLifeInsurance: false,
+  creditLifeContract: {
+    accepted: false,
+    signature: null,
+    signedAt: null,
+    contractVersion: 'v1',
+    contractText: ''
+  },
   signature: null,
   maxAllowedPeriod: 1, // Will be updated based on loan history
   completedOneMonthLoans: 0,
   maxLoanAmount: 10000, // Will be calculated dynamically based on affordability
   affordabilityRatio: null // Max monthly payment from financial profile
 };
+
+function getDefaultCreditLifeContract() {
+  return {
+    accepted: false,
+    signature: null,
+    signedAt: null,
+    contractVersion: 'v1',
+    contractText: ''
+  };
+}
+
+function hydrateLoanConfigFromPendingStorage() {
+  try {
+    const raw = sessionStorage.getItem(PENDING_LOAN_KEY);
+    if (!raw) return;
+
+    const pending = JSON.parse(raw);
+    if (!pending || typeof pending !== 'object') return;
+
+    loanConfig.amount = Number(pending.amount) || loanConfig.amount;
+    loanConfig.period = Number(pending.period) || loanConfig.period;
+    loanConfig.signature = pending.signature || null;
+    loanConfig.hasCreditLifeInsurance = Boolean(pending.hasCreditLifeInsurance);
+    loanConfig.creditLifeContract = {
+      ...getDefaultCreditLifeContract(),
+      ...(pending.creditLifeContract || {})
+    };
+  } catch (error) {
+    console.warn('Unable to hydrate staged loan config:', error);
+  }
+}
 
 // Check user's loan history to determine max allowed period
 async function checkLoanHistory() {
@@ -168,6 +209,7 @@ function calculateMaxLoanAmount() {
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
+  hydrateLoanConfigFromPendingStorage();
   checkLoanHistory().then(() => {
     initializeLoanSlider();
     initializePeriodSlider();
@@ -184,6 +226,7 @@ function initializeLoanSlider() {
   const errorText = document.getElementById('amountErrorText');
 
   if (!input) return;
+  input.value = loanConfig.amount;
 
   function validateAmount(amount) {
     errorDiv.classList.remove('show');
@@ -242,6 +285,11 @@ function initializePeriodSlider() {
   const lockMessage = document.getElementById('periodLockMessage');
 
   if (!slider || !periodDisplay) return;
+  slider.value = loanConfig.period;
+  periodDisplay.textContent = loanConfig.period;
+  if (periodPlural) {
+    periodPlural.textContent = loanConfig.period > 1 ? 's' : '';
+  }
 
   // Show lock message if period is restricted
   if (loanConfig.maxAllowedPeriod < 24 && lockMessage) {
@@ -289,16 +337,242 @@ function initializePeriodSlider() {
   slider.max = loanConfig.maxAllowedPeriod;
 }
 
+let suppressCreditLifeCheckboxHandler = false;
+let creditLifeModal = null;
+let creditLifeCanvas = null;
+let creditLifeCtx = null;
+let creditLifeDrawing = false;
+
 function initializeCreditLifeOption() {
   const checkbox = document.getElementById('creditLifeCheckbox');
+  const status = document.getElementById('creditLifeContractStatus');
   if (!checkbox) return;
 
+  initializeCreditLifeContractModal();
   checkbox.checked = Boolean(loanConfig.hasCreditLifeInsurance);
   checkbox.addEventListener('change', () => {
+    if (suppressCreditLifeCheckboxHandler) return;
+
+    if (checkbox.checked) {
+      if (hasSignedCreditLifeContract()) {
+        loanConfig.hasCreditLifeInsurance = true;
+        calculateAndUpdateSummary();
+        return;
+      }
+
+      suppressCreditLifeCheckboxHandler = true;
+      checkbox.checked = false;
+      suppressCreditLifeCheckboxHandler = false;
+      openCreditLifeContractModal();
+      return;
+    }
+
     loanConfig.hasCreditLifeInsurance = checkbox.checked;
+    resetCreditLifeContractState();
+    if (status) {
+      status.style.display = 'none';
+    }
     calculateAndUpdateSummary();
   });
 }
+
+function initializeCreditLifeContractModal() {
+  creditLifeModal = document.getElementById('creditLifeContractModal');
+  creditLifeCanvas = document.getElementById('creditLifeSignatureCanvas');
+  if (!creditLifeCanvas) return;
+
+  creditLifeCtx = creditLifeCanvas.getContext('2d');
+  resizeCreditLifeCanvas();
+  window.addEventListener('resize', resizeCreditLifeCanvas);
+
+  creditLifeCtx.strokeStyle = '#111827';
+  creditLifeCtx.lineWidth = 2.5;
+  creditLifeCtx.lineCap = 'round';
+  creditLifeCtx.lineJoin = 'round';
+
+  creditLifeCanvas.addEventListener('mousedown', startCreditLifeDrawing);
+  creditLifeCanvas.addEventListener('mousemove', drawCreditLifeSignature);
+  creditLifeCanvas.addEventListener('mouseup', stopCreditLifeDrawing);
+  creditLifeCanvas.addEventListener('mouseout', stopCreditLifeDrawing);
+  creditLifeCanvas.addEventListener('touchstart', handleCreditLifeTouchStart, { passive: false });
+  creditLifeCanvas.addEventListener('touchmove', handleCreditLifeTouchMove, { passive: false });
+  creditLifeCanvas.addEventListener('touchend', stopCreditLifeDrawing);
+
+  if (!loanConfig.creditLifeContract.contractText) {
+    loanConfig.creditLifeContract.contractText = captureCreditLifeContractText();
+  }
+  updateCreditLifeContractStatus();
+}
+
+function captureCreditLifeContractText() {
+  const contractText = document.getElementById('creditLifeContractText');
+  return contractText ? contractText.innerText.trim() : '';
+}
+
+function hasSignedCreditLifeContract() {
+  return Boolean(
+    loanConfig.creditLifeContract?.accepted &&
+    loanConfig.creditLifeContract?.signature
+  );
+}
+
+function resetCreditLifeContractState() {
+  loanConfig.creditLifeContract = {
+    ...getDefaultCreditLifeContract(),
+    contractText: captureCreditLifeContractText() || loanConfig.creditLifeContract?.contractText || ''
+  };
+  loanConfig.hasCreditLifeInsurance = false;
+  updateCreditLifeContractStatus();
+  if (creditLifeCtx && creditLifeCanvas) {
+    creditLifeCtx.clearRect(0, 0, creditLifeCanvas.width, creditLifeCanvas.height);
+  }
+}
+
+function resizeCreditLifeCanvas() {
+  if (!creditLifeCanvas || !creditLifeCtx) return;
+  const rect = creditLifeCanvas.getBoundingClientRect();
+  creditLifeCanvas.width = rect.width;
+  creditLifeCanvas.height = rect.height;
+
+  if (loanConfig.creditLifeContract?.signature) {
+    const img = new Image();
+    img.onload = () => creditLifeCtx.drawImage(img, 0, 0);
+    img.src = loanConfig.creditLifeContract.signature;
+  }
+}
+
+function startCreditLifeDrawing(event) {
+  if (!creditLifeCanvas || !creditLifeCtx) return;
+  creditLifeDrawing = true;
+  const rect = creditLifeCanvas.getBoundingClientRect();
+  creditLifeCtx.beginPath();
+  creditLifeCtx.moveTo(event.clientX - rect.left, event.clientY - rect.top);
+}
+
+function drawCreditLifeSignature(event) {
+  if (!creditLifeDrawing || !creditLifeCanvas || !creditLifeCtx) return;
+  const rect = creditLifeCanvas.getBoundingClientRect();
+  creditLifeCtx.lineTo(event.clientX - rect.left, event.clientY - rect.top);
+  creditLifeCtx.stroke();
+}
+
+function stopCreditLifeDrawing() {
+  if (!creditLifeDrawing || !creditLifeCanvas) return;
+  creditLifeDrawing = false;
+  loanConfig.creditLifeContract.signature = creditLifeCanvas.toDataURL();
+  updateCreditLifeContractStatus();
+}
+
+function handleCreditLifeTouchStart(event) {
+  event.preventDefault();
+  const touch = event.touches[0];
+  startCreditLifeDrawing(touch);
+}
+
+function handleCreditLifeTouchMove(event) {
+  event.preventDefault();
+  if (!creditLifeDrawing) return;
+  const touch = event.touches[0];
+  drawCreditLifeSignature(touch);
+}
+
+function updateCreditLifeContractStatus() {
+  const summaryToggle = document.getElementById('summaryCreditLifeToggle');
+  const status = document.getElementById('creditLifeContractStatus');
+  const meta = document.getElementById('creditLifeSignatureMeta');
+  const signedAt = loanConfig.creditLifeContract?.signedAt
+    ? new Date(loanConfig.creditLifeContract.signedAt).toLocaleString()
+    : '';
+
+  if (meta) {
+    meta.textContent = loanConfig.creditLifeContract?.signature
+      ? 'Signature captured. Accept to keep Credit Life selected.'
+      : 'Sign in the box to accept this contract.';
+  }
+
+  if (status) {
+    if (hasSignedCreditLifeContract()) {
+      status.style.display = 'block';
+      status.textContent = signedAt
+        ? `Credit Life contract signed on ${signedAt}.`
+        : 'Credit Life contract signed.';
+    } else {
+      status.style.display = 'none';
+    }
+  }
+
+  if (summaryToggle && loanConfig.hasCreditLifeInsurance && hasSignedCreditLifeContract()) {
+    summaryToggle.textContent = summaryToggle.textContent.replace('Included', 'Included and signed');
+  }
+}
+
+function openCreditLifeContractModal() {
+  if (!creditLifeModal) return;
+  creditLifeModal.style.display = 'block';
+  document.body.style.overflow = 'hidden';
+  requestAnimationFrame(() => {
+    resizeCreditLifeCanvas();
+    updateCreditLifeContractStatus();
+  });
+}
+
+window.closeCreditLifeContractModal = function(keepSelection = false) {
+  if (creditLifeModal) {
+    creditLifeModal.style.display = 'none';
+  }
+  document.body.style.overflow = '';
+
+  if (!keepSelection) {
+    suppressCreditLifeCheckboxHandler = true;
+    const checkbox = document.getElementById('creditLifeCheckbox');
+    if (checkbox) checkbox.checked = false;
+    suppressCreditLifeCheckboxHandler = false;
+    resetCreditLifeContractState();
+    calculateAndUpdateSummary();
+  }
+};
+
+window.clearCreditLifeSignature = function() {
+  if (!creditLifeCtx || !creditLifeCanvas) return;
+  creditLifeCtx.clearRect(0, 0, creditLifeCanvas.width, creditLifeCanvas.height);
+  loanConfig.creditLifeContract.signature = null;
+  loanConfig.creditLifeContract.accepted = false;
+  loanConfig.creditLifeContract.signedAt = null;
+  updateCreditLifeContractStatus();
+};
+
+window.acceptCreditLifeContract = function() {
+  if (!loanConfig.creditLifeContract?.signature) {
+    if (typeof showToast === 'function') {
+      showToast('Signature Required', 'Please sign the Credit Life contract before continuing.', 'warning', 3000);
+    } else {
+      alert('Please sign the Credit Life contract before continuing.');
+    }
+    return;
+  }
+
+  loanConfig.creditLifeContract = {
+    ...loanConfig.creditLifeContract,
+    accepted: true,
+    signedAt: new Date().toISOString(),
+    contractText: captureCreditLifeContractText() || loanConfig.creditLifeContract.contractText,
+    contractVersion: loanConfig.creditLifeContract.contractVersion || 'v1'
+  };
+  loanConfig.hasCreditLifeInsurance = true;
+
+  suppressCreditLifeCheckboxHandler = true;
+  const checkbox = document.getElementById('creditLifeCheckbox');
+  if (checkbox) checkbox.checked = true;
+  suppressCreditLifeCheckboxHandler = false;
+
+  updateCreditLifeContractStatus();
+  calculateAndUpdateSummary();
+  window.closeCreditLifeContractModal(true);
+
+  if (typeof showToast === 'function') {
+    showToast('Credit Life Added', 'The signed Credit Life contract has been attached to this application.', 'success', 3500);
+  }
+};
 
 function getLoanSummary() {
   // Normalize core inputs to avoid zero/NaN edge cases before math
@@ -392,7 +666,7 @@ function calculateAndUpdateSummary() {
   const creditLifeToggleElement = document.getElementById('summaryCreditLifeToggle');
   if (creditLifeToggleElement) {
     creditLifeToggleElement.textContent = loanConfig.hasCreditLifeInsurance
-      ? `Included (+R ${formatCurrency(summary.totalCreditLife)})`
+      ? `${hasSignedCreditLifeContract() ? 'Included and signed' : 'Included'} (+R ${formatCurrency(summary.totalCreditLife)})`
       : 'Not included';
   }
 
@@ -515,6 +789,16 @@ window.prepareLoanApplication = function() {
     return;
   }
 
+  if (loanConfig.hasCreditLifeInsurance && !hasSignedCreditLifeContract()) {
+    if (typeof showToast === 'function') {
+      showToast('Credit Life Signature Required', 'Please sign the Credit Life contract to keep that option selected.', 'warning', 3500);
+    } else {
+      alert('Please sign the Credit Life contract to keep that option selected.');
+    }
+    openCreditLifeContractModal();
+    return;
+  }
+
   if (submitBtn) {
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
@@ -526,6 +810,13 @@ window.prepareLoanApplication = function() {
     period: loanConfig.period,
     interestRate: loanConfig.interestRate,
     hasCreditLifeInsurance: Boolean(loanConfig.hasCreditLifeInsurance),
+    creditLifeContract: {
+      accepted: Boolean(loanConfig.creditLifeContract?.accepted),
+      signature: loanConfig.creditLifeContract?.signature || null,
+      signedAt: loanConfig.creditLifeContract?.signedAt || null,
+      contractVersion: loanConfig.creditLifeContract?.contractVersion || 'v1',
+      contractText: loanConfig.creditLifeContract?.contractText || captureCreditLifeContractText()
+    },
     signature: loanConfig.signature,
     summary,
     offer_principal: Number(loanConfig.amount) || 0,

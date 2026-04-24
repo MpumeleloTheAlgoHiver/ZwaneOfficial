@@ -188,6 +188,34 @@ const pageTemplate = `
 
                 </div>
              </div>
+
+             <div id="credit-life-contract-panel" class="mb-10 rounded-2xl border border-orange-100 bg-orange-50/40 p-6">
+                <div class="flex items-start justify-between gap-4 mb-5">
+                   <div>
+                      <h3 class="text-lg font-bold text-gray-900">Credit Life Contract</h3>
+                      <p class="text-sm text-gray-500 mt-1">Optional insurance consent, signed snapshot, and supporting signatures.</p>
+                   </div>
+                   <span id="credit-life-status-badge" class="px-3 py-1 text-xs font-bold rounded-full bg-gray-200 text-gray-700">Not selected</span>
+                </div>
+                <div id="credit-life-contract-content" class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                   <div class="rounded-xl border border-gray-200 bg-white p-4">
+                      <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Contract Snapshot</h4>
+                      <div class="flex items-center justify-end gap-2 mb-3">
+                         <button id="credit-life-view-contract-btn" class="hidden px-3 py-1.5 text-xs font-bold rounded-lg border border-orange-200 text-orange-700 hover:bg-orange-50 transition-all">
+                           <i class="fa-solid fa-expand mr-1"></i> View full contract
+                         </button>
+                         <button id="credit-life-download-contract-btn" class="hidden px-3 py-1.5 text-xs font-bold rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 transition-all">
+                           <i class="fa-solid fa-download mr-1"></i> Download file
+                         </button>
+                      </div>
+                      <div id="credit-life-contract-summary" class="space-y-3 text-sm text-gray-600"></div>
+                   </div>
+                   <div class="rounded-xl border border-gray-200 bg-white p-4">
+                      <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Captured Signatures</h4>
+                      <div id="credit-life-signature-gallery" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+                   </div>
+                </div>
+             </div>
              
              <h3 class="text-lg font-bold text-gray-900 mb-4 border-t border-gray-100 pt-8">Client History</h3>
              <div class="mb-6">
@@ -308,6 +336,20 @@ const pageTemplate = `
   </div>
 
   <div id="feedback-container" class="fixed bottom-6 right-6 z-50 hidden"></div>
+  <div id="credit-life-contract-modal" class="fixed inset-0 z-[80] hidden items-center justify-center bg-gray-900/70 p-4">
+    <div class="w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-3xl bg-white shadow-2xl">
+      <div class="flex items-center justify-between gap-4 border-b border-gray-100 px-6 py-4">
+        <div>
+          <p class="text-[10px] font-black uppercase tracking-[0.2em] text-orange-500">Credit Life Contract</p>
+          <h3 class="text-lg font-bold text-gray-900">Signed Contract Snapshot</h3>
+        </div>
+        <button id="credit-life-contract-modal-close" class="w-10 h-10 rounded-full text-gray-500 hover:bg-gray-100 transition-all">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div id="credit-life-contract-modal-body" class="max-h-[calc(90vh-80px)] overflow-y-auto px-6 py-5"></div>
+    </div>
+  </div>
 </div>
 `;
 
@@ -350,6 +392,13 @@ const downloadBlob = (content, filename, contentType) => {
   a.click();
   URL.revokeObjectURL(url);
 };
+
+const escapeHtml = (value = '') => `${value}`
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
 
 // Helper to render base64 bureau data as a viewable PDF
 window.viewBureauReport = (base64Data) => {
@@ -1315,7 +1364,8 @@ const renderDocuments = (docs, truidInfo, kycInfo) => {
   const docTypes = [
       { key: 'idcard', label: 'ID Document' }, 
       { key: 'till_slip', label: 'Latest Payslip' }, 
-      { key: 'bank_statement', label: 'Bank Statement' }
+      { key: 'bank_statement', label: 'Bank Statement' },
+      { key: 'credit_life_contract', label: 'Credit Life Contract' }
   ];
   
   let kycCount = 0;
@@ -1640,6 +1690,159 @@ const renderLoanHistory = async (loans, appHistory, currentApp) => {
   }
 };
 
+const renderCreditLifeContractPanel = (app) => {
+  const badge = document.getElementById('credit-life-status-badge');
+  const summary = document.getElementById('credit-life-contract-summary');
+  const gallery = document.getElementById('credit-life-signature-gallery');
+  const viewBtn = document.getElementById('credit-life-view-contract-btn');
+  const downloadBtn = document.getElementById('credit-life-download-contract-btn');
+  if (!badge || !summary || !gallery) return;
+
+  const offerDetails = app?.offer_details || {};
+  const hasCreditLife = Boolean(app?.has_credit_life_insurance || offerDetails.credit_life_enabled);
+  const contractSigned = Boolean(offerDetails.credit_life_contract_signed && offerDetails.credit_life_signature_data);
+  const signedAt = offerDetails.credit_life_signed_at ? formatDate(offerDetails.credit_life_signed_at) : 'Not signed';
+  const contractVersion = offerDetails.credit_life_contract_version || 'v1';
+  const contractText = offerDetails.credit_life_contract_text || 'No signed contract snapshot stored.';
+  const contractFilePath = offerDetails.credit_life_contract_file_path || null;
+  const creditLifeTotal = Number(
+    offerDetails.credit_life_total
+    ?? app?.offer_credit_life_total
+    ?? 0
+  );
+
+  badge.textContent = hasCreditLife
+    ? (contractSigned ? 'Selected and signed' : 'Selected, signature missing')
+    : 'Not selected';
+  badge.className = `px-3 py-1 text-xs font-bold rounded-full ${
+    !hasCreditLife
+      ? 'bg-gray-200 text-gray-700'
+      : contractSigned
+        ? 'bg-green-100 text-green-700'
+        : 'bg-yellow-100 text-yellow-700'
+  }`;
+
+  summary.innerHTML = `
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div class="rounded-xl bg-gray-50 border border-gray-200 p-3">
+        <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-1">Insurance Status</p>
+        <p class="font-semibold text-gray-900">${hasCreditLife ? 'Opted in' : 'Not added'}</p>
+      </div>
+      <div class="rounded-xl bg-gray-50 border border-gray-200 p-3">
+        <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-1">Signed At</p>
+        <p class="font-semibold text-gray-900">${escapeHtml(signedAt)}</p>
+      </div>
+      <div class="rounded-xl bg-gray-50 border border-gray-200 p-3">
+        <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-1">Contract Version</p>
+        <p class="font-semibold text-gray-900">${escapeHtml(contractVersion)}</p>
+      </div>
+      <div class="rounded-xl bg-gray-50 border border-gray-200 p-3">
+        <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-1">Credit Life Premium</p>
+        <p class="font-semibold text-gray-900">${formatCurrency(creditLifeTotal)}</p>
+      </div>
+    </div>
+    <div class="rounded-xl bg-gray-50 border border-gray-200 p-4">
+      <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-2">Signed Contract Text</p>
+      <div class="text-sm leading-6 text-gray-700 whitespace-pre-wrap">${escapeHtml(contractText)}</div>
+    </div>
+  `;
+
+  const loanSignature = offerDetails.signature_data;
+  const creditLifeSignature = offerDetails.credit_life_signature_data;
+  const renderSignatureCard = (title, signature, subtitle) => `
+    <div class="rounded-xl border border-gray-200 bg-gray-50 p-3">
+      <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-2">${title}</p>
+      <p class="text-xs text-gray-500 mb-3">${subtitle}</p>
+      ${
+        signature
+          ? `<img src="${signature}" alt="${title}" class="w-full h-40 object-contain rounded-lg border border-gray-200 bg-white">`
+          : `<div class="h-40 rounded-lg border border-dashed border-gray-300 bg-white flex items-center justify-center text-sm text-gray-400">No signature captured</div>`
+      }
+    </div>
+  `;
+
+  gallery.innerHTML = [
+    renderSignatureCard('Main Loan Signature', loanSignature, 'Captured from the standard loan acknowledgement step.'),
+    renderSignatureCard('Credit Life Signature', creditLifeSignature, 'Captured only when the Credit Life contract is signed.')
+  ].join('');
+
+  if (viewBtn) {
+    viewBtn.classList.toggle('hidden', !hasCreditLife);
+    viewBtn.onclick = () => openCreditLifeContractModal(app);
+  }
+
+  if (downloadBtn) {
+    downloadBtn.classList.toggle('hidden', !contractFilePath);
+    downloadBtn.onclick = () => {
+      if (!contractFilePath) return;
+      if (/^https?:\/\//i.test(contractFilePath)) {
+        window.open(contractFilePath, '_blank');
+      } else {
+        handleSmartDownload(contractFilePath);
+      }
+    };
+  }
+};
+
+const openCreditLifeContractModal = (app) => {
+  const modal = document.getElementById('credit-life-contract-modal');
+  const body = document.getElementById('credit-life-contract-modal-body');
+  if (!modal || !body) return;
+
+  const offerDetails = app?.offer_details || {};
+  const signedAt = offerDetails.credit_life_signed_at ? formatDate(offerDetails.credit_life_signed_at) : 'Not signed';
+  const contractVersion = offerDetails.credit_life_contract_version || 'v1';
+  const contractText = offerDetails.credit_life_contract_text || 'No signed contract snapshot stored.';
+  const loanSignature = offerDetails.signature_data;
+  const creditLifeSignature = offerDetails.credit_life_signature_data;
+
+  const renderSignaturePreview = (title, signature) => `
+    <div class="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+      <p class="text-[10px] font-black uppercase tracking-[0.16em] text-gray-400 mb-2">${title}</p>
+      ${
+        signature
+          ? `<img src="${signature}" alt="${title}" class="w-full h-56 object-contain rounded-xl border border-gray-200 bg-white">`
+          : `<div class="w-full h-56 rounded-xl border border-dashed border-gray-300 bg-white flex items-center justify-center text-sm text-gray-400">No signature captured</div>`
+      }
+    </div>
+  `;
+
+  body.innerHTML = `
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div class="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-gray-400 mb-2">Application</p>
+        <p class="text-sm font-bold text-gray-900">${escapeHtml(app?.id || '')}</p>
+      </div>
+      <div class="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-gray-400 mb-2">Signed At</p>
+        <p class="text-sm font-bold text-gray-900">${escapeHtml(signedAt)}</p>
+      </div>
+      <div class="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+        <p class="text-[10px] font-black uppercase tracking-[0.16em] text-gray-400 mb-2">Version</p>
+        <p class="text-sm font-bold text-gray-900">${escapeHtml(contractVersion)}</p>
+      </div>
+    </div>
+    <div class="rounded-3xl border border-gray-200 bg-white p-5 mb-6">
+      <p class="text-[10px] font-black uppercase tracking-[0.16em] text-gray-400 mb-3">Contract Text</p>
+      <div class="whitespace-pre-wrap text-sm leading-7 text-gray-700">${escapeHtml(contractText)}</div>
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      ${renderSignaturePreview('Main Loan Signature', loanSignature)}
+      ${renderSignaturePreview('Credit Life Signature', creditLifeSignature)}
+    </div>
+  `;
+
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+};
+
+const closeCreditLifeContractModal = () => {
+  const modal = document.getElementById('credit-life-contract-modal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+};
+
 
 const renderSidePanel = (app) => {
   if (!app) return;
@@ -1655,6 +1858,7 @@ const renderSidePanel = (app) => {
   const totalInterest = parseFloat(app.offer_total_interest || 0);
   const totalInitiationFees = parseFloat(app.offer_total_initiation_fees || 0);
   const totalMonthlyFees = parseFloat(app.offer_total_admin_fees || 0);
+  const totalCreditLife = parseFloat(app.offer_details?.credit_life_total || app.offer_credit_life_total || 0);
   const totalRepayment = parseFloat(app.offer_total_repayment || 0);
   const monthlyPayment = parseFloat(app.offer_monthly_repayment || 0);
   const annualRate = parseFloat(app.offer_interest_rate || 0);
@@ -1690,6 +1894,10 @@ const renderSidePanel = (app) => {
         <div class="flex justify-between items-center text-xs">
             <span class="text-gray-500">Monthly Service Fee</span>
             <span class="font-bold text-gray-900">${formatCurrency(totalMonthlyFees)}</span>
+        </div>
+        <div class="flex justify-between items-center text-xs">
+            <span class="text-gray-500">Credit Life Insurance</span>
+            <span class="font-bold text-gray-900">${formatCurrency(totalCreditLife)}</span>
         </div>
         <div class="pt-2 border-t border-gray-200 flex justify-between items-center">
             <span class="text-xs font-black uppercase text-gray-700">Total Repayable</span>
@@ -1836,6 +2044,7 @@ const loadApplicationData = async () => {
       renderDocuments(data.documents, data.truid_info, data.kyc_info); 
       
       await renderLoanHistory(data.loan_history, data.application_history, data);
+      renderCreditLifeContractPanel(data);
       
       // Part 1: Side Panel with Tiered Rates (Step 5)
       renderSidePanel(data); 
@@ -1872,4 +2081,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnCancel = document.getElementById('modal-cancel-btn');
   if (btnConfirm) btnConfirm.addEventListener('click', () => { if (typeof actionToConfirm === 'function') actionToConfirm(); });
   if (btnCancel) btnCancel.addEventListener('click', closeModal);
+  document.getElementById('credit-life-contract-modal-close')?.addEventListener('click', closeCreditLifeContractModal);
+  document.getElementById('credit-life-contract-modal')?.addEventListener('click', (event) => {
+    if (event.target?.id === 'credit-life-contract-modal') {
+      closeCreditLifeContractModal();
+    }
+  });
 });
