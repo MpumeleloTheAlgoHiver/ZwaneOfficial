@@ -11,6 +11,7 @@
 - [x] add documents , disclamers , privacy policy, user guide 
 - [x] fix calculations 
 - [x] get correct company details 
-- [x] show file on upload screen 
+- [x] show file on upload screen
+- [ ] yah
 
 n
