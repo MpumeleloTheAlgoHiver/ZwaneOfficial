@@ -12,6 +12,6 @@
 - [x] fix calculations 
 - [x] get correct company details 
 - [x] show file on upload screen
-- [ ] yah
+- [x] yah
 
 n
