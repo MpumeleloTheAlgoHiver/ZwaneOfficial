@@ -416,6 +416,50 @@ async function cancelInstallment(input = {}) {
   return { response };
 }
 
+async function probeConnectivity() {
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  if (!baseUrl) {
+    const error = new Error('SureSystems base URL is not configured');
+    error.status = 503;
+    error.code = 'SURESYSTEMS_BASE_URL_MISSING';
+    throw error;
+  }
+
+  try {
+    const response = await axios.get(baseUrl, {
+      headers: {
+        Authorization: buildBasicAuthHeader()
+      },
+      httpsAgent: config.useMtls ? buildHttpsAgent() : undefined,
+      timeout: 10000,
+      validateStatus: () => true
+    });
+
+    return {
+      reachable: true,
+      status: response.status,
+      statusText: response.statusText,
+      baseUrl,
+      configured: getMissingConfig().length === 0,
+      useMtls: config.useMtls,
+      missing: getMissingConfig(),
+      headers: response.headers || {}
+    };
+  } catch (error) {
+    const normalized = normalizeError(error, 'SureSystems connectivity probe failed');
+    return {
+      reachable: false,
+      status: normalized.status || null,
+      baseUrl,
+      configured: getMissingConfig().length === 0,
+      useMtls: config.useMtls,
+      missing: getMissingConfig(),
+      error: normalized.message,
+      details: normalized.details || null
+    };
+  }
+}
+
 function getConfigStatus() {
   const missing = getMissingConfig();
   return {
@@ -439,6 +483,7 @@ module.exports = {
   createInstallmentRequest,
   updateInstallmentRequest,
   cancelInstallment,
+  probeConnectivity,
   // Exposed for unit testing only — do not use in production code
   _test: {
     config,
