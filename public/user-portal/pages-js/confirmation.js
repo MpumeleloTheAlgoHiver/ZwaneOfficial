@@ -322,9 +322,12 @@ async function uploadCreditLifeContractArtifact(supabase, session, application, 
     user_id: session.user.id,
     application_id: application.id,
     file_name: fileName,
+    original_name: fileName,
     file_type: 'credit_life_contract',
     file_path: publicUrl || storagePath,
-    status: 'verified'
+    mime_type: 'application/pdf',
+    file_size: file.size,
+    status: 'uploaded'
   };
 
   const { data: existingDoc } = await supabase
