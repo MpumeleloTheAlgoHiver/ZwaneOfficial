@@ -461,12 +461,10 @@ function toSureSystemsDate(value) {
     return date.toISOString().slice(0, 10).replace(/-/g, '');
 }
 
-async function triggerSureSystemsMandateForApplication(applicationId) {
-    if (!applicationId) return null;
-
+async function loadSureSystemsMandateContext(applicationId) {
     const { data: application, error: appError } = await supabaseService
         .from('loan_applications')
-        .select('id, user_id, amount, repayment_start_date, bank_account_id')
+        .select('id, user_id, amount, repayment_start_date, bank_account_id, term_months, profiles:user_id(full_name, email, identity_number, id_number, idNumber)')
         .eq('id', applicationId)
         .maybeSingle();
 
@@ -480,7 +478,7 @@ async function triggerSureSystemsMandateForApplication(applicationId) {
 
     const { data: bankAccount, error: bankError } = await supabaseService
         .from('bank_accounts')
-        .select('account_holder, account_number, branch_code')
+        .select('account_holder, account_number, branch_code, account_type')
         .eq('id', application.bank_account_id)
         .maybeSingle();
 
@@ -488,33 +486,80 @@ async function triggerSureSystemsMandateForApplication(applicationId) {
         throw new Error(`Unable to load bank account for application ${applicationId}`);
     }
 
-    const { data: profile } = await supabaseService
-        .from('profiles')
-        .select('*')
-        .eq('id', application.user_id)
-        .maybeSingle();
+    const profile = application.profiles || null;
+
+    return {
+        application,
+        bankAccount,
+        profile
+    };
+}
+
+function buildSureSystemsMandateRequestFromContext({ application, bankAccount, profile }, overrides = {}) {
+    if (!application || !bankAccount) {
+        throw new Error('Application and bank account context are required');
+    }
 
     const loanAmount = Number(application.amount || 0);
     if (loanAmount <= 0) {
-        throw new Error(`Application ${applicationId} has an invalid amount (${loanAmount}). Cannot create SureSystems mandate for R0.`);
+        throw new Error(`Application ${application.id} has an invalid amount (${loanAmount}). Cannot create SureSystems mandate for R0.`);
     }
 
-    const collectionDate = toSureSystemsDate(application.repayment_start_date) || sureSystemsService.getToday();
-    const debtorIdentificationNo = profile?.id_number || profile?.idNumber || application.user_id;
+    const collectionDate = overrides.collectionDate || toSureSystemsDate(application.repayment_start_date) || sureSystemsService.getToday();
+    const debtorIdentificationNo = overrides.debtorIdentificationNo || profile?.identity_number || profile?.id_number || profile?.idNumber || application.user_id;
+    const debtorAccountType = Number(overrides.debtorAccountType || bankAccount.account_type || 1);
+    const installmentCount = Number(overrides.noOfInstallments || application.term_months || 1);
 
-    const requestPayload = {
-        clientNo: String(application.user_id || application.id).slice(0, 20),
-        frontEndUserName: profile?.email || 'webuser',
-        debtorAccountName: bankAccount.account_holder || profile?.full_name || '',
+    return {
+        clientNo: String(overrides.clientNo || application.user_id || application.id).slice(0, 20),
+        frontEndUserName: overrides.frontEndUserName || profile?.email || 'webuser',
+        debtorAccountName: overrides.debtorAccountName || bankAccount.account_holder || profile?.full_name || '',
         debtorIdentificationNo: String(debtorIdentificationNo || ''),
-        debtorAccountNumber: bankAccount.account_number,
-        debtorBranchNumber: bankAccount.branch_code,
-        debtorEmail: profile?.email || '',
+        debtorAccountNumber: String(overrides.debtorAccountNumber || bankAccount.account_number || ''),
+        debtorBranchNumber: String(overrides.debtorBranchNumber || bankAccount.branch_code || ''),
+        debtorAccountType,
+        debtorEmail: overrides.debtorEmail || profile?.email || '',
         amount: loanAmount,
         collectionDate,
         dateList: collectionDate,
-        userReference: `APP-${application.id}`
+        noOfInstallments: installmentCount,
+        userReference: overrides.userReference || `APP-${application.id}`
     };
+}
+
+function extractSureSystemsMessage(payload = {}, fallback = 'SureSystems action completed') {
+    return payload?.message
+        || payload?.statusMessage
+        || payload?.resultDescription
+        || payload?.description
+        || payload?.responseMessage
+        || payload?.responseDescription
+        || payload?.error
+        || fallback;
+}
+
+function inferSureSystemsStatus(payload = {}, fallback = 'pending') {
+    const text = JSON.stringify(payload || {}).toLowerCase();
+    if (!text || text === '{}') return fallback;
+    if (/(fail|error|reject|declin|invalid|cancelled|canceled)/.test(text)) return 'failed';
+    if (/(success|approved|accept|active|authenticated|complete)/.test(text)) return 'success';
+    if (/(pending|await|queued|processing|submitted|in progress)/.test(text)) return 'pending';
+    return fallback;
+}
+
+async function buildSureSystemsMandateRequestForApplication(applicationId, overrides = {}) {
+    if (!applicationId) return null;
+    const context = await loadSureSystemsMandateContext(applicationId);
+    return {
+        ...context,
+        requestPayload: buildSureSystemsMandateRequestFromContext(context, overrides)
+    };
+}
+
+async function triggerSureSystemsMandateForApplication(applicationId, overrides = {}) {
+    if (!applicationId) return null;
+
+    const { application, requestPayload } = await buildSureSystemsMandateRequestForApplication(applicationId, overrides);
 
     const result = await sureSystemsService.loadMandate(requestPayload);
 
@@ -824,6 +869,68 @@ app.get('/api/suresystems/config', (req, res) => {
     }
 });
 
+app.get('/api/suresystems/debug/connectivity', async (req, res) => {
+    try {
+        const result = await sureSystemsService.probeConnectivity();
+        return res.status(result.reachable ? 200 : (result.status || 503)).json({
+            success: result.reachable,
+            ...result
+        });
+    } catch (error) {
+        console.error('SureSystems connectivity probe error:', error.message || error);
+        return res.status(error.status || 500).json({
+            success: false,
+            error: error.message || 'SureSystems connectivity probe failed',
+            details: error.details || null
+        });
+    }
+});
+
+app.post('/api/suresystems/mandates/test-payload', async (req, res) => {
+    try {
+        const applicationId = normalizeApplicationId(req.body?.applicationId);
+        const overrides = req.body?.overrides || {};
+        let requestPayload;
+        let application = null;
+        let bankAccount = null;
+        let profile = null;
+
+        if (applicationId) {
+            const context = await buildSureSystemsMandateRequestForApplication(applicationId, overrides);
+            requestPayload = context.requestPayload;
+            application = context.application;
+            bankAccount = context.bankAccount;
+            profile = context.profile;
+        } else {
+            requestPayload = sureSystemsService._test.buildMandatePayload(req.body || {}).payload;
+        }
+
+        const warnings = [];
+        if (!requestPayload?.mandate?.debtorAccountNumber) warnings.push('Debtor account number is missing.');
+        if (!requestPayload?.mandate?.debtorBranchNumber) warnings.push('Debtor branch number is missing.');
+        if (!requestPayload?.mandate?.debtorIdentificationNo) warnings.push('Debtor identification number is missing.');
+        if (!requestPayload?.mandate?.debtorAccountName) warnings.push('Debtor account name is missing.');
+
+        return res.json({
+            success: true,
+            mode: applicationId ? 'application' : 'manual',
+            config: sureSystemsService.getConfigStatus(),
+            warnings,
+            application,
+            bankAccount,
+            profile,
+            requestPayload
+        });
+    } catch (error) {
+        console.error('SureSystems payload preview error:', error.message || error);
+        return res.status(error.status || 500).json({
+            success: false,
+            error: error.message || 'Unable to build SureSystems test payload',
+            details: error.details || null
+        });
+    }
+});
+
 app.post('/api/suresystems/mandates/load', async (req, res) => {
     try {
         const payload = req.body || {};
@@ -849,6 +956,130 @@ app.post('/api/suresystems/mandates/finalfate', async (req, res) => {
         return res.status(error.status || 500).json({
             success: false,
             error: error.message || 'SureSystems final fate check failed',
+            details: error.details || null
+        });
+    }
+});
+
+app.post('/api/suresystems/mandates/load-direct', async (req, res) => {
+    try {
+        const applicationId = normalizeApplicationId(req.body?.applicationId);
+        if (!applicationId) {
+            return res.status(400).json({ success: false, error: 'applicationId is required' });
+        }
+
+        const overrides = req.body?.overrides || {};
+        const { application, profile, requestPayload } = await buildSureSystemsMandateRequestForApplication(applicationId, overrides);
+        const result = await sureSystemsService.loadMandate(requestPayload);
+        const responsePayload = result?.response || {};
+        const contractReference = result?.contractReference || requestPayload?.mandate?.contractReference || null;
+        const status = inferSureSystemsStatus(responsePayload, 'pending');
+        const message = extractSureSystemsMessage(responsePayload, 'SureSystems direct mandate load completed');
+
+        await recordSureSystemsActivation({
+            applicationId,
+            userId: application?.user_id || null,
+            status,
+            contractReference,
+            message,
+            requestPayload,
+            responsePayload,
+            at: new Date().toISOString()
+        });
+
+        return res.json({
+            success: true,
+            applicationId,
+            contractReference,
+            status,
+            message,
+            requestPayload,
+            responsePayload,
+            profile
+        });
+    } catch (error) {
+        const applicationId = normalizeApplicationId(req.body?.applicationId) || null;
+        const contractReference = req.body?.overrides?.contractReference || null;
+        await recordSureSystemsActivation({
+            applicationId,
+            status: 'failed',
+            contractReference,
+            message: error.message || 'SureSystems direct mandate load failed',
+            errorPayload: error.details || null,
+            at: new Date().toISOString()
+        });
+
+        console.error('SureSystems direct mandate load error:', {
+            message: error?.message || 'Unknown error',
+            status: error?.status || 500,
+            details: error?.details || null
+        });
+        return res.status(error.status || 500).json({
+            success: false,
+            error: error.message || 'SureSystems direct mandate load failed',
+            details: error.details || null
+        });
+    }
+});
+
+app.post('/api/suresystems/mandates/check-status', async (req, res) => {
+    try {
+        const applicationId = normalizeApplicationId(req.body?.applicationId);
+        const contractReference = req.body?.contractReference || null;
+        const frontEndUserName = req.body?.frontEndUserName || 'webuser';
+        const mode = (req.body?.mode || 'finalfate').toString().toLowerCase();
+
+        if (!contractReference) {
+            return res.status(400).json({ success: false, error: 'contractReference is required' });
+        }
+
+        let result;
+        let requestPayload;
+        if (mode === 'enquiry') {
+            requestPayload = { contractReference, frontEndUserName };
+            result = await sureSystemsService.mandateEnquiry(requestPayload);
+        } else {
+            requestPayload = { contractReference, frontEndUserName };
+            result = await sureSystemsService.checkFinalFate(requestPayload);
+        }
+
+        const responsePayload = result?.response || {};
+        const status = inferSureSystemsStatus(responsePayload, 'pending');
+        const message = extractSureSystemsMessage(responsePayload, `SureSystems ${mode} completed`);
+
+        if (applicationId) {
+            const { data: existing } = await supabaseService
+                .from(SURESYSTEMS_MANDATES_TABLE)
+                .select('user_id')
+                .eq('application_id', applicationId)
+                .maybeSingle();
+
+            await recordSureSystemsActivation({
+                applicationId,
+                userId: existing?.user_id || null,
+                status,
+                contractReference,
+                message,
+                requestPayload,
+                responsePayload,
+                at: new Date().toISOString()
+            });
+        }
+
+        return res.json({
+            success: true,
+            applicationId,
+            contractReference,
+            mode,
+            status,
+            message,
+            responsePayload
+        });
+    } catch (error) {
+        console.error('SureSystems status check error:', error.message || error);
+        return res.status(error.status || 500).json({
+            success: false,
+            error: error.message || 'SureSystems status check failed',
             details: error.details || null
         });
     }
@@ -891,6 +1122,63 @@ app.post('/api/suresystems/mandates/cancel', async (req, res) => {
         return res.json({ success: true, ...result.response });
     } catch (error) {
         console.error('SureSystems cancel mandate error:', error.message || error);
+        return res.status(error.status || 500).json({
+            success: false,
+            error: error.message || 'SureSystems cancel mandate failed',
+            details: error.details || null
+        });
+    }
+});
+
+app.post('/api/suresystems/mandates/cancel-record', async (req, res) => {
+    try {
+        const applicationId = normalizeApplicationId(req.body?.applicationId);
+        const contractReference = req.body?.contractReference || null;
+        const frontEndUserName = req.body?.frontEndUserName || 'webuser';
+
+        if (!contractReference) {
+            return res.status(400).json({ success: false, error: 'contractReference is required' });
+        }
+
+        const requestPayload = {
+            contractReference,
+            frontEndUserName
+        };
+
+        const result = await sureSystemsService.cancelMandate(requestPayload);
+        const responsePayload = result?.response || {};
+        const status = inferSureSystemsStatus(responsePayload, 'pending');
+        const message = extractSureSystemsMessage(responsePayload, 'SureSystems cancel mandate completed');
+
+        if (applicationId) {
+            const { data: existing } = await supabaseService
+                .from(SURESYSTEMS_MANDATES_TABLE)
+                .select('user_id')
+                .eq('application_id', applicationId)
+                .maybeSingle();
+
+            await recordSureSystemsActivation({
+                applicationId,
+                userId: existing?.user_id || null,
+                status,
+                contractReference,
+                message,
+                requestPayload,
+                responsePayload,
+                at: new Date().toISOString()
+            });
+        }
+
+        return res.json({
+            success: true,
+            applicationId,
+            contractReference,
+            status,
+            message,
+            responsePayload
+        });
+    } catch (error) {
+        console.error('SureSystems cancel-and-record error:', error.message || error);
         return res.status(error.status || 500).json({
             success: false,
             error: error.message || 'SureSystems cancel mandate failed',
