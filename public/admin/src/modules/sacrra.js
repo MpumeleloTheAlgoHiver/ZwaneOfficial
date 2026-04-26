@@ -1,260 +1,576 @@
 import { initLayout } from '../shared/layout.js';
 import { supabase } from '../services/supabaseClient.js';
+import {
+  ACCOUNT_TYPES, STATUS_CODE_LABELS, validateSaId, validateRecord,
+  buildExtract, buildFilename, MONTHLY_FIELDS,
+} from '../services/sacrraEngine.js';
+import {
+  BUREAUX, getBureauConfig, saveBureauConfig,
+  fetchAccountsForExtract, fetchQE1Accounts, generateAndLog, submitToAll, submitToBureau,
+  refreshConversions,
+} from '../services/sacrraApi.js';
 
-// ─────────────────────────────────────────────
-// SACRRA GOLDEN STATE
-// ─────────────────────────────────────────────
+// ── State ────────────────────────────────────────────────────────────────────
 let currentTab = 'overview';
 let userProfile = null;
-let stats = { totalAccounts: "1,284,502", activeThisMonth: "942,108", pendingValidation: "12,431", openRejections: "452" };
+let stats = { totalAccounts: '0', activeThisMonth: '0', pendingValidation: '0', openRejections: '0' };
 let extractHistory = [];
 let rejections = [];
-let allMembers = []; 
-let accountSnapshots = []; 
-let monthEnd = new Date().toISOString().slice(0, 10);
-let isDemoMode = false;
+let allMembers = [];
+let bureauConfig = [];
+let supplierConfig = { supplier_ref: 'CP0001', trading_name: 'Zwane Financial Services' };
+let monthEnd = new Date(new Date().getFullYear(), new Date().getMonth(), 0).toISOString().slice(0, 10);
+let selectedAccountType = 'P';
+let lastExtract = null; // { content, filename, runId, validCount, rejected }
 
-const ZWANE_LOGO = `
-<svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="40" height="40" rx="8" fill="#EA580C"/>
-    <path d="M12 10H28L12 30H28" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="28" cy="10" r="3" fill="#0B1C30"/>
-</svg>`;
+const ZWANE_LOGO = `<svg width="40" height="40" viewBox="0 0 40 40" fill="none"><rect width="40" height="40" rx="8" fill="#EA580C"/><path d="M12 10H28L12 30H28" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="28" cy="10" r="3" fill="#0B1C30"/></svg>`;
 
-// ─────────────────────────────────────────────
-// DATA SYNC
-// ─────────────────────────────────────────────
+// ── Data load ────────────────────────────────────────────────────────────────
 async function fetchData() {
-    try {
-        const { count: totalCount } = await supabase.from('accounts').select('*', { count: 'exact', head: true });
-        if (totalCount && totalCount > 0) {
-            isDemoMode = false;
-            const { count: activeCount } = await supabase.from('accounts').select('*', { count: 'exact', head: true }).eq('status_code', '00');
-            const { count: rejCount } = await supabase.from('sacrra_rejections').select('*', { count: 'exact', head: true }).eq('resolved', false);
-            stats.totalAccounts = totalCount.toLocaleString();
-            stats.activeThisMonth = (activeCount || totalCount).toLocaleString();
-            stats.openRejections = (rejCount || 0).toLocaleString();
-            const [rejRes, histRes, memRes] = await Promise.all([
-                supabase.from('sacrra_rejections').select('*').eq('resolved', false).order('created_at', { ascending: false }),
-                supabase.from('sacrra_extract_runs').select('*').order('created_at', { ascending: false }).limit(10),
-                supabase.from('v_monthly_extract_accounts').select('*').order('surname', { ascending: true })
-            ]);
-            rejections = rejRes.data || [];
-            extractHistory = histRes.data || [];
-            allMembers = memRes.data || [];
-        } else {
-            isDemoMode = true;
-            stats = { totalAccounts: "1,284,502", activeThisMonth: "942,108", pendingValidation: "12,431", openRejections: "452" };
-            allMembers = [
-                { first_name: 'Thabo', surname: 'Mokoena', sa_id: '8501015800081', current_balance: 1250000, account_number: 'ACC-9001' },
-                { first_name: 'Nomvula', surname: 'Zwane', sa_id: '9205120123085', current_balance: 4500000, account_number: 'ACC-9002' },
-                { first_name: 'Pieter', surname: 'Botha', sa_id: '7811235012081', current_balance: 2800000, account_number: 'ACC-9003' },
-                { first_name: 'Sarah', surname: 'Naidoo', sa_id: '8806040124089', current_balance: 1900000, account_number: 'ACC-9004' }
-            ];
-            rejections = [
-                { id: '1', account_number: 'ACC-9001', field_name: 'Surname', error_message: 'Mismatched identity record in bureau cache.', severity: 'Critical' },
-                { id: '2', account_number: 'ACC-9004', field_name: 'ID Number', error_message: 'Format violation: Invalid Luhn checksum.', severity: 'Warning' }
-            ];
-            extractHistory = [{ id: 'h1', month_end: '2023-10', record_count: 1284502, status: 'ACCEPTED', created_at: new Date().toISOString() }];
-        }
-        accountSnapshots = allMembers.slice(0, 5);
-    } catch (e) { console.error("Sync Error:", e); }
+  try {
+    const [{ count: totalCount }, rejRes, histRes, memRes, bcfg, scfg] = await Promise.all([
+      supabase.from('loans').select('*', { count: 'exact', head: true }),
+      supabase.from('sacrra_rejections').select('*').eq('resolved', false).order('created_at', { ascending: false }).limit(200),
+      supabase.from('sacrra_extract_runs').select('*').order('created_at', { ascending: false }).limit(20),
+      supabase.from('loans').select('id, status, profiles!loans_user_id_fkey(identity_number, full_name)').limit(500),
+      getBureauConfig(),
+      supabase.from('sacrra_supplier_config').select('*').eq('active', true).limit(1).maybeSingle(),
+    ]);
+    rejections = rejRes.data || [];
+    extractHistory = histRes.data || [];
+    allMembers = memRes.data || [];
+    bureauConfig = bcfg;
+    if (scfg.data) supplierConfig = scfg.data;
+    stats.totalAccounts = (totalCount || 0).toLocaleString();
+    stats.activeThisMonth = allMembers.filter(a => ['active','current','approved','pending'].includes(String(a.status||'').toLowerCase())).length.toLocaleString();
+    stats.pendingValidation = allMembers.filter(a => {
+      const id = a.profiles?.identity_number;
+      return !id || !validateSaId(id).valid;
+    }).length.toLocaleString();
+    stats.openRejections = rejections.length.toLocaleString();
+  } catch (e) { console.error('SACRRA sync error:', e); }
 }
 
-// ─────────────────────────────────────────────
-// UI SHELL
-// ─────────────────────────────────────────────
+// ── Shell ────────────────────────────────────────────────────────────────────
 export async function init(container) {
-    const auth = await initLayout();
-    if (!auth) return;
-    userProfile = auth.profile;
-
-    container.innerHTML = `
-        <div class="flex h-screen bg-[#f1f5f9] text-[#0f172a] font-inter antialiased overflow-hidden print:bg-white">
-            <aside class="w-64 bg-[#0b1c30] flex flex-col shrink-0 print:hidden">
-                <div class="p-6 flex items-center gap-3">
-                    ${ZWANE_LOGO}
-                    <div><h1 class="text-white font-bold text-xs uppercase leading-tight">Zwane Financial</h1><p class="text-slate-500 text-[8px] uppercase tracking-widest font-black mt-1">SACRRA Portal</p></div>
-                </div>
-                <nav class="flex-1 mt-4 px-3 space-y-1" id="sacrra-nav"></nav>
-                <div class="p-4 mt-auto space-y-4">
-                    <button onclick="window.exportToExcel()" class="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-lg text-[10px] uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2">EXPORT REGISTRY</button>
-                    <div class="pt-4 border-t border-slate-800">
-                        <a href="/admin/dashboard.html" class="flex items-center gap-3 px-4 py-3 text-slate-400 text-[10px] font-bold uppercase hover:text-white transition-colors"><span class="material-symbols-outlined text-lg">arrow_back</span> EXIT TO MAIN</a>
-                    </div>
-                </div>
-            </aside>
-            <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-                <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0 print:hidden">
-                    <div class="flex items-center gap-10">
-                        <div class="flex items-center gap-2 font-black text-[10px] uppercase text-slate-900 tracking-tight">Zwane Financial Services</div>
-                        <nav class="flex items-center gap-8">
-                            <a onclick="window.switchTab('overview')" class="text-xs font-bold ${currentTab==='overview'?'text-orange-600 border-b-2 border-orange-600 pb-5 pt-5': 'text-slate-400'} cursor-pointer">Dashboard</a>
-                            <a onclick="window.switchTab('validate')" class="text-xs font-bold ${currentTab==='validate'?'text-orange-600 border-b-2 border-orange-600 pb-5 pt-5': 'text-slate-400'} cursor-pointer">Compliance</a>
-                            <a onclick="window.switchTab('history')" class="text-xs font-bold ${currentTab==='history'?'text-orange-600 border-b-2 border-orange-600 pb-5 pt-5': 'text-slate-400'} cursor-pointer">Audit Logs</a>
-                        </nav>
-                        <div class="relative flex items-center bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 w-64 text-slate-400"><span class="material-symbols-outlined text-sm">search</span><input type="text" placeholder="Search data..." class="bg-transparent border-none text-xs w-full outline-none"></div>
-                    </div>
-                    <div class="flex items-center gap-6">
-                        <div class="flex items-center gap-4 text-slate-400"><span class="material-symbols-outlined text-xl cursor-pointer">notifications</span><span class="material-symbols-outlined text-xl cursor-pointer">settings</span></div>
-                        <div class="flex items-center gap-3 pl-6 border-l border-slate-100">
-                            <div class="text-right"><p class="text-[10px] font-black uppercase text-slate-900">${userProfile?.full_name || 'Admin User'}</p><p class="text-[8px] font-bold text-slate-400 uppercase">CHIEF AUDITOR</p></div>
-                            <img src="${userProfile?.avatar_url || 'https://ui-avatars.com/api/?name=Admin&background=0b1c30&color=fff'}" class="w-8 h-8 rounded-full border border-slate-100">
-                        </div>
-                    </div>
-                </header>
-                <div id="sacrra-view" class="flex-1 overflow-y-auto p-10 bg-[#f8fafc] print:p-0 print:bg-white"></div>
-            </div>
+  const auth = await initLayout();
+  if (!auth) return;
+  userProfile = auth.profile;
+  container.innerHTML = `
+    <div class="flex h-screen bg-[#f1f5f9] text-[#0f172a] font-inter overflow-hidden">
+      <aside class="w-64 bg-[#0b1c30] flex flex-col shrink-0">
+        <div class="p-6 flex items-center gap-3">${ZWANE_LOGO}<div><h1 class="text-white font-bold text-xs uppercase">Zwane Financial</h1><p class="text-slate-500 text-[8px] uppercase tracking-widest font-black mt-1">SACRRA L702</p></div></div>
+        <nav class="flex-1 mt-4 px-3 space-y-1" id="sacrra-nav"></nav>
+        <div class="p-4 mt-auto">
+          <a href="/admin/dashboard.html" class="flex items-center gap-3 px-4 py-3 text-slate-400 text-[10px] font-bold uppercase hover:text-white"><span class="material-symbols-outlined text-lg">arrow_back</span> EXIT</a>
         </div>
-    `;
-    await fetchData();
-    renderNav();
-    window.switchTab(currentTab);
+      </aside>
+      <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0">
+          <div class="flex items-center gap-2 text-[10px] font-black uppercase">SACRRA Compliance Workspace</div>
+          <div class="flex items-center gap-3 pl-6 border-l border-slate-100">
+            <div class="text-right"><p class="text-[10px] font-black uppercase">${userProfile?.full_name || 'Admin'}</p><p class="text-[8px] font-bold text-slate-400 uppercase">Compliance Officer</p></div>
+          </div>
+        </header>
+        <div id="sacrra-view" class="flex-1 overflow-y-auto p-8 bg-[#f8fafc]"></div>
+      </div>
+    </div>
+    <div id="sacrra-toast" class="fixed bottom-6 right-6 z-50 space-y-2"></div>`;
+  await fetchData();
+  renderNav();
+  switchTab(currentTab);
 }
 
 function renderNav() {
-    const nav = document.getElementById('sacrra-nav');
-    const items = [{id:'overview',icon:'grid_view',label:'OVERVIEW'},{id:'generate',icon:'upload_file',label:'SUBMISSIONS'},{id:'validate',icon:'verified_user',label:'COMPLIANCE'},{id:'members',icon:'groups',label:'ENTITIES'},{id:'history',icon:'assignment',label:'AUDIT LOGS'}];
-    nav.innerHTML = items.map(i => `<a onclick="window.switchTab('${i.id}')" class="flex items-center gap-4 px-4 py-3 rounded-lg transition-all cursor-pointer ${currentTab === i.id ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800/50'}"><span class="material-symbols-outlined text-xl">${i.icon}</span><span class="text-[10px] font-bold tracking-widest uppercase">${i.label}</span></a>`).join('');
+  const items = [
+    { id:'overview',  icon:'grid_view',     label:'Overview' },
+    { id:'generate',  icon:'upload_file',   label:'Generate Extract' },
+    { id:'validate',  icon:'verified_user', label:'Rejections' },
+    { id:'history',   icon:'assignment',    label:'Run History' },
+    { id:'submissions', icon:'send',        label:'Bureau Submissions' },
+    { id:'config',    icon:'settings',      label:'Bureau Config' },
+    { id:'advanced',  icon:'tune',          label:'Advanced' },
+    { id:'idtools',   icon:'badge',         label:'SA ID Tools' },
+  ];
+  document.getElementById('sacrra-nav').innerHTML = items.map(i =>
+    `<a onclick="window.sacrraSwitchTab('${i.id}')" class="flex items-center gap-4 px-4 py-3 rounded-lg cursor-pointer ${currentTab===i.id?'bg-orange-600 text-white':'text-slate-400 hover:text-white hover:bg-slate-800/50'}"><span class="material-symbols-outlined text-xl">${i.icon}</span><span class="text-[10px] font-bold tracking-widest uppercase">${i.label}</span></a>`
+  ).join('');
 }
 
-window.switchTab = (tab) => { currentTab = tab; renderNav(); renderPage(tab); };
+function switchTab(t) { currentTab = t; renderNav(); render(); }
+window.sacrraSwitchTab = switchTab;
 
-function renderPage(tab) {
-    const v = document.getElementById('sacrra-view');
-    if (!v) return;
-    switch (tab) {
-        case 'overview': renderOverview(v); break;
-        case 'generate': renderPipeline(v); break;
-        case 'validate': renderWorkspace(v); break;
-        case 'members': renderMembers(v); break;
-        case 'history': renderAuditLogs(v); break;
-        case 'report': renderFullReport(v); break;
-    }
+function render() {
+  const v = document.getElementById('sacrra-view');
+  switch (currentTab) {
+    case 'overview':    return renderOverview(v);
+    case 'generate':    return renderGenerate(v);
+    case 'validate':    return renderRejections(v);
+    case 'history':     return renderHistory(v);
+    case 'submissions': return renderSubmissions(v);
+    case 'config':      return renderConfig(v);
+    case 'advanced':    return renderAdvanced(v);
+    case 'idtools':     return renderIdTools(v);
+  }
 }
 
-// ─────────────────────────────────────────────
-// PAGE: OVERVIEW
-// ─────────────────────────────────────────────
+// ── Toast ────────────────────────────────────────────────────────────────────
+function toast(msg, kind='success') {
+  const colors = { success:'bg-emerald-600', error:'bg-red-600', info:'bg-slate-800' };
+  const el = document.createElement('div');
+  el.className = `${colors[kind]} text-white text-xs font-bold px-4 py-3 rounded-lg shadow-lg animate-fade-in`;
+  el.textContent = msg;
+  document.getElementById('sacrra-toast').appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+window.showToast = toast;
+
+// ── Overview ─────────────────────────────────────────────────────────────────
 function renderOverview(v) {
-    v.innerHTML = `
-        <div class="max-w-7xl mx-auto space-y-10 animate-fade-in pb-20">
-            <div class="flex justify-between items-end">
-                <div><h2 class="text-3xl font-bold text-slate-900">Compliance Overview</h2><p class="text-sm text-slate-500 mt-1">Real-time status of SACRRA data ecosystem.</p></div>
-                <div class="flex gap-3"><button onclick="window.exportPDF()" class="px-5 py-2.5 bg-[#0b1c30] text-white rounded-lg text-xs font-bold shadow-lg flex items-center gap-2"><span class="material-symbols-outlined text-sm">picture_as_pdf</span> EXPORT FULL REPORT</button></div>
-            </div>
-            <div class="grid grid-cols-4 gap-6">
-                ${[{l:'TOTAL ACCOUNTS',v:stats.totalAccounts,i:'database', p:'+3.4%'},{l:'ACTIVE THIS MONTH',v:stats.activeThisMonth,i:'bar_chart',s:'ACTIVE'},{l:'PENDING VALIDATION',v:stats.pendingValidation,i:'assignment_late',s:'QUEUED'},{l:'OPEN REJECTIONS',v:stats.openRejections,i:'error',s:'ACTION REQ.',vc:'text-red-600'}].map(s => `
-                    <div class="bg-white p-8 rounded-xl border border-slate-100 shadow-sm"><div class="flex justify-between mb-6"><div class="p-3 bg-slate-50 rounded-lg text-slate-400"><span class="material-symbols-outlined">${s.i}</span></div>${s.p?`<span class="text-[10px] font-black text-emerald-500">${s.p}</span>`:''}${s.s?`<span class="px-2 py-0.5 rounded text-[8px] font-black bg-slate-50 text-slate-400 uppercase tracking-widest">${s.s}</span>`:''}</div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${s.l}</p><p class="text-4xl font-black ${s.vc||'text-slate-900'} mt-2 tabular-nums">${s.v}</p></div>
-                `).join('')}
-            </div>
-            <div class="grid grid-cols-12 gap-8">
-                <div class="col-span-8 bg-white rounded-2xl border border-slate-100 shadow-sm p-10">
-                    <div class="flex justify-between items-center mb-10"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-slate-400">sync_alt</span><h3 class="font-bold text-slate-900">Bureau Submission Status</h3></div></div>
-                    <div class="space-y-8">${[{n:'Compuscan',s:'98.2%'},{n:'Experian',s:'94.5%'},{n:'TransUnion',s:'82.1%',c:'bg-orange-500'},{n:'XDS',s:'99.8%'}].map(b => `<div class="space-y-2"><div class="flex justify-between text-xs font-bold"><span class="text-slate-900">${b.n}</span><span>${b.s}</span></div><div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden"><div class="${b.c||'bg-emerald-500'} h-full transition-all duration-1000" style="width: ${b.s}"></div></div></div>`).join('')}</div>
-                </div>
-                <div class="col-span-4 bg-[#0b1c30] rounded-2xl p-8 text-white shadow-xl flex flex-col justify-center items-center text-center relative overflow-hidden">
-                    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">COMPLIANCE SCORE</p>
-                    <div class="w-24 h-24 rounded-full border-4 border-orange-600 flex items-center justify-center text-3xl font-black shadow-lg shadow-orange-900/50 mb-6">92</div>
-                    <p class="text-emerald-400 font-bold text-lg uppercase tracking-widest">Excellent Performance</p>
-                </div>
-            </div>
+  const cards = [
+    { l:'TOTAL ACCOUNTS', v:stats.totalAccounts, i:'database' },
+    { l:'ACTIVE THIS MONTH', v:stats.activeThisMonth, i:'bar_chart' },
+    { l:'PENDING VALIDATION', v:stats.pendingValidation, i:'assignment_late' },
+    { l:'OPEN REJECTIONS', v:stats.openRejections, i:'error', vc:'text-red-600' },
+  ];
+  v.innerHTML = `
+    <div class="max-w-7xl mx-auto space-y-8">
+      <div class="flex justify-between items-end">
+        <div><h2 class="text-3xl font-bold">SACRRA Layout 700v2 Workspace</h2><p class="text-sm text-slate-500 mt-1">Compliant with SACRRA spec v2.8 — Monthly &amp; Daily extracts.</p></div>
+        <div class="flex gap-3">
+          <button onclick="window.sacrraQuickExport('M')" class="px-5 py-2.5 bg-orange-600 text-white rounded-lg text-xs font-black uppercase shadow flex items-center gap-2"><span class="material-symbols-outlined text-base">download</span> Export Monthly Sample</button>
+          <button onclick="window.sacrraQuickExport('D')" class="px-5 py-2.5 bg-slate-800 text-white rounded-lg text-xs font-black uppercase shadow flex items-center gap-2"><span class="material-symbols-outlined text-base">download</span> Export Daily Sample</button>
         </div>
-    `;
+      </div>
+      <div class="grid grid-cols-4 gap-6">
+        ${cards.map(s=>`<div class="bg-white p-6 rounded-xl border border-slate-100 shadow-sm"><div class="p-3 bg-slate-50 rounded-lg w-fit text-slate-400 mb-4"><span class="material-symbols-outlined">${s.i}</span></div><p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${s.l}</p><p class="text-3xl font-black ${s.vc||'text-slate-900'} mt-2 tabular-nums">${s.v}</p></div>`).join('')}
+      </div>
+      <div class="grid grid-cols-3 gap-6">
+        <div class="bg-white p-6 rounded-xl border border-slate-100 col-span-2">
+          <h3 class="text-sm font-black uppercase mb-4">Bureau readiness</h3>
+          ${bureauConfig.map(b=>`<div class="flex items-center justify-between py-2 border-b border-slate-50 last:border-0"><div class="flex items-center gap-3"><span class="w-2 h-2 rounded-full ${b.enabled?'bg-emerald-500':'bg-slate-300'}"></span><span class="text-xs font-bold">${b.bureau}</span></div><span class="text-[10px] font-black uppercase ${b.enabled?'text-emerald-600':'text-slate-400'}">${b.enabled?'CONFIGURED':'NOT CONFIGURED'}</span></div>`).join('')}
+        </div>
+        <div class="bg-[#0b1c30] p-6 rounded-xl text-white">
+          <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Supplier</p>
+          <p class="text-xl font-black">${supplierConfig.trading_name}</p>
+          <p class="font-mono text-orange-400 text-sm mt-1">${supplierConfig.supplier_ref}</p>
+          <p class="text-[10px] text-slate-400 mt-6 leading-relaxed">All extracts use this supplier reference in the file header (positions 2–11, right-aligned).</p>
+        </div>
+      </div>
+    </div>`;
 }
 
-// ─────────────────────────────────────────────
-// PDF REPORT ENGINE
-// ─────────────────────────────────────────────
-window.exportPDF = () => { window.switchTab('report'); setTimeout(() => { window.print(); }, 1000); };
-
-function renderFullReport(v) {
-    v.innerHTML = `
-        <div class="max-w-4xl mx-auto bg-white p-16 space-y-16 animate-fade-in print:p-10">
-            <div class="flex justify-between items-start border-b-4 border-[#0b1c30] pb-10">
-                <div class="flex items-center gap-6">${ZWANE_LOGO}<div><h1 class="text-3xl font-black text-[#0b1c30] uppercase">SACRRA Compliance Report</h1><p class="text-slate-400 font-bold uppercase tracking-widest text-xs mt-1">Generated: ${new Date().toLocaleString()}</p></div></div>
-                <div class="text-right"><p class="text-xs font-black text-slate-900 uppercase">Zwane Financial Services</p><p class="text-[10px] text-slate-400 font-bold uppercase">Johannesburg Headquarters</p></div>
-            </div>
-            
-            <div class="grid grid-cols-2 gap-10">
-                <div class="space-y-6">
-                    <h3 class="text-sm font-black border-l-4 border-orange-600 pl-4 uppercase">1. Executive Summary</h3>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div class="bg-slate-50 p-6 rounded-xl border border-slate-100"><p class="text-[8px] font-black text-slate-400 uppercase">Total Accounts</p><p class="text-2xl font-black">${stats.totalAccounts}</p></div>
-                        <div class="bg-slate-50 p-6 rounded-xl border border-slate-100"><p class="text-[8px] font-black text-slate-400 uppercase">Active Portfolio</p><p class="text-2xl font-black">${stats.activeThisMonth}</p></div>
-                    </div>
-                </div>
-                <div class="space-y-6">
-                    <h3 class="text-sm font-black border-l-4 border-orange-600 pl-4 uppercase">2. Health Status</h3>
-                    <div class="flex items-center gap-8 bg-slate-50 p-6 rounded-xl border border-slate-100">
-                        <div class="w-16 h-16 rounded-full border-4 border-orange-600 flex items-center justify-center text-xl font-black">92</div>
-                        <div><p class="text-emerald-600 font-black text-xs uppercase">Excellent Compliance</p><p class="text-[9px] text-slate-400 leading-relaxed font-bold">Your portfolio meets all regulatory fixed-width requirements for the current cycle.</p></div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="space-y-6">
-                <h3 class="text-sm font-black border-l-4 border-orange-600 pl-4 uppercase">3. Bureau Readiness</h3>
-                <div class="grid grid-cols-4 gap-6">
-                    ${['Compuscan', 'Experian', 'TransUnion', 'XDS'].map(b => `<div class="bg-slate-50 p-6 rounded-xl border border-slate-100 text-center"><p class="text-[9px] font-black uppercase text-slate-900 mb-2">${b}</p><div class="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden mb-2"><div class="bg-emerald-500 h-full" style="width: 95%"></div></div><p class="text-[10px] font-black text-emerald-600">READY</p></div>`).join('')}
-                </div>
-            </div>
-
-            <div class="space-y-6">
-                <h3 class="text-sm font-black border-l-4 border-orange-600 pl-4 uppercase">4. Identified Rejections</h3>
-                <div class="border border-slate-100 rounded-xl overflow-hidden text-[10px] font-bold">
-                    <table class="w-full text-left"><thead class="bg-slate-50"><tr><th class="p-4">ACCOUNT</th><th class="p-4">FIELD</th><th class="p-4">ERROR MESSAGE</th></tr></thead>
-                        <tbody class="divide-y divide-slate-50">${rejections.map(r => `<tr><td class="p-4 font-mono">${r.account_number}</td><td class="p-4 uppercase">${r.field_name || 'Generic'}</td><td class="p-4 text-red-600">${r.error_message}</td></tr>`).join('') || '<tr><td colspan="3" class="p-10 text-center uppercase text-slate-400">No active violations detected</td></tr>'}</tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="pt-20 border-t border-slate-100 flex justify-between items-center text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                <p>Digital Audit ID: SAC-${monthEnd.replace(/-/g,'')}-94589</p>
-                <p>Page 1 of 1</p>
-            </div>
-        </div>
-    `;
+// ── Generate ─────────────────────────────────────────────────────────────────
+function renderGenerate(v) {
+  v.innerHTML = `
+    <div class="max-w-5xl mx-auto space-y-8">
+      <div><h2 class="text-3xl font-bold">Generate Layout 700v2 Extract</h2><p class="text-sm text-slate-500 mt-1">Builds a fixed-width ASCII file ready for bureau submission.</p></div>
+      <div class="bg-white rounded-xl border border-slate-100 p-8 grid grid-cols-2 gap-6">
+        <label class="block"><span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Frequency</span>
+          <select id="freq" class="w-full mt-2 px-3 py-2 border border-slate-200 rounded-lg text-sm">
+            <option value="M">Monthly</option><option value="D">Daily</option>
+          </select></label>
+        <label class="block"><span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Account Type</span>
+          <select id="acct-type" class="w-full mt-2 px-3 py-2 border border-slate-200 rounded-lg text-sm">
+            ${Object.entries(ACCOUNT_TYPES).map(([k,a])=>`<option value="${k}" ${k===selectedAccountType?'selected':''}>${k} — ${a.name}</option>`).join('')}
+          </select></label>
+        <label class="block"><span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Month End Date</span>
+          <input id="month-end" type="date" value="${monthEnd}" class="w-full mt-2 px-3 py-2 border border-slate-200 rounded-lg text-sm"/></label>
+        <label class="block"><span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Sequence</span>
+          <input id="seq" type="number" value="1" min="1" max="99" class="w-full mt-2 px-3 py-2 border border-slate-200 rounded-lg text-sm"/></label>
+        <label class="block col-span-2"><span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Supplier Reference</span>
+          <input id="supplier-ref" value="${supplierConfig.supplier_ref}" maxlength="10" class="w-full mt-2 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono"/></label>
+        <label class="block col-span-2"><span class="text-[10px] font-black uppercase tracking-widest text-slate-500">Trading Name</span>
+          <input id="trading-name" value="${supplierConfig.trading_name}" maxlength="60" class="w-full mt-2 px-3 py-2 border border-slate-200 rounded-lg text-sm"/></label>
+      </div>
+      <div class="flex gap-3">
+        <button onclick="window.sacrraPreview()" class="px-6 py-3 bg-slate-800 text-white rounded-lg text-xs font-black uppercase">Preview Extract</button>
+        <button onclick="window.sacrraGenerate()" class="px-6 py-3 bg-orange-600 text-white rounded-lg text-xs font-black uppercase">Generate &amp; Log</button>
+        <button onclick="window.sacrraDownload()" class="px-6 py-3 bg-emerald-600 text-white rounded-lg text-xs font-black uppercase" id="dl-btn" disabled>Download File</button>
+        <button onclick="window.sacrraSubmitAll()" class="px-6 py-3 bg-blue-600 text-white rounded-lg text-xs font-black uppercase" id="sub-btn" disabled>Submit to All Bureaux</button>
+      </div>
+      <div id="extract-preview" class="bg-[#0b1c30] rounded-xl p-6 font-mono text-[10px] text-emerald-400 max-h-96 overflow-auto whitespace-pre"></div>
+    </div>`;
+  document.getElementById('acct-type').onchange = (e) => selectedAccountType = e.target.value;
+  document.getElementById('month-end').onchange = (e) => monthEnd = e.target.value;
 }
 
-// ─────────────────────────────────────────────
-// OTHER MODULES
-// ─────────────────────────────────────────────
-function renderPipeline(v) { v.innerHTML = `<div class="max-w-7xl mx-auto space-y-10 animate-fade-in"><h2 class="text-3xl font-bold">Bureau Extraction</h2><div class="bg-[#0b1c30] p-10 rounded-2xl font-mono text-[10px] text-slate-400 truncate shadow-2xl overflow-hidden leading-relaxed">H${monthEnd.replace(/-/g,'')}001ZWANE000${stats.totalAccounts.replace(/,/g,'')}<br>${accountSnapshots.map(a => `D01 | ${a.account_number.padEnd(15,' ')} | ${a.sa_id} | R${(a.current_balance/100).toFixed(0)}`).join('<br>')}</div><button onclick="window.triggerGenerate()" class="px-16 py-5 bg-orange-600 text-white rounded-xl font-black uppercase text-xs shadow-2xl active:scale-95 transition-all">Download 700v2 Extract</button></div>`; }
-function renderWorkspace(v) { v.innerHTML = `<div class="max-w-7xl mx-auto space-y-10 animate-fade-in"><div class="flex justify-between items-end"><div><h2 class="text-3xl font-bold text-slate-900">Validation Workspace</h2><p class="text-sm text-slate-500">${rejections.length} active violations detected.</p></div><button onclick="window.commitChanges()" class="px-10 py-3 bg-orange-600 text-white rounded-xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all">Commit Fixes</button></div><div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden"><table class="w-full text-left text-[11px] font-bold text-slate-600"><thead class="bg-slate-50/50 text-[10px] font-black text-slate-400 uppercase tracking-widest"><tr><th class="px-8 py-5">ACCOUNT</th><th class="px-8 py-5">ERROR MESSAGE</th><th class="px-8 py-5 text-right">ACTION</th></tr></thead><tbody class="divide-y divide-slate-50">${rejections.map(r => `<tr><td class="px-8 py-6 font-mono text-slate-900">${r.account_number}</td><td class="px-8 py-6 text-slate-500 leading-relaxed">${r.error_message}</td><td class="px-8 py-6 text-right"><span onclick="window.fixRejection('${r.id}')" class="px-3 py-1 bg-slate-50 text-slate-400 hover:text-orange-600 cursor-pointer rounded transition-all uppercase text-[9px] font-black">Resolve</span></td></tr>`).join('')}</tbody></table></div></div>`; }
-function renderMembers(v) { v.innerHTML = `<div class="max-w-7xl mx-auto space-y-10 animate-fade-in"><h2 class="text-3xl font-bold text-slate-900 text-center">Member Registry</h2><div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden"><table class="w-full text-left text-xs font-bold text-slate-600"><thead class="bg-slate-50/50 text-[10px] font-black text-slate-400 uppercase tracking-widest"><tr><th class="px-8 py-5">NAME</th><th class="px-8 py-5">IDENTITY NUMBER</th><th class="px-8 py-5 text-right">BALANCE (R)</th></tr></thead><tbody class="divide-y divide-slate-50">${allMembers.map(m => `<tr><td class="px-8 py-5">${m.first_name} ${m.surname}</td><td class="px-8 py-5 font-mono text-slate-400">${m.sa_id}</td><td class="px-8 py-5 text-right text-slate-900 tabular-nums">R${Math.floor((m.current_balance || 0) / 100).toLocaleString()}</td></tr>`).join('')}</tbody></table></div></div>`; }
-function renderAuditLogs(v) { v.innerHTML = `<div class="max-w-7xl mx-auto space-y-10 animate-fade-in"><h2 class="text-3xl font-bold text-slate-900 text-center">Audit Logs</h2><div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden"><table class="w-full text-left text-xs font-bold text-slate-600"><thead class="bg-slate-50/50 text-[10px] font-black text-slate-400 uppercase tracking-widest"><tr><th class="px-8 py-5">EVENT</th><th class="px-8 py-5">DATE</th><th class="px-8 py-5 text-right">STATUS</th></tr></thead><tbody class="divide-y divide-slate-50">${extractHistory.map(h => `<tr class="hover:bg-slate-50 transition-all"><td class="px-8 py-5 font-black uppercase">Generation: ${h.month_end}</td><td class="px-8 py-5 text-slate-400">${new Date(h.created_at).toLocaleString()}</td><td class="px-8 py-5 text-right font-black text-emerald-600 uppercase text-[9px]">SUCCESS</td></tr>`).join('')}</tbody></table></div></div>`; }
+function readGenerateForm() {
+  return {
+    daily: document.getElementById('freq').value === 'D',
+    accountType: document.getElementById('acct-type').value,
+    monthEndDate: document.getElementById('month-end').value,
+    supplierRef: document.getElementById('supplier-ref').value.trim(),
+    tradingName: document.getElementById('trading-name').value.trim(),
+    sequence: parseInt(document.getElementById('seq').value, 10) || 1,
+  };
+}
 
-window.triggerGenerate = async () => { window.showToast("Generating...", "success"); const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob(["SACRRA"], {type:'text/plain'})); link.download = `SACRRA_${monthEnd}.txt`; link.click(); await fetchData(); };
-window.exportToExcel = () => { window.showToast("Exporting Excel...", "success"); const csv = "Account,Name,ID,Balance\n" + allMembers.map(m => `${m.account_number},${m.first_name} ${m.surname},${m.sa_id},${(m.current_balance/100).toFixed(2)}`).join("\n"); const link = document.createElement("a"); link.setAttribute("href", encodeURI("data:text/csv;charset=utf-8," + csv)); link.setAttribute("download", "SACRRA_Registry.csv"); document.body.appendChild(link); link.click(); };
-window.commitChanges = async () => { 
-    try {
-        window.showToast("Committing Batch Fixes...", "success");
-        if (!isDemoMode) {
-            await supabase.from('sacrra_rejections').update({ resolved: true }).eq('resolved', false);
-        } else {
-            rejections = [];
-            stats.openRejections = "0";
-        }
-        await fetchData(); 
-        window.switchTab('overview'); 
-        window.showToast("Batch Committed Successfully", "success"); 
-    } catch (e) { window.showToast("Commit Failed", "error"); }
+window.sacrraPreview = async () => {
+  const f = readGenerateForm();
+  toast('Building preview…', 'info');
+  const records = await fetchAccountsForExtract({ accountType: f.accountType, monthEndDate: f.monthEndDate });
+  if (!records.length) return toast('No accounts found for that account type', 'error');
+  const meDate = f.monthEndDate.replace(/-/g,'');
+  const fcDate = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  const { content, validCount, rejected } = buildExtract({
+    records: records.slice(0, 5), supplierRef: f.supplierRef, monthEndDate: meDate,
+    fileCreationDate: fcDate, tradingName: f.tradingName, daily: f.daily, accountType: f.accountType,
+  });
+  document.getElementById('extract-preview').textContent =
+    `# Preview — first 5 records (${records.length} total, ${rejected.length} would reject)\n\n${content}`;
 };
 
-window.fixRejection = async (id) => { 
-    try {
-        window.showToast("Resolving Record...", "success");
-        if (!isDemoMode) {
-            await supabase.from('sacrra_rejections').update({ resolved: true }).eq('id', id);
-        } else {
-            rejections = rejections.filter(r => r.id !== id);
-            stats.openRejections = rejections.length.toString();
-        }
-        await fetchData(); 
-        window.showToast("Record Resolved", "success"); 
-    } catch (e) { window.showToast("Resolution Failed", "error"); }
+window.sacrraGenerate = async () => {
+  const f = readGenerateForm();
+  toast('Generating extract…', 'info');
+  try {
+    const records = await fetchAccountsForExtract({ accountType: f.accountType, monthEndDate: f.monthEndDate });
+    const result = await generateAndLog({ records, ...f });
+    lastExtract = result;
+    document.getElementById('dl-btn').disabled = false;
+    document.getElementById('sub-btn').disabled = false;
+    document.getElementById('extract-preview').textContent =
+      `# ${result.filename}\n# ${result.validCount} valid, ${result.rejected.length} rejected\n\n${result.content.slice(0, 5000)}${result.content.length>5000?'\n…(truncated)':''}`;
+    toast(`Generated ${result.filename} — ${result.validCount} records`, 'success');
+    await fetchData();
+  } catch (e) { toast(`Failed: ${e.message}`, 'error'); }
 };
 
+// One-click export: builds an L702 file from all available accounts and downloads it.
+// Use this to share a compliant sample with a bureau before they issue API credentials.
+window.sacrraQuickExport = async (frequency = 'M') => {
+  toast('Building Layout 700v2 file…', 'info');
+  try {
+    const records = await fetchAccountsForExtract({});
+    if (!records.length) return toast('No accounts available to export', 'error');
+    const result = await generateAndLog({
+      records,
+      supplierRef: supplierConfig.supplier_ref,
+      tradingName: supplierConfig.trading_name,
+      monthEndDate: monthEnd,
+      daily: frequency === 'D',
+      accountType: null,
+      sequence: 1,
+    });
+    lastExtract = result;
+    const blob = new Blob([result.content], { type: 'text/plain' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = result.filename;
+    link.click();
+    toast(`Downloaded ${result.filename} — ${result.validCount} records, ${result.rejected.length} rejected`, 'success');
+    await fetchData();
+  } catch (e) { toast(`Export failed: ${e.message}`, 'error'); }
+};
+
+window.sacrraDownload = () => {
+  if (!lastExtract) return;
+  const blob = new Blob([lastExtract.content], { type: 'text/plain' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = lastExtract.filename;
+  link.click();
+};
+
+window.sacrraSubmitAll = async () => {
+  if (!lastExtract) return;
+  toast('Submitting to all configured bureaux…', 'info');
+  const results = await submitToAll(lastExtract);
+  for (const r of results) {
+    toast(`${r.bureau}: ${r.ok ? 'OK ('+r.status+')' : 'FAIL — '+(r.error||r.status)}`, r.ok?'success':'error');
+  }
+  switchTab('submissions');
+};
+
+// ── Rejections ───────────────────────────────────────────────────────────────
+function renderRejections(v) {
+  v.innerHTML = `
+    <div class="max-w-7xl mx-auto space-y-6">
+      <div class="flex justify-between items-end">
+        <div><h2 class="text-3xl font-bold">Rejections</h2><p class="text-sm text-slate-500">${rejections.length} unresolved.</p></div>
+        <button onclick="window.sacrraResolveAll()" class="px-6 py-2.5 bg-orange-600 text-white rounded-lg text-xs font-black uppercase">Mark All Resolved</button>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-100 overflow-hidden">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-50 text-[10px] font-black uppercase text-slate-500 tracking-widest">
+            <tr><th class="px-6 py-4">Account</th><th class="px-6 py-4">Field</th><th class="px-6 py-4">Error</th><th class="px-6 py-4">Severity</th><th class="px-6 py-4 text-right">Action</th></tr>
+          </thead>
+          <tbody class="divide-y divide-slate-50">
+            ${rejections.length ? rejections.map(r=>`
+              <tr><td class="px-6 py-4 font-mono">${r.account_number||'—'}</td>
+                  <td class="px-6 py-4">${r.field_name||'—'}</td>
+                  <td class="px-6 py-4 text-red-600">${r.error_message||''}</td>
+                  <td class="px-6 py-4"><span class="px-2 py-0.5 bg-red-50 text-red-700 rounded text-[9px] font-black">${r.severity||'ERROR'}</span></td>
+                  <td class="px-6 py-4 text-right"><button onclick="window.sacrraResolve('${r.id}')" class="text-orange-600 font-black text-[10px] uppercase">Resolve</button></td></tr>
+            `).join('') : '<tr><td colspan="5" class="px-6 py-12 text-center text-slate-400 text-xs uppercase">No rejections</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+window.sacrraResolve = async (id) => {
+  await supabase.from('sacrra_rejections').update({ resolved: true }).eq('id', id);
+  await fetchData(); render(); toast('Resolved', 'success');
+};
+window.sacrraResolveAll = async () => {
+  await supabase.from('sacrra_rejections').update({ resolved: true }).eq('resolved', false);
+  await fetchData(); render(); toast('All resolved', 'success');
+};
+
+// ── History ──────────────────────────────────────────────────────────────────
+function renderHistory(v) {
+  v.innerHTML = `
+    <div class="max-w-7xl mx-auto space-y-6">
+      <h2 class="text-3xl font-bold">Extract Run History</h2>
+      <div class="bg-white rounded-xl border border-slate-100 overflow-hidden">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-50 text-[10px] font-black uppercase text-slate-500 tracking-widest"><tr><th class="px-6 py-4">Filename</th><th class="px-6 py-4">Month End</th><th class="px-6 py-4">Type</th><th class="px-6 py-4">Records</th><th class="px-6 py-4">Rejected</th><th class="px-6 py-4">When</th></tr></thead>
+          <tbody class="divide-y divide-slate-50">
+            ${extractHistory.length ? extractHistory.map(h=>`<tr><td class="px-6 py-4 font-mono">${h.filename||'—'}</td><td class="px-6 py-4">${h.month_end||''}</td><td class="px-6 py-4">${h.account_type||'—'} / ${h.frequency}</td><td class="px-6 py-4 tabular-nums">${h.record_count||0}</td><td class="px-6 py-4 tabular-nums text-red-600">${h.rejected_count||0}</td><td class="px-6 py-4 text-slate-400">${new Date(h.created_at).toLocaleString()}</td></tr>`).join('') : '<tr><td colspan="6" class="px-6 py-12 text-center text-slate-400 text-xs uppercase">No runs yet</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// ── Submissions ──────────────────────────────────────────────────────────────
+async function renderSubmissions(v) {
+  v.innerHTML = `<div class="max-w-7xl mx-auto"><h2 class="text-3xl font-bold mb-6">Bureau Submissions</h2><div id="sub-list" class="bg-white rounded-xl border border-slate-100 p-6 text-xs text-slate-400">Loading…</div></div>`;
+  const { data } = await supabase.from('sacrra_submissions').select('*').order('submitted_at',{ascending:false}).limit(100);
+  document.getElementById('sub-list').innerHTML = data?.length ? `
+    <table class="w-full text-left text-xs">
+      <thead class="bg-slate-50 text-[10px] font-black uppercase text-slate-500 tracking-widest"><tr><th class="px-4 py-3">Bureau</th><th class="px-4 py-3">Filename</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">HTTP</th><th class="px-4 py-3">When</th></tr></thead>
+      <tbody class="divide-y divide-slate-50">
+        ${data.map(s=>`<tr><td class="px-4 py-3 font-bold">${s.bureau}</td><td class="px-4 py-3 font-mono">${s.filename}</td><td class="px-4 py-3"><span class="px-2 py-0.5 rounded text-[9px] font-black ${s.success?'bg-emerald-50 text-emerald-700':'bg-red-50 text-red-700'}">${s.success?'OK':'FAIL'}</span></td><td class="px-4 py-3 tabular-nums">${s.http_status}</td><td class="px-4 py-3 text-slate-400">${new Date(s.submitted_at).toLocaleString()}</td></tr>`).join('')}
+      </tbody></table>` : '<p class="text-center py-8 uppercase text-slate-400">No submissions yet</p>';
+}
+
+// ── Bureau config ────────────────────────────────────────────────────────────
+function renderConfig(v) {
+  v.innerHTML = `
+    <div class="max-w-4xl mx-auto space-y-6">
+      <div><h2 class="text-3xl font-bold">Bureau API Configuration</h2><p class="text-sm text-slate-500 mt-1">Configure the endpoint each bureau provides for direct submission. Authorization header is sent verbatim.</p></div>
+      <div class="bg-white rounded-xl border border-slate-100 p-6 space-y-4">
+        ${BUREAUX.map(b => {
+          const c = bureauConfig.find(x=>x.bureau===b) || { bureau:b, endpoint:'', auth_header:'', enabled:false, transport:'https' };
+          const t = c.transport || 'https';
+          return `<div class="pb-4 border-b border-slate-50 last:border-0 space-y-2">
+            <div class="grid grid-cols-12 gap-3 items-center">
+              <div class="col-span-2"><span class="text-xs font-black">${b}</span></div>
+              <select id="tr-${b}" class="col-span-2 px-2 py-2 border border-slate-200 rounded-lg text-xs">
+                <option value="https" ${t==='https'?'selected':''}>HTTPS</option>
+                <option value="sftp" ${t==='sftp'?'selected':''}>SFTP</option>
+              </select>
+              <input id="ep-${b}" placeholder="${t==='sftp'?'(unused)':'https://api.'+b.toLowerCase()+'.co.za/sacrra/upload'}" value="${c.endpoint||''}" class="col-span-4 px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono"/>
+              <input id="auth-${b}" placeholder="Bearer …" value="${c.auth_header||''}" class="col-span-2 px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono"/>
+              <label class="col-span-1 flex items-center gap-2"><input type="checkbox" id="en-${b}" ${c.enabled?'checked':''}/><span class="text-[10px] font-black uppercase">On</span></label>
+              <button onclick="window.sacrraTest('${b}')" class="col-span-1 text-[10px] font-black uppercase text-blue-600">Test</button>
+            </div>
+            <div class="grid grid-cols-12 gap-3">
+              <input id="sh-${b}" placeholder="SFTP host" value="${c.sftp_host||''}" class="col-span-3 px-3 py-1.5 border border-slate-200 rounded text-[11px] font-mono"/>
+              <input id="sp-${b}" placeholder="22" value="${c.sftp_port||22}" class="col-span-1 px-3 py-1.5 border border-slate-200 rounded text-[11px] font-mono"/>
+              <input id="su-${b}" placeholder="username" value="${c.sftp_username||''}" class="col-span-2 px-3 py-1.5 border border-slate-200 rounded text-[11px] font-mono"/>
+              <input id="sw-${b}" type="password" placeholder="password" value="${c.sftp_password||''}" class="col-span-2 px-3 py-1.5 border border-slate-200 rounded text-[11px] font-mono"/>
+              <input id="sr-${b}" placeholder="/inbox" value="${c.sftp_remote_path||''}" class="col-span-4 px-3 py-1.5 border border-slate-200 rounded text-[11px] font-mono"/>
+            </div>
+            <textarea id="pk-${b}" placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----&#10;(armored public key, optional — enables PGP encryption)" rows="2" class="w-full px-3 py-1.5 border border-slate-200 rounded text-[10px] font-mono">${c.public_key||''}</textarea>
+          </div>`;
+        }).join('')}
+        <button onclick="window.sacrraSaveConfig()" class="px-6 py-2.5 bg-orange-600 text-white rounded-lg text-xs font-black uppercase">Save Configuration</button>
+      </div>
+    </div>`;
+}
+window.sacrraSaveConfig = async () => {
+  const rows = BUREAUX.map(b => ({
+    bureau: b,
+    endpoint: document.getElementById(`ep-${b}`).value.trim(),
+    auth_header: document.getElementById(`auth-${b}`).value.trim(),
+    enabled: document.getElementById(`en-${b}`).checked,
+    transport: document.getElementById(`tr-${b}`).value,
+    sftp_host: document.getElementById(`sh-${b}`).value.trim(),
+    sftp_port: parseInt(document.getElementById(`sp-${b}`).value, 10) || 22,
+    sftp_username: document.getElementById(`su-${b}`).value.trim(),
+    sftp_password: document.getElementById(`sw-${b}`).value,
+    sftp_remote_path: document.getElementById(`sr-${b}`).value.trim(),
+    public_key: document.getElementById(`pk-${b}`).value.trim(),
+    updated_at: new Date().toISOString(),
+  }));
+  const { error } = await saveBureauConfig(rows);
+  if (error) return toast('Save failed: '+error.message,'error');
+  bureauConfig = rows;
+  toast('Bureau configuration saved','success');
+};
+window.sacrraTest = async (bureau) => {
+  if (!lastExtract) return toast('Generate an extract first','error');
+  toast(`Testing ${bureau}…`,'info');
+  const r = await submitToBureau({ bureau, ...lastExtract });
+  toast(`${bureau}: ${r.ok?'OK '+r.status:'FAIL '+(r.error||r.status)}`, r.ok?'success':'error');
+};
+
+// ── SA ID Tools ──────────────────────────────────────────────────────────────
+function renderIdTools(v) {
+  v.innerHTML = `
+    <div class="max-w-3xl mx-auto space-y-6">
+      <h2 class="text-3xl font-bold">SA ID Validator</h2>
+      <p class="text-sm text-slate-500">Validates RSA ID per SACRRA Home Affairs algorithm — composition, Luhn check digit, DOB, gender, citizenship.</p>
+      <div class="bg-white rounded-xl border border-slate-100 p-6 space-y-4">
+        <input id="id-input" placeholder="13-digit SA ID" maxlength="13" class="w-full px-4 py-3 border border-slate-200 rounded-lg font-mono text-lg"/>
+        <button onclick="window.sacrraCheckId()" class="px-6 py-2.5 bg-orange-600 text-white rounded-lg text-xs font-black uppercase">Validate</button>
+        <pre id="id-result" class="bg-slate-50 p-4 rounded-lg text-xs font-mono text-slate-600 whitespace-pre-wrap"></pre>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-100 p-6">
+        <h3 class="text-sm font-black uppercase mb-4">Status codes reference</h3>
+        <div class="grid grid-cols-2 gap-2 text-[11px]">
+          ${Object.entries(STATUS_CODE_LABELS).map(([k,v])=>`<div><span class="font-black font-mono">${k}</span> — ${v}</div>`).join('')}
+        </div>
+      </div>
+    </div>`;
+}
+window.sacrraCheckId = () => {
+  const id = document.getElementById('id-input').value.trim();
+  const r = validateSaId(id);
+  document.getElementById('id-result').textContent =
+    `Valid: ${r.valid}\nDOB: ${r.dob||'—'}\nGender: ${r.gender||'—'}\nCitizenship: ${r.citizenship==='0'?'RSA Citizen':r.citizenship==='1'?'Permanent Resident':r.citizenship==='2'?'Foreigner/Refugee':'—'}\n${r.errors?.length?'\nErrors:\n - '+r.errors.join('\n - '):''}`;
+};
+
+// ── Advanced (QE1, Conversions, Multi-supplier batch) ───────────────────────
+function renderAdvanced(v) {
+  v.innerHTML = `
+    <div class="max-w-5xl mx-auto space-y-8">
+      <div><h2 class="text-3xl font-bold">Advanced</h2><p class="text-sm text-slate-500 mt-1">QE1 ad-hoc clean-up, conversion files, and multi-supplier batching.</p></div>
+
+      <div class="bg-white rounded-xl border border-slate-100 p-6 space-y-4">
+        <h3 class="text-sm font-black uppercase">QE1 — Ad-hoc Clean-up Extract (L700)</h3>
+        <p class="text-xs text-slate-500">Generates a Layout 700 file containing all accounts whose status code was touched in the last 36 months. Use for SACRRA-requested clean-ups outside the regular monthly cycle.</p>
+        <div class="grid grid-cols-3 gap-3">
+          <select id="qe1-acct" class="px-3 py-2 border border-slate-200 rounded-lg text-sm">
+            <option value="">All account types</option>
+            ${Object.entries(ACCOUNT_TYPES).map(([k,a])=>`<option value="${k}">${k} — ${a.name}</option>`).join('')}
+          </select>
+          <button onclick="window.sacrraGenerateQE1()" class="px-5 py-2.5 bg-orange-600 text-white rounded-lg text-xs font-black uppercase">Generate QE1</button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-100 p-6 space-y-4">
+        <h3 class="text-sm font-black uppercase">Conversion file mapping</h3>
+        <p class="text-xs text-slate-500">Bind a new account number to its old SACRRA identifiers. The engine populates fields 42–45 (old branch / account / sub-account / supplier ref) automatically on the next extract.</p>
+        <div class="grid grid-cols-5 gap-2">
+          <input id="cv-new"    placeholder="New account no"     class="px-3 py-2 border border-slate-200 rounded text-xs font-mono"/>
+          <input id="cv-oldac"  placeholder="Old account no"     class="px-3 py-2 border border-slate-200 rounded text-xs font-mono"/>
+          <input id="cv-oldsub" placeholder="Old sub-acct"       class="px-3 py-2 border border-slate-200 rounded text-xs font-mono"/>
+          <input id="cv-oldbr"  placeholder="Old branch"         class="px-3 py-2 border border-slate-200 rounded text-xs font-mono"/>
+          <input id="cv-oldsup" placeholder="Old supplier ref"   class="px-3 py-2 border border-slate-200 rounded text-xs font-mono"/>
+        </div>
+        <button onclick="window.sacrraAddConversion()" class="px-5 py-2 bg-slate-800 text-white rounded-lg text-xs font-black uppercase">Add mapping</button>
+        <div id="cv-list" class="text-xs text-slate-500">Loading…</div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-100 p-6 space-y-4">
+        <h3 class="text-sm font-black uppercase">Multi-supplier batch (SP zip)</h3>
+        <p class="text-xs text-slate-500">Generates a Monthly extract per supplier reference and combines them into a single zip per the SACRRA SP filename convention (<code>SP0001_..._.zip</code>).</p>
+        <textarea id="sp-list" rows="3" placeholder="One supplier ref per line, e.g.&#10;CP0001&#10;CP0002" class="w-full px-3 py-2 border border-slate-200 rounded text-xs font-mono">${supplierConfig.supplier_ref}</textarea>
+        <button onclick="window.sacrraBuildSpZip()" class="px-5 py-2.5 bg-emerald-600 text-white rounded-lg text-xs font-black uppercase">Build &amp; Download Zip</button>
+      </div>
+    </div>`;
+  loadConversionList();
+}
+
+async function loadConversionList() {
+  const { data } = await supabase.from('sacrra_conversions').select('*').order('created_at',{ascending:false}).limit(100);
+  const el = document.getElementById('cv-list');
+  if (!el) return;
+  el.innerHTML = data?.length
+    ? `<table class="w-full mt-2"><thead><tr class="text-[10px] font-black uppercase text-slate-400"><th class="text-left py-1">New</th><th class="text-left py-1">Old account</th><th class="text-left py-1">Old sub</th><th class="text-left py-1">Old br</th><th class="text-left py-1">Old sup</th><th></th></tr></thead><tbody>${
+        data.map(r=>`<tr class="border-t border-slate-50"><td class="py-1 font-mono">${r.new_account_no}</td><td class="py-1 font-mono">${r.old_account_no}</td><td class="py-1 font-mono">${r.old_sub_account_no||''}</td><td class="py-1 font-mono">${r.old_supplier_branch||''}</td><td class="py-1 font-mono">${r.old_supplier_ref||''}</td><td class="text-right"><button onclick="window.sacrraDelConv('${r.id}')" class="text-red-600 text-[10px] font-black">Remove</button></td></tr>`).join('')
+      }</tbody></table>`
+    : '<p class="uppercase text-slate-400 py-2">No conversion mappings yet.</p>';
+}
+
+window.sacrraAddConversion = async () => {
+  const row = {
+    new_account_no:      document.getElementById('cv-new').value.trim(),
+    old_account_no:      document.getElementById('cv-oldac').value.trim(),
+    old_sub_account_no:  document.getElementById('cv-oldsub').value.trim() || null,
+    old_supplier_branch: document.getElementById('cv-oldbr').value.trim() || null,
+    old_supplier_ref:    document.getElementById('cv-oldsup').value.trim() || null,
+  };
+  if (!row.new_account_no || !row.old_account_no) return toast('New + old account required','error');
+  const { error } = await supabase.from('sacrra_conversions').insert(row);
+  if (error) return toast(error.message,'error');
+  await refreshConversions();
+  ['cv-new','cv-oldac','cv-oldsub','cv-oldbr','cv-oldsup'].forEach(i=>{document.getElementById(i).value='';});
+  toast('Mapping added','success');
+  loadConversionList();
+};
+window.sacrraDelConv = async (id) => {
+  await supabase.from('sacrra_conversions').delete().eq('id', id);
+  await refreshConversions();
+  loadConversionList();
+};
+
+window.sacrraGenerateQE1 = async () => {
+  const accountType = document.getElementById('qe1-acct').value || null;
+  toast('Building QE1 ad-hoc extract…','info');
+  try {
+    const records = await fetchQE1Accounts({ accountType });
+    if (!records.length) return toast('No accounts touched in last 36 months','error');
+    const result = await generateAndLog({
+      records,
+      supplierRef: supplierConfig.supplier_ref,
+      tradingName: supplierConfig.trading_name,
+      monthEndDate: monthEnd,
+      frequency: 'A',
+      accountType,
+    });
+    lastExtract = result;
+    const blob = new Blob([result.content], { type: 'text/plain' });
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob);
+    link.download = result.filename; link.click();
+    toast(`QE1: ${result.filename} — ${result.validCount} records`,'success');
+    await fetchData();
+  } catch (e) { toast('QE1 failed: '+e.message,'error'); }
+};
+
+let _jszipPromise = null;
+function loadJsZip() {
+  if (window.JSZip) return Promise.resolve(window.JSZip);
+  if (_jszipPromise) return _jszipPromise;
+  _jszipPromise = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js';
+    s.onload = () => res(window.JSZip);
+    s.onerror = () => rej(new Error('Failed to load JSZip'));
+    document.head.appendChild(s);
+  });
+  return _jszipPromise;
+}
+
+window.sacrraBuildSpZip = async () => {
+  const refs = document.getElementById('sp-list').value.split(/\s+/).map(s=>s.trim()).filter(Boolean);
+  if (!refs.length) return toast('Enter at least one supplier ref','error');
+  toast(`Building zip for ${refs.length} supplier(s)…`,'info');
+  try {
+    const JSZip = await loadJsZip();
+    const zip = new JSZip();
+    const meDate = monthEnd.replace(/-/g,'');
+    for (const ref of refs) {
+      const records = await fetchAccountsForExtract({});
+      const result = await generateAndLog({
+        records, supplierRef: ref, tradingName: supplierConfig.trading_name,
+        monthEndDate: monthEnd, frequency: 'M',
+      });
+      zip.file(result.filename, result.content);
+    }
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const today = new Date().toISOString().slice(0,10).replace(/-/g,'');
+    const zipName = `SP0001_ALL_L702_M_${meDate||today}_1_1.zip`;
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob); link.download = zipName; link.click();
+    toast(`Built ${zipName}`,'success');
+  } catch (e) { toast('Zip failed: '+e.message,'error'); }
+};
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
 const shell = document.getElementById('app-shell');
 if (shell) init(shell);

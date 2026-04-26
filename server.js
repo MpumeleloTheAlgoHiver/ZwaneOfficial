@@ -576,6 +576,27 @@ app.use('/api/tillslip', tillSlipRoute);
 app.use('/api/bankstatement', bankStatementRoute);
 app.use('/api/idcard', idcardRoute);
 
+// SACRRA SFTP delivery — POST { host, port, username, password, remotePath, filename, content }
+app.post('/api/sacrra/sftp-upload', express.json({ limit: '50mb' }), async (req, res) => {
+    try {
+        const { host, port = 22, username, password, remotePath = '/', filename, content } = req.body || {};
+        if (!host || !username || !filename || !content) {
+            return res.status(400).json({ error: 'host, username, filename, content required' });
+        }
+        let SftpClient;
+        try { SftpClient = require('ssh2-sftp-client'); }
+        catch (e) { return res.status(501).json({ error: 'ssh2-sftp-client not installed. Run: npm i ssh2-sftp-client' }); }
+        const sftp = new SftpClient();
+        await sftp.connect({ host, port, username, password });
+        const remote = (remotePath.endsWith('/') ? remotePath : remotePath + '/') + filename;
+        await sftp.put(Buffer.from(content), remote);
+        await sftp.end();
+        return res.json({ ok: true, remote });
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
+});
+
 app.get('/api/system-settings', async (req, res) => {
     try {
         const forceRefresh = ['true', '1'].includes((req.query.refresh || '').toString());

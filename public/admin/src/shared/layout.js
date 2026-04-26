@@ -115,8 +115,9 @@ function renderAppShell(profile, role, theme = null) {
   const customLogo = (theme?.company_logo_url || '').trim();
   const logoSrc = escapeAttr(customLogo || DEFAULT_BRAND_LOGO);
   const logoAlt = escapeAttr(companyName || 'Company');
+  const logoFallback = `<div class=\\'text-xl font-bold text-gray-800\\'>${logoAlt}</div>`;
   const logoMarkup = logoSrc
-    ? `<img src="${logoSrc}" alt="${logoAlt}" class="h-12 w-auto object-contain max-w-[200px]">`
+    ? `<img src="${logoSrc}" alt="${logoAlt}" class="h-12 w-auto object-contain max-w-[200px]" onerror="this.outerHTML='${logoFallback}'">`
     : `<div class="text-xl font-bold text-gray-800">${logoAlt}</div>`;
   
   appShell.innerHTML = `
