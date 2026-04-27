@@ -23,8 +23,8 @@
 - [ ] Leave loan term open — admin reviews/sets loan period
 - [x] Interest/fees: 5% + 15% total
 - [x] First loan of the year always 5%
-- [ ] Remove option to set date (use system date)
-- [ ] Rename status "Ready" → "Approved"
+- [x] Remove option to set date (use system date) — already in code
+- [x] Rename status "Ready" → "Approved"
 - [ ] In default: current balance × 3%
 - [ ] Service fee prorated; next month R60
 - [x] Add 0.45% (CPI?) to all loan calculations (already there)
