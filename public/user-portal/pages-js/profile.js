@@ -297,6 +297,61 @@ function renderProfileTab() {
   setupAvatarPlaceholderHover(avatarAsset);
 }
 
+async function loadAffordabilityStatus() {
+  try {
+    const response = await fetch(`/api/experian/affordability-status/${currentUserProfile.id}`);
+    const { success, status } = await response.json();
+
+    if (!success || !status) return;
+
+    const container = document.getElementById('affordability-status-container');
+    if (!container) return;
+
+    if (!status.eligible && status.can_view_reason) {
+      const declineReasons = {
+        'Income below minimum threshold': 'Your monthly income is below the minimum requirement. Please try again when your income increases.',
+        'Monthly debt obligations exceed 50% of income': 'Your existing debt obligations are too high relative to your income.',
+        'No remaining payment capacity after existing obligations': 'Your monthly debt payments leave no room for additional loan payments.'
+      };
+
+      const reasonText = declineReasons[status.decline_reason] || status.decline_reason;
+
+      container.innerHTML = `
+        <div class="inner-card" style="border-left: 4px solid #ef4444;">
+          <div style="display: flex; align-items: center; gap: 1rem;">
+            <i class="fa-solid fa-circle-exclamation" style="font-size: 2rem; color: #ef4444;"></i>
+            <div>
+              <h4 style="color: #ef4444; margin-bottom: 0.5rem;">Application Status</h4>
+              <p style="margin-bottom: 0.5rem; color: #7f1d1d; font-weight: 500;">
+                ${reasonText}
+              </p>
+              <p style="color: #9ca3af; font-size: 0.9rem;">
+                <i class="fa-solid fa-circle-info"></i>
+                Please update your financial information and reapply.
+              </p>
+            </div>
+          </div>
+        </div>
+      `;
+    } else if (status.eligible && status.source === 'experian') {
+      container.innerHTML = `
+        <div class="inner-card" style="border-left: 4px solid #10b981;">
+          <div style="display: flex; align-items: center; gap: 1rem;">
+            <i class="fa-solid fa-circle-check" style="font-size: 2rem; color: #10b981;"></i>
+            <div>
+              <h4 style="color: #10b981; margin-bottom: 0.5rem;">Affordability Verified</h4>
+              <p style="margin-bottom: 0.25rem; color: #047857;">✓ Your financial profile meets lending requirements</p>
+              <p style="color: #9ca3af; font-size: 0.9rem;">Reference: ${status.reference || 'N/A'}</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+  } catch (error) {
+    console.error('Error loading affordability status:', error);
+  }
+}
+
 function renderFinancialTab() {
   console.log('💰 Rendering Financial Tab');
   
@@ -385,7 +440,9 @@ function renderFinancialTab() {
       <h3><i class="fa-solid fa-chart-line" style="color: var(--color-primary);"></i> Financial Overview</h3>
       <p>Complete your financial profile to help us assess your loan eligibility</p>
     </div>
-    
+
+    <div id="affordability-status-container"></div>
+
     <div class="inner-card financial-card">
       <form id="financial-form">
         
@@ -1306,6 +1363,7 @@ function attachTabListeners() {
       } else if (tabName === 'financial') {
         console.log('💰 Rendering Financial Tab');
         renderFinancialTab();
+        loadAffordabilityStatus();
       } else if (tabName === 'security') {
         console.log('🔒 Rendering Security Tab');
         renderSecurityTab();
