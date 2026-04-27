@@ -37,7 +37,7 @@ const ALL_STATUS_OPTIONS = [
     { value: 'AFFORD_REFER', label: 'Affordability Refer' },
     { value: 'OFFERED', label: 'Step 4: Contract Sent' },
     { value: 'OFFER_ACCEPTED', label: 'Contract Signed' },
-    { value: 'READY_TO_DISBURSE', label: 'Step 6: Queue Disburse' },
+    { value: 'APPROVED', label: 'Step 6: Queue Disburse' },
     { value: 'DECLINED', label: 'Declined' }
 ];
 
@@ -358,7 +358,7 @@ const pageTemplate = `
 const getBadgeColor = (status) => {
   if (!status) return 'bg-gray-100 text-gray-800 border border-gray-200';
   switch (status) {
-    case 'READY_TO_DISBURSE': 
+    case 'APPROVED': 
     case 'approved': 
     case 'DISBURSED':
     case 'AFFORD_OK':
@@ -1108,7 +1108,7 @@ const approveApplication = async () => {
   }
 
   // 2. The status update calculates financial columns in the background
-  const { data: updatedApp, error } = await updateApplicationStatus(currentApplication.id, 'READY_TO_DISBURSE');
+  const { data: updatedApp, error } = await updateApplicationStatus(currentApplication.id, 'APPROVED');
   
   if (error) {
     showFeedback(error.message, 'error');
@@ -1947,7 +1947,7 @@ const renderSidePanel = (app) => {
       if (status === 'OFFERED') {
           alertEl.textContent = "Contract Sent. Waiting for user to sign.";
           alertEl.classList.add('bg-purple-50', 'text-purple-700', 'block');
-      } else if (status === 'READY_TO_DISBURSE') {
+      } else if (status === 'APPROVED') {
           alertEl.textContent = "Application is queued for disbursement.";
           alertEl.classList.add('bg-green-50', 'text-green-700', 'block');
       }
@@ -1989,7 +1989,7 @@ const renderSidePanel = (app) => {
           // Confirmation modal for approval
           document.getElementById('btn-approve-contract').onclick = () => openModal('Approve', 'Mark contract as valid and ready for payout?', approveApplication);
       }
-      else if (status === 'READY_TO_DISBURSE') {
+      else if (status === 'APPROVED') {
           actionsContainer.innerHTML = `<div class="p-4 bg-green-50 border border-green-100 rounded-xl text-center"><p class="text-sm font-bold text-green-800">Queued for Payout</p></div>`;
       }
       else if (status === 'DISBURSED') {
