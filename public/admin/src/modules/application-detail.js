@@ -1851,6 +1851,69 @@ const closeCreditLifeContractModal = () => {
 };
 
 
+const renderDisbursementSection = async (app) => {
+  const container = document.getElementById('action-buttons-container');
+  if (!container) return;
+
+  try {
+    const { data: disbursements } = await getDisbursementsByApplication(app.id);
+    const { data: cashsendConfig } = await getCashSendConfig();
+
+    if (!disbursements || disbursements.length === 0) {
+      container.innerHTML = `
+        <div class="p-4 bg-yellow-50 border border-yellow-100 rounded-xl text-center">
+          <p class="text-sm font-bold text-yellow-800">Disbursement Not Found</p>
+        </div>
+      `;
+      return;
+    }
+
+    const disb = disbursements[0];
+    let feeInfo = '';
+    if (disb.payout_method === 'cashsend' && disb.cashsend_fee) {
+      feeInfo = `
+        <div class="rounded-lg bg-orange-50 border border-orange-200 p-3 mt-3">
+          <p class="text-xs font-bold text-orange-700 uppercase mb-2">CashSend Fees</p>
+          <p class="text-sm text-orange-800">R${disb.cashsend_fee.toFixed(2)}</p>
+        </div>
+      `;
+    }
+
+    container.innerHTML = `
+      <div class="space-y-3">
+        <div class="p-4 bg-green-50 border border-green-100 rounded-xl">
+          <p class="text-xs font-bold text-green-700 uppercase mb-2">Disbursement Details</p>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p class="text-xs text-green-600">Amount</p>
+              <p class="font-bold text-green-900">R${disb.amount.toFixed(2)}</p>
+            </div>
+            <div>
+              <p class="text-xs text-green-600">Payout Method</p>
+              <p class="font-bold text-green-900 capitalize">${disb.payout_method}</p>
+            </div>
+            <div>
+              <p class="text-xs text-green-600">Status</p>
+              <p class="font-bold text-green-900 capitalize">${disb.status}</p>
+            </div>
+            <div>
+              <p class="text-xs text-green-600">Date</p>
+              <p class="font-bold text-green-900">${formatDate(disb.created_at)}</p>
+            </div>
+          </div>
+        </div>
+        ${feeInfo}
+        <button onclick="handleDisbursementExport(${app.id})" class="w-full py-3 bg-gray-900 text-white text-sm font-bold rounded-xl hover:bg-black transition-colors">
+          <i class="fa-solid fa-file-csv mr-2"></i> Export CSV
+        </button>
+      </div>
+    `;
+  } catch (error) {
+    console.error('Error rendering disbursement section:', error);
+    container.innerHTML = `<div class="p-4 bg-red-50 border border-red-100 rounded-xl text-center"><p class="text-sm font-bold text-red-800">Error loading disbursement</p></div>`;
+  }
+};
+
 const renderSidePanel = (app) => {
   if (!app) return;
   const status = app.status || 'pending';
@@ -1997,7 +2060,7 @@ const renderSidePanel = (app) => {
           document.getElementById('btn-approve-contract').onclick = () => openModal('Approve', 'Mark contract as valid and ready for payout?', approveApplication);
       }
       else if (status === 'APPROVED') {
-          actionsContainer.innerHTML = `<div class="p-4 bg-green-50 border border-green-100 rounded-xl text-center"><p class="text-sm font-bold text-green-800">Queued for Payout</p></div>`;
+          renderDisbursementSection(currentApplication);
       }
       else if (status === 'DISBURSED') {
           actionsContainer.innerHTML = `<div class="p-4 bg-gray-50 border border-gray-100 rounded-xl text-center"><p class="text-sm font-bold text-gray-600">Loan Active / Completed</p></div>`;
@@ -2066,6 +2129,41 @@ const loadApplicationData = async () => {
   } catch (error) {
       console.error("Integration Error:", error);
       showFeedback("Failed to load full application data.", "error");
+  }
+};
+
+// Global function for disbursement CSV export
+window.handleDisbursementExport = async (applicationId) => {
+  try {
+    const response = await fetch('/api/disbursements/payout-csv', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        applicationIds: [applicationId],
+        method: 'all'
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      showFeedback(error.error || 'Failed to generate CSV', 'error');
+      return;
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `disbursement-${applicationId}-${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    showFeedback('Disbursement CSV exported successfully', 'success');
+  } catch (error) {
+    console.error('Error exporting CSV:', error);
+    showFeedback(error.message || 'Failed to export CSV', 'error');
   }
 };
 
