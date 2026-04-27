@@ -44,12 +44,12 @@
 ### Experian / Affordability
 - [x] Clients CAN input financial data (clients or consultants can input)
 - [x] Track expenses (RESTORED: needed for affordability calculations)
-- [ ] Allow additional income + other banks (UI toggles needed)
+- [x] Allow additional income + other banks (UI sections added, handlers ready)
 - [ ] Tick/untick other earnings to remove from affordability check
-- [ ] Experian Affordability Assessment API integration
-- [ ] Pull current balance + everything from Experian
+- [x] Experian Affordability Assessment API integration (COMPLETE)
+- [x] Pull current balance + everything from Experian (COMPLETE)
 - [ ] Show why declined (to applicant)
-- [ ] Reference for credit report (Experian ref for NCR reporting)
+- [x] Reference for credit report (Experian ref for NCR reporting) (COMPLETE)
 - [ ] Product portal integration: PORTAL/EXPIRIEN.CO.ZA
 - [ ] C(P or B)M payments — closed on their system but open on Compuscan
 - [ ] Fix credit check
@@ -63,15 +63,15 @@
 - [ ] Compulsory next of kin
 
 ### Banking / Payouts
-- [ ] Automatically upload to bank via Capitec
-- [ ] CSV should include bank accounts etc
-- [ ] Lock CSV on download
-- [ ] CSV format spec (TBD)
-- [ ] Payout: use current primary bankout logic
-- [ ] CashSend has extra fees — logic to choose which account from CashSend payout
-- [ ] Choose specific payment method
-- [ ] CashSend fee structure
-- [ ] Payout to client / third party
+- [ ] Automatically upload to bank via Capitec (schema ready, API integration pending)
+- [x] CSV should include bank accounts etc (COMPLETE)
+- [x] Lock CSV on download (COMPLETE - SHA256 integrity checking)
+- [x] CSV format spec (TBD) (IMPLEMENTED - batch ID, method, record count, total amount)
+- [x] Payout: use current primary bankout logic (COMPLETE - auto-selects Capitec for primary accounts)
+- [x] CashSend has extra fees — logic to choose which account from CashSend payout (COMPLETE)
+- [x] Choose specific payment method (COMPLETE - Capitec, CashSend, Third-party, Cash)
+- [x] CashSend fee structure (COMPLETE - configurable base + percentage)
+- [x] Payout to client / third party (COMPLETE - full support in schema and API)
 
 ### Audit & Cash
 - [ ] Deeper audit trail
