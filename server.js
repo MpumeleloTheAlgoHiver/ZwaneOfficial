@@ -60,6 +60,7 @@ const defaultService = require('./services/defaultService');
 const feeService = require('./services/feeService');
 const capitecService = require('./services/capitecService');
 const analyticsService = require('./services/analyticsService');
+const auditService = require('./services/auditService');
 const { supabase, supabaseService } = require('./config/supabaseServer');
 const { startNotificationScheduler } = require('./services/notificationScheduler');
 
@@ -2133,13 +2134,27 @@ app.post('/api/fees/service-fee-schedule', (req, res) => {
 // --- Loan Default Management API routes ---
 app.post('/api/loans/:loanId/mark-default', async (req, res) => {
     try {
-        const { reason } = req.body;
+        const { reason, userId } = req.body;
         const { loanId } = req.params;
 
         const result = await defaultService.markLoanInDefault(loanId, reason);
 
         if (!result.success) {
             return res.status(400).json({ error: result.error });
+        }
+
+        // Log audit event
+        if (userId) {
+            const ipAddress = req.ip || req.connection.remoteAddress;
+            const userAgent = req.get('user-agent');
+            await auditService.logLoanStateChange(parseInt(loanId), userId, result.previousStatus, 'DEFAULT', {
+                reason,
+                metadata: {
+                    ipAddress,
+                    userAgent,
+                    defaultAmount: result.defaultAmount
+                }
+            });
         }
 
         res.json({ success: true, default: result });
@@ -2151,10 +2166,25 @@ app.post('/api/loans/:loanId/mark-default', async (req, res) => {
 
 app.post('/api/loans/:loanId/clear-default', async (req, res) => {
     try {
-        const result = await defaultService.clearDefault(req.params.loanId);
+        const { userId } = req.body;
+        const { loanId } = req.params;
+        const result = await defaultService.clearDefault(loanId);
 
         if (!result.success) {
             return res.status(400).json({ error: result.error });
+        }
+
+        // Log audit event
+        if (userId) {
+            const ipAddress = req.ip || req.connection.remoteAddress;
+            const userAgent = req.get('user-agent');
+            await auditService.logLoanStateChange(parseInt(loanId), userId, 'DEFAULT', result.newStatus, {
+                reason: 'Default cleared',
+                metadata: {
+                    ipAddress,
+                    userAgent
+                }
+            });
         }
 
         res.json({ success: true });
@@ -2377,6 +2407,87 @@ app.get('/api/analytics/products', async (req, res) => {
     }
 });
 
+// --- Audit Trail API routes ---
+app.get('/api/audit/trail', async (req, res) => {
+    try {
+        const filters = {};
+        if (req.query.user_id) filters.user_id = req.query.user_id;
+        if (req.query.entity_type) filters.entity_type = req.query.entity_type;
+        if (req.query.entity_id) filters.entity_id = parseInt(req.query.entity_id);
+        if (req.query.action) filters.action = req.query.action;
+        if (req.query.start_date) filters.start_date = req.query.start_date;
+        if (req.query.end_date) filters.end_date = req.query.end_date;
+        if (req.query.limit) filters.limit = parseInt(req.query.limit);
+
+        const result = await auditService.getAuditTrail(filters);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error fetching audit trail:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/audit/loan-state/:loanId', async (req, res) => {
+    try {
+        const { loanId } = req.params;
+        const result = await auditService.getLoanStateHistory(parseInt(loanId));
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error fetching loan state history:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/audit/user-actions/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const limit = req.query.limit ? parseInt(req.query.limit) : 50;
+        const result = await auditService.getUserActionHistory(userId, limit);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error fetching user action history:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/audit/recent', async (req, res) => {
+    try {
+        const days = req.query.days ? parseInt(req.query.days) : 7;
+        const result = await auditService.getRecentAuditActivity(days);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error fetching recent audit activity:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/audit/event', async (req, res) => {
+    try {
+        const { userId, entityType, entityId, action, data } = req.body;
+
+        if (!userId || !entityType || !entityId || !action) {
+            return res.status(400).json({ error: 'Missing required fields: userId, entityType, entityId, action' });
+        }
+
+        const ipAddress = req.ip || req.connection.remoteAddress;
+        const userAgent = req.get('user-agent');
+
+        const metadata = data?.metadata || {};
+        metadata.ipAddress = ipAddress;
+        metadata.userAgent = userAgent;
+
+        const result = await auditService.logAuditEvent(userId, entityType, entityId, action, {
+            ...data,
+            metadata
+        });
+
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error logging audit event:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // --- Disbursement & Payout API routes ---
 app.post('/api/disbursements/create', async (req, res) => {
     try {
@@ -2396,6 +2507,20 @@ app.post('/api/disbursements/create', async (req, res) => {
             thirdPartyAccount,
             thirdPartyBank,
             createdBy
+        });
+
+        // Log audit event for disbursement creation
+        const ipAddress = req.ip || req.connection.remoteAddress;
+        const userAgent = req.get('user-agent');
+        await auditService.logFinancialTransaction(parseInt(applicationId), 'disbursement', amount, {
+            referenceNumber: disbursement.id,
+            status: disbursement.status,
+            metadata: {
+                payoutMethod,
+                createdBy,
+                ipAddress,
+                userAgent
+            }
         });
 
         res.json({ success: true, disbursement });
@@ -2427,7 +2552,7 @@ app.get('/api/disbursements/application/:applicationId', async (req, res) => {
 
 app.post('/api/disbursements/:disbursementId/update-status', async (req, res) => {
     try {
-        const { status, details } = req.body;
+        const { status, details, userId } = req.body;
         if (!status) {
             return res.status(400).json({ error: 'Status is required' });
         }
@@ -2438,6 +2563,19 @@ app.post('/api/disbursements/:disbursementId/update-status', async (req, res) =>
             details
         );
 
+        // Log audit event for status update
+        if (userId && disbursement) {
+            const ipAddress = req.ip || req.connection.remoteAddress;
+            const userAgent = req.get('user-agent');
+            await auditService.logUserAction(userId, 'update_disbursement_status', 'disbursement', parseInt(req.params.disbursementId), {
+                actionDetails: { previousStatus: disbursement.previous_status, newStatus: status, details },
+                metadata: {
+                    ipAddress,
+                    userAgent
+                }
+            });
+        }
+
         res.json({ success: true, disbursement });
     } catch (error) {
         console.error('Error updating disbursement status:', error);
@@ -2447,7 +2585,7 @@ app.post('/api/disbursements/:disbursementId/update-status', async (req, res) =>
 
 app.post('/api/disbursements/payout-csv', async (req, res) => {
     try {
-        const { applicationIds, method, exportedBy } = req.body;
+        const { applicationIds, method, exportedBy, userId } = req.body;
 
         if (!applicationIds || !Array.isArray(applicationIds) || applicationIds.length === 0) {
             return res.status(400).json({ error: 'applicationIds array is required' });
@@ -2470,6 +2608,24 @@ app.post('/api/disbursements/payout-csv', async (req, res) => {
             disbursements,
             exportedBy
         );
+
+        // Log audit event for CSV export
+        if (userId) {
+            const ipAddress = req.ip || req.connection.remoteAddress;
+            const userAgent = req.get('user-agent');
+            await auditService.logUserAction(userId, 'export', 'disbursement', parseInt(applicationIds[0]), {
+                actionDetails: {
+                    batchId,
+                    method: method || 'all',
+                    count: disbursements.length,
+                    exportedBy
+                },
+                metadata: {
+                    ipAddress,
+                    userAgent
+                }
+            });
+        }
 
         res.set('Content-Type', 'text/csv');
         res.set('Content-Disposition', `attachment; filename="payout-${batchId}.csv"`);
