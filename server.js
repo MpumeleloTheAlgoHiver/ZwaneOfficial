@@ -57,6 +57,7 @@ const sureSystemsService = require('./services/sureSystemsService');
 const disbursementService = require('./services/disbursementService');
 const experianService = require('./services/experianService');
 const defaultService = require('./services/defaultService');
+const feeService = require('./services/feeService');
 const { supabase, supabaseService } = require('./config/supabaseServer');
 const { startNotificationScheduler } = require('./services/notificationScheduler');
 
@@ -2057,6 +2058,72 @@ app.get('/api/experian/profile/:idNumber', async (req, res) => {
         res.json({ success: true, profile: data });
     } catch (error) {
         console.error('Error fetching Experian profile:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- Service Fee Calculation API routes ---
+app.post('/api/fees/calculate-prorated', (req, res) => {
+    try {
+        const { start_date } = req.body;
+
+        if (!start_date) {
+            return res.status(400).json({ error: 'start_date is required' });
+        }
+
+        const proratedFee = feeService.calculateProratedFee(new Date(start_date), true);
+        const nextMonthFee = feeService.MONTHLY_SERVICE_FEE;
+
+        res.json({
+            success: true,
+            prorated_first_month: proratedFee,
+            next_month_onwards: nextMonthFee,
+            monthly_rate: feeService.MONTHLY_SERVICE_FEE
+        });
+    } catch (error) {
+        console.error('Error calculating prorated fee:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/fees/calculate-total-service-fees', (req, res) => {
+    try {
+        const { start_date, term_months } = req.body;
+
+        if (!start_date || !term_months) {
+            return res.status(400).json({ error: 'start_date and term_months are required' });
+        }
+
+        const totalFees = feeService.calculateTotalServiceFees(new Date(start_date), term_months);
+
+        res.json({
+            success: true,
+            total_service_fees: totalFees,
+            monthly_rate: feeService.MONTHLY_SERVICE_FEE
+        });
+    } catch (error) {
+        console.error('Error calculating total service fees:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/fees/service-fee-schedule', (req, res) => {
+    try {
+        const { start_date, term_months } = req.body;
+
+        if (!start_date || !term_months) {
+            return res.status(400).json({ error: 'start_date and term_months are required' });
+        }
+
+        const schedule = feeService.generateServiceFeeSchedule(new Date(start_date), term_months);
+
+        res.json({
+            success: true,
+            schedule: schedule,
+            total_fees: schedule.reduce((sum, item) => sum + item.amount, 0)
+        });
+    } catch (error) {
+        console.error('Error generating service fee schedule:', error);
         res.status(500).json({ error: error.message });
     }
 });
