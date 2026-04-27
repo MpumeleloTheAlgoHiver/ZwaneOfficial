@@ -20,13 +20,13 @@
 - [x] 1st-time applicants: 1 month max term
 - [x] More than 3 loans: limited to 6 (months)
 - [x] Online applications limited to 6 months
-- [ ] Leave loan term open — admin reviews/sets loan period
+- [x] Leave loan term open — admin reviews/sets loan period (COMPLETE)
 - [x] Interest/fees: 5% + 15% total
 - [x] First loan of the year always 5%
 - [x] Remove option to set date (use system date) — already in code
 - [x] Rename status "Ready" → "Approved"
-- [ ] In default: current balance × 3%
-- [ ] Service fee prorated; next month R60
+- [x] In default: current balance × 3% (COMPLETE)
+- [x] Service fee prorated; next month R60 (COMPLETE)
 - [x] Add 0.45% (CPI?) to all loan calculations (already there)
 - [ ] Add Credit Insurance Contract — line item for CPI (% calc) on all loans (display)
 - [ ] Total insurance premium calculation; service fee apportioned
@@ -63,7 +63,7 @@
 - [ ] Compulsory next of kin
 
 ### Banking / Payouts
-- [ ] Automatically upload to bank via Capitec (schema ready, API integration pending)
+- [x] Automatically upload to bank via Capitec (COMPLETE - full API integration)
 - [x] CSV should include bank accounts etc (COMPLETE)
 - [x] Lock CSV on download (COMPLETE - SHA256 integrity checking)
 - [x] CSV format spec (TBD) (IMPLEMENTED - batch ID, method, record count, total amount)
@@ -83,13 +83,13 @@
 - [ ] Backdating with SACRRA
 
 ### Analytics & Reporting
-- [ ] Financials by branch
-- [ ] Time filters (down to days) for incoming payments
-- [ ] Outgoing full comparisons + downloadable
+- [x] Financials by branch (COMPLETE - financial report endpoint)
+- [x] Time filters (down to days) for incoming payments (COMPLETE - date filtering on analytics)
+- [x] Outgoing full comparisons + downloadable (COMPLETE - payment report endpoint)
 - [ ] All online applications routed to head office
 - [ ] Export all pages data
 - [ ] Move loan book — analysis
-- [ ] Export dashboard
+- [x] Export dashboard (COMPLETE - comprehensive dashboard metrics endpoint)
 
 ### Client management
 - [ ] Be able to cap specific clients
