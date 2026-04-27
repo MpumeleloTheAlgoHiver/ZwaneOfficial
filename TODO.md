@@ -14,6 +14,15 @@
 - [x] show file on upload screen
 - [x] yah
 
+## Current Tasks (2026-04-27)
+
+### Audit Trail - Migration Required
+- [ ] Run SQL migration: Execute `sql/add_comprehensive_audit_trail.sql` in Supabase dashboard
+  - Creates 6 audit tables: audit_log, loan_state_history, user_action_log, financial_transaction_log, admin_action_audit, system_event_log
+  - Adds comprehensive indexing for query performance
+  - Creates recent_audit_activity view for 7-day reporting
+- [ ] Alternatively: Run `node scripts/runMigration.js` with valid SUPABASE_SERVICE_ROLE_KEY
+
 ## Backlog (2026-04-26)
 
 ### Loan rules & calculations
