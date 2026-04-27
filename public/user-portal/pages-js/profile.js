@@ -318,15 +318,27 @@ function renderFinancialTab() {
       salary: 0,
       other_monthly_earnings: 0
     },
-    other_income_sources: {},
-    other_bank_accounts: {}
+    expenses: {
+      housing_rent: 0,
+      school: 0,
+      maintenance: 0,
+      petrol: 0,
+      groceries: 0,
+      other: 0
+    }
   };
-
-  const totalIncome = (parseFloat(financialData.income.salary) || 0) +
+  
+  const totalIncome = (parseFloat(financialData.income.salary) || 0) + 
                       (parseFloat(financialData.income.other_monthly_earnings) || 0);
-
-  // Note: Expenses removed per requirements - affordability based on income only
-  const disposableIncome = totalIncome;
+  
+  const totalExpenses = (parseFloat(financialData.expenses.housing_rent) || 0) +
+                        (parseFloat(financialData.expenses.school) || 0) +
+                        (parseFloat(financialData.expenses.maintenance) || 0) +
+                        (parseFloat(financialData.expenses.petrol) || 0) +
+                        (parseFloat(financialData.expenses.groceries) || 0) +
+                        (parseFloat(financialData.expenses.other) || 0);
+  
+  const disposableIncome = totalIncome - totalExpenses;
   
   // Calculate affordability threshold using amortized loan formula
   let affordabilityThreshold = totalIncome * 0.20; // Default fallback (20%)
@@ -449,104 +461,165 @@ function renderFinancialTab() {
             <i class="fa-solid fa-arrow-trend-up"></i>
           </div>
         </div>
-
-        <!-- ADDITIONAL INCOME SOURCES (Toggle) -->
-        <div class="financial-section-header income-header">
+        
+        <!-- EXPENSES SECTION -->
+        <div class="financial-section-header expense-header">
           <div class="section-icon">
-            <i class="fa-solid fa-plus-circle"></i>
+            <i class="fa-solid fa-receipt"></i>
           </div>
           <div>
-            <h4>Additional Income Sources</h4>
-            <p>Select income sources to include in affordability calculation</p>
+            <h4>Monthly Expenses</h4>
+            <p>Your regular monthly costs and financial obligations</p>
           </div>
         </div>
-
-        <div style="background: rgba(234, 88, 12, 0.08); border: 1px solid rgba(234, 88, 12, 0.2); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem;">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-            <label style="display: flex; align-items: center; gap: 0.75rem; cursor: pointer; padding: 0.75rem; border-radius: 8px; hover: background-color: rgba(234, 88, 12, 0.05);">
-              <input type="checkbox" id="income_freelance" style="width: 18px; height: 18px; cursor: pointer;">
-              <span style="flex: 1;">
-                <strong style="color: var(--color-primary);">Freelance Work</strong>
-                <small style="display: block; color: #9CA3AF; margin-top: 0.25rem;">Additional hourly/project work</small>
-              </span>
-            </label>
-
-            <label style="display: flex; align-items: center; gap: 0.75rem; cursor: pointer; padding: 0.75rem; border-radius: 8px;">
-              <input type="checkbox" id="income_rental" style="width: 18px; height: 18px; cursor: pointer;">
-              <span style="flex: 1;">
-                <strong style="color: var(--color-primary);">Rental Income</strong>
-                <small style="display: block; color: #9CA3AF; margin-top: 0.25rem;">Property or room rental</small>
-              </span>
-            </label>
-
-            <label style="display: flex; align-items: center; gap: 0.75rem; cursor: pointer; padding: 0.75rem; border-radius: 8px;">
-              <input type="checkbox" id="income_investment" style="width: 18px; height: 18px; cursor: pointer;">
-              <span style="flex: 1;">
-                <strong style="color: var(--color-primary);">Investment Income</strong>
-                <small style="display: block; color: #9CA3AF; margin-top: 0.25rem;">Dividends, interest, returns</small>
-              </span>
-            </label>
-
-            <label style="display: flex; align-items: center; gap: 0.75rem; cursor: pointer; padding: 0.75rem; border-radius: 8px;">
-              <input type="checkbox" id="income_allowance" style="width: 18px; height: 18px; cursor: pointer;">
-              <span style="flex: 1;">
-                <strong style="color: var(--color-primary);">Allowance/Support</strong>
-                <small style="display: block; color: #9CA3AF; margin-top: 0.25rem;">Family or government support</small>
-              </span>
-            </label>
-          </div>
-        </div>
-
-        <!-- OTHER BANK ACCOUNTS -->
-        <div class="financial-section-header income-header">
-          <div class="section-icon">
-            <i class="fa-solid fa-university"></i>
-          </div>
-          <div>
-            <h4>Other Bank Accounts</h4>
-            <p>Declare additional accounts at other banks (optional)</p>
-          </div>
-        </div>
-
-        <div class="financial-input-grid" style="margin-bottom: 1.5rem;">
+        
+        <div class="financial-input-grid expense-grid">
           <div class="financial-input-group">
-            <label for="other_bank_name">
-              <i class="fa-solid fa-building-columns"></i>
-              <span>Bank Name</span>
-            </label>
-            <div>
-              <select id="other_bank_name" class="currency-input" style="width: 100%; padding: 0.75rem;">
-                <option value="">Select Bank</option>
-                <option value="FNB">First National Bank (FNB)</option>
-                <option value="Capitec">Capitec Bank</option>
-                <option value="Absa">ABSA</option>
-                <option value="StandardBank">Standard Bank</option>
-                <option value="Nedbank">Nedbank</option>
-                <option value="Investec">Investec</option>
-                <option value="Other">Other</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="financial-input-group">
-            <label for="other_bank_balance">
-              <i class="fa-solid fa-wallet"></i>
-              <span>Account Balance</span>
+            <label for="expense_housing">
+              <i class="fa-solid fa-house"></i> 
+              <span>Housing</span>
+              <span class="required-badge">Required</span>
             </label>
             <div class="currency-input-wrapper">
               <span class="currency-symbol">R</span>
-              <input
-                type="number"
-                id="other_bank_balance"
-                placeholder="0.00"
-                step="0.01"
+              <input 
+                type="number" 
+                id="expense_housing" 
+                value="${financialData.expenses.housing_rent || ''}" 
+                placeholder="0.00" 
+                step="0.01" 
+                min="0"
+                class="currency-input"
+                required>
+            </div>
+            <small class="input-hint">
+              <i class="fa-solid fa-circle-info"></i> Rent or bond payment
+            </small>
+          </div>
+          
+          <div class="financial-input-group">
+            <label for="expense_school">
+              <i class="fa-solid fa-graduation-cap"></i> 
+              <span>Education</span>
+            </label>
+            <div class="currency-input-wrapper">
+              <span class="currency-symbol">R</span>
+              <input 
+                type="number" 
+                id="expense_school" 
+                value="${financialData.expenses.school || ''}" 
+                placeholder="0.00" 
+                step="0.01" 
                 min="0"
                 class="currency-input">
             </div>
+            <small class="input-hint">
+              <i class="fa-solid fa-circle-info"></i> School fees, uniforms, books
+            </small>
+          </div>
+          
+          <div class="financial-input-group">
+            <label for="expense_maintenance">
+              <i class="fa-solid fa-hand-holding-dollar"></i> 
+              <span>Maintenance</span>
+            </label>
+            <div class="currency-input-wrapper">
+              <span class="currency-symbol">R</span>
+              <input 
+                type="number" 
+                id="expense_maintenance" 
+                value="${financialData.expenses.maintenance || ''}" 
+                placeholder="0.00" 
+                step="0.01" 
+                min="0"
+                class="currency-input">
+            </div>
+            <small class="input-hint">
+              <i class="fa-solid fa-circle-info"></i> Child or spousal support
+            </small>
+          </div>
+          
+          <div class="financial-input-group">
+            <label for="expense_petrol">
+              <i class="fa-solid fa-gas-pump"></i> 
+              <span>Transport</span>
+            </label>
+            <div class="currency-input-wrapper">
+              <span class="currency-symbol">R</span>
+              <input 
+                type="number" 
+                id="expense_petrol" 
+                value="${financialData.expenses.petrol || ''}" 
+                placeholder="0.00" 
+                step="0.01" 
+                min="0"
+                class="currency-input">
+            </div>
+            <small class="input-hint">
+              <i class="fa-solid fa-circle-info"></i> Fuel, taxi, car payments
+            </small>
+          </div>
+          
+          <div class="financial-input-group">
+            <label for="expense_groceries">
+              <i class="fa-solid fa-cart-shopping"></i> 
+              <span>Groceries</span>
+            </label>
+            <div class="currency-input-wrapper">
+              <span class="currency-symbol">R</span>
+              <input 
+                type="number" 
+                id="expense_groceries" 
+                value="${financialData.expenses.groceries || ''}" 
+                placeholder="0.00" 
+                step="0.01" 
+                min="0"
+                class="currency-input">
+            </div>
+            <small class="input-hint">
+              <i class="fa-solid fa-circle-info"></i> Food and household supplies
+            </small>
+          </div>
+          
+          <div class="financial-input-group">
+            <label for="expense_other">
+              <i class="fa-solid fa-ellipsis"></i> 
+              <span>Other</span>
+            </label>
+            <div class="currency-input-wrapper">
+              <span class="currency-symbol">R</span>
+              <input 
+                type="number" 
+                id="expense_other" 
+                value="${financialData.expenses.other || ''}" 
+                placeholder="0.00" 
+                step="0.01" 
+                min="0"
+                class="currency-input">
+            </div>
+            <small class="input-hint">
+              <i class="fa-solid fa-circle-info"></i> Insurance, medical, loans, etc.
+            </small>
           </div>
         </div>
-
-        <!-- Affordability Display -->
+        
+        <!-- Total Expenses Display -->
+        <div class="financial-summary-card expense-summary">
+          <div class="summary-icon">
+            <i class="fa-solid fa-credit-card"></i>
+          </div>
+          <div class="summary-content">
+            <span class="summary-label">Total Monthly Expenses</span>
+            <span class="summary-amount" id="total-expenses-display">
+              R ${totalExpenses.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+            </span>
+          </div>
+          <div class="summary-badge expense-badge">
+            <i class="fa-solid fa-arrow-trend-down"></i>
+          </div>
+        </div>
+        
+        <!-- Disposable Income Display -->
         <div class="financial-summary-card disposable-summary">
           <div class="summary-icon-large">
             <i class="fa-solid fa-piggy-bank"></i>
