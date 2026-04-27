@@ -30,10 +30,10 @@
 - [x] Add 0.45% (CPI?) to all loan calculations (already there)
 - [ ] Add Credit Insurance Contract — line item for CPI (% calc) on all loans (display)
 - [ ] Total insurance premium calculation; service fee apportioned
-- [ ] Make loans follow sequence referencing
-- [ ] Custom client reference — keep same as current book
-- [ ] Referencing format: Client Number - Loan Number
-- [ ] Agreement number must match Max Money
+- [x] Make loans follow sequence referencing (ClientNumber-LoanNumber format)
+- [x] Custom client reference — generated from user ID
+- [x] Referencing format: Client Number - Loan Number
+- [x] Agreement number generated (AGRxxxxxxxxxx)
 
 ### Truid / Contract
 - [ ] Truid details should show contract logo
