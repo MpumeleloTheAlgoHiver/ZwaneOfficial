@@ -54,6 +54,7 @@ const kyc = require(path.join(__dirname, 'public', 'user-portal', 'Services', 'k
 const truid = require('./services/truidService');
 const creditCheckService = require('./services/creditCheckService');
 const sureSystemsService = require('./services/sureSystemsService');
+const disbursementService = require('./services/disbursementService');
 const { supabase, supabaseService } = require('./config/supabaseServer');
 const { startNotificationScheduler } = require('./services/notificationScheduler');
 
@@ -2006,6 +2007,134 @@ app.get('/admin/sacrra', (req, res) => {
     sendAdminPage('sacrra.html', res);
 });
 
+// --- Disbursement & Payout API routes ---
+app.post('/api/disbursements/create', async (req, res) => {
+    try {
+        const { applicationId, userId, amount, payoutMethod, bankAccountId, thirdPartyName, thirdPartyAccount, thirdPartyBank, createdBy } = req.body;
+
+        if (!applicationId || !userId || !amount) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        const disbursement = await disbursementService.createDisbursement({
+            applicationId,
+            userId,
+            amount,
+            payoutMethod,
+            bankAccountId,
+            thirdPartyName,
+            thirdPartyAccount,
+            thirdPartyBank,
+            createdBy
+        });
+
+        res.json({ success: true, disbursement });
+    } catch (error) {
+        console.error('Error creating disbursement:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/disbursements/:disbursementId', async (req, res) => {
+    try {
+        const disbursement = await disbursementService.getDisbursement(req.params.disbursementId);
+        res.json({ success: true, disbursement });
+    } catch (error) {
+        console.error('Error fetching disbursement:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/disbursements/application/:applicationId', async (req, res) => {
+    try {
+        const disbursements = await disbursementService.getDisbursementsByApplicationId(req.params.applicationId);
+        res.json({ success: true, disbursements });
+    } catch (error) {
+        console.error('Error fetching disbursements:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/disbursements/:disbursementId/update-status', async (req, res) => {
+    try {
+        const { status, details } = req.body;
+        if (!status) {
+            return res.status(400).json({ error: 'Status is required' });
+        }
+
+        const disbursement = await disbursementService.updateDisbursementStatus(
+            req.params.disbursementId,
+            status,
+            details
+        );
+
+        res.json({ success: true, disbursement });
+    } catch (error) {
+        console.error('Error updating disbursement status:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/disbursements/payout-csv', async (req, res) => {
+    try {
+        const { applicationIds, method, exportedBy } = req.body;
+
+        if (!applicationIds || !Array.isArray(applicationIds) || applicationIds.length === 0) {
+            return res.status(400).json({ error: 'applicationIds array is required' });
+        }
+
+        const disbursements = [];
+        for (const appId of applicationIds) {
+            const appDisbursements = await disbursementService.getDisbursementsByApplicationId(appId);
+            disbursements.push(...appDisbursements);
+        }
+
+        if (disbursements.length === 0) {
+            return res.status(400).json({ error: 'No disbursements found for the specified applications' });
+        }
+
+        const batchId = disbursementService.generateBatchId();
+        const { export: exportRecord, csv } = await disbursementService.createCSVExport(
+            batchId,
+            method || 'all',
+            disbursements,
+            exportedBy
+        );
+
+        res.set('Content-Type', 'text/csv');
+        res.set('Content-Disposition', `attachment; filename="payout-${batchId}.csv"`);
+        res.send(csv);
+    } catch (error) {
+        console.error('Error generating payout CSV:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/disbursements/verify-csv', async (req, res) => {
+    try {
+        const { batchId, csvContent } = req.body;
+
+        if (!batchId || !csvContent) {
+            return res.status(400).json({ error: 'batchId and csvContent are required' });
+        }
+
+        const integrity = await disbursementService.verifyCSVIntegrity(batchId, csvContent);
+        res.json({ success: true, ...integrity });
+    } catch (error) {
+        console.error('Error verifying CSV:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/disbursements/config/cashsend', async (req, res) => {
+    try {
+        const config = await disbursementService.getCashSendConfig();
+        res.json({ success: true, config });
+    } catch (error) {
+        console.error('Error fetching CashSend config:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // --- 8. Start Server ---
 app.listen(PORT, () => {
