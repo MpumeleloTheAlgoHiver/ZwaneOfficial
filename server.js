@@ -55,6 +55,7 @@ const truid = require('./services/truidService');
 const creditCheckService = require('./services/creditCheckService');
 const sureSystemsService = require('./services/sureSystemsService');
 const disbursementService = require('./services/disbursementService');
+const experianService = require('./services/experianService');
 const { supabase, supabaseService } = require('./config/supabaseServer');
 const { startNotificationScheduler } = require('./services/notificationScheduler');
 
@@ -2005,6 +2006,58 @@ app.get('/admin/settings', (req, res) => {
 
 app.get('/admin/sacrra', (req, res) => {
     sendAdminPage('sacrra.html', res);
+});
+
+// --- Experian & Affordability API routes ---
+app.post('/api/experian/assess-affordability', async (req, res) => {
+    try {
+        const { userId, financialProfile } = req.body;
+
+        if (!userId || !financialProfile) {
+            return res.status(400).json({ error: 'userId and financialProfile are required' });
+        }
+
+        const { data, error } = await experianService.assessAffordability(userId, financialProfile);
+
+        if (error) {
+            return res.status(400).json({ error });
+        }
+
+        res.json({ success: true, assessment: data });
+    } catch (error) {
+        console.error('Error assessing affordability:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/experian/affordability-status/:userId', async (req, res) => {
+    try {
+        const { data, error } = await experianService.getAffordabilityStatus(req.params.userId);
+
+        if (error) {
+            return res.status(500).json({ error: error.message });
+        }
+
+        res.json({ success: true, status: data });
+    } catch (error) {
+        console.error('Error fetching affordability status:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/experian/profile/:idNumber', async (req, res) => {
+    try {
+        const { data, error } = await experianService.getExperianProfile(req.params.idNumber);
+
+        if (error) {
+            return res.status(400).json({ error });
+        }
+
+        res.json({ success: true, profile: data });
+    } catch (error) {
+        console.error('Error fetching Experian profile:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // --- Disbursement & Payout API routes ---
