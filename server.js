@@ -59,6 +59,7 @@ const experianService = require('./services/experianService');
 const defaultService = require('./services/defaultService');
 const feeService = require('./services/feeService');
 const capitecService = require('./services/capitecService');
+const analyticsService = require('./services/analyticsService');
 const { supabase, supabaseService } = require('./config/supabaseServer');
 const { startNotificationScheduler } = require('./services/notificationScheduler');
 
@@ -2305,6 +2306,73 @@ app.post('/api/capitec/disbursement/:disbursementId/initiate', async (req, res) 
         res.json({ success: true, transfer: capitecData });
     } catch (error) {
         console.error('Error initiating disbursement transfer:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- Analytics & Reporting API routes ---
+app.get('/api/analytics/dashboard', async (req, res) => {
+    try {
+        const { start_date, end_date } = req.query;
+        const metrics = await analyticsService.getDashboardMetrics(start_date, end_date);
+
+        if (!metrics) {
+            return res.status(500).json({ error: 'Failed to calculate metrics' });
+        }
+
+        res.json({ success: true, metrics });
+    } catch (error) {
+        console.error('Error fetching dashboard metrics:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/analytics/payments', async (req, res) => {
+    try {
+        const { start_date, end_date } = req.query;
+        const report = await analyticsService.getPaymentReport(start_date, end_date);
+
+        res.json({
+            success: true,
+            payments: report.payments,
+            summary: report.summary
+        });
+    } catch (error) {
+        console.error('Error generating payment report:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/analytics/financial', async (req, res) => {
+    try {
+        const { start_date, end_date } = req.query;
+        const report = await analyticsService.getFinancialReport(start_date, end_date);
+
+        res.json({ success: true, report });
+    } catch (error) {
+        console.error('Error generating financial report:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/analytics/clients', async (req, res) => {
+    try {
+        const metrics = await analyticsService.getClientMetrics();
+
+        res.json({ success: true, metrics });
+    } catch (error) {
+        console.error('Error fetching client metrics:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/analytics/products', async (req, res) => {
+    try {
+        const metrics = await analyticsService.getProductMetrics();
+
+        res.json({ success: true, metrics });
+    } catch (error) {
+        console.error('Error fetching product metrics:', error);
         res.status(500).json({ error: error.message });
     }
 });
