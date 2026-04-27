@@ -603,6 +603,36 @@ function renderFinancialTab() {
           </div>
         </div>
         
+        <!-- ADDITIONAL INCOME SOURCES (Optional) -->
+        <div class="financial-section-header" style="margin-top: 2rem;">
+          <div class="section-icon" style="background: #d4af37;">
+            <i class="fa-solid fa-wallet" style="color: #1f2937;"></i>
+          </div>
+          <div>
+            <h4>Additional Income Sources</h4>
+            <p>Add any other regular income (optional - helps us calculate better loan options)</p>
+          </div>
+        </div>
+        <div id="additional-income-container" class="financial-input-grid"></div>
+        <button type="button" id="add-income-source-btn" class="btn-secondary" style="margin-top: 1rem;">
+          <i class="fa-solid fa-plus"></i> Add Income Source
+        </button>
+
+        <!-- OTHER BANK ACCOUNTS (Optional) -->
+        <div class="financial-section-header" style="margin-top: 2rem;">
+          <div class="section-icon" style="background: #60a5fa;">
+            <i class="fa-solid fa-building-columns" style="color: #1f2937;"></i>
+          </div>
+          <div>
+            <h4>Other Bank Accounts</h4>
+            <p>Add details of other bank accounts for better credit assessment (optional)</p>
+          </div>
+        </div>
+        <div id="other-banks-container" class="financial-input-grid"></div>
+        <button type="button" id="add-bank-account-btn" class="btn-secondary" style="margin-top: 1rem;">
+          <i class="fa-solid fa-plus"></i> Add Bank Account
+        </button>
+
         <!-- Total Expenses Display -->
         <div class="financial-summary-card expense-summary">
           <div class="summary-icon">
