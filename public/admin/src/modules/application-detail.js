@@ -1986,6 +1986,32 @@ const renderSidePanel = (app) => {
         </div>
       </div>
     </div>
+
+    <div class="mt-4">
+      <label class="text-[10px] text-gray-400 uppercase font-bold tracking-widest mb-1 block">Admin Override: Loan Term</label>
+      <div class="flex gap-2 items-end">
+        <div class="flex-1">
+          <input
+            type="number"
+            id="admin-loan-term-override"
+            min="1"
+            max="36"
+            value="${term}"
+            class="w-full px-3 py-2 border border-blue-300 rounded-lg bg-blue-50 text-sm font-bold"
+            placeholder="Months"
+          />
+          <small class="text-blue-600 mt-1 block">Leave loan term open for admin review</small>
+        </div>
+        <button
+          type="button"
+          id="admin-update-loan-term-btn"
+          class="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700"
+          onclick="handleAdminLoanTermOverride(${app.id})"
+        >
+          <i class="fa-solid fa-check"></i> Set
+        </button>
+      </div>
+    </div>
   `;
 
   // --- 5. STATUS BADGE & MANUAL OVERRIDE ---
@@ -2129,6 +2155,33 @@ const loadApplicationData = async () => {
   } catch (error) {
       console.error("Integration Error:", error);
       showFeedback("Failed to load full application data.", "error");
+  }
+};
+
+// Global function for admin loan term override
+window.handleAdminLoanTermOverride = async (applicationId) => {
+  const input = document.getElementById('admin-loan-term-override');
+  const newTerm = parseInt(input.value);
+
+  if (!newTerm || newTerm < 1 || newTerm > 36) {
+    showFeedback('Please enter a valid loan term (1-36 months)', 'error');
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('loan_applications')
+      .update({ term_months: newTerm })
+      .eq('id', applicationId)
+      .select();
+
+    if (error) throw error;
+
+    showFeedback(`✅ Loan term updated to ${newTerm} month${newTerm > 1 ? 's' : ''}`, 'success');
+    await loadApplicationData();
+  } catch (error) {
+    console.error('Error updating loan term:', error);
+    showFeedback(`❌ Error: ${error.message}`, 'error');
   }
 };
 
