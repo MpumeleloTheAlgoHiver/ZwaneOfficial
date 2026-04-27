@@ -43,9 +43,9 @@
 
 ### Experian / Affordability
 - [x] Clients CAN input financial data (clients or consultants can input)
-- [x] Don't track expenses (schema updated, removed expense fields)
-- [ ] Allow additional income + other banks (UI toggles needed)
-- [ ] Tick/untick other earnings to remove from affordability check
+- [x] Don't track expenses (schema updated, removed expense fields from UI)
+- [x] Allow additional income + other banks (UI toggles implemented)
+- [x] Tick/untick other earnings UI (checkboxes: Freelance, Rental, Investment, Allowance)
 - [ ] Experian Affordability Assessment API integration
 - [ ] Pull current balance + everything from Experian
 - [ ] Show why declined (to applicant)
