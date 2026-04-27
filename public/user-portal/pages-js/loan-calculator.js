@@ -2,7 +2,7 @@
 
 // Initialize calculator on page load
 function initCalculator() {
-  const FIXED_ANNUAL_RATE = 0.20;
+  const FIXED_ANNUAL_RATE = 0.05;
   // Sync sliders with inputs
   const loanAmountInput = document.getElementById('loanAmount');
   const loanAmountSlider = document.getElementById('loanAmountSlider');
@@ -52,7 +52,7 @@ function initCalculator() {
 }
 
 // Calculate loan
-window.calculateLoan = function(fixedAnnualRate = 0.20) {
+window.calculateLoan = function(fixedAnnualRate = 0.05) {
   const principal = parseFloat(document.getElementById('loanAmount').value) || 0;
   const termMonths = parseInt(document.getElementById('loanTerm').value) || 0;
   const annualRate = fixedAnnualRate;
