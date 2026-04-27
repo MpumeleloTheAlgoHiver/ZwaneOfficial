@@ -42,18 +42,16 @@
 - [ ] Letters of Demand — generated per loan
 
 ### Experian / Affordability
-- [ ] Clients can't input financial data — use Experian for all details
-- [ ] Consultant inputs all details
-- [ ] Required figures only
-- [ ] Allow additional income + other banks
-- [ ] Don't track expenses
+- [x] Clients CAN input financial data (clients or consultants can input)
+- [x] Don't track expenses (schema updated, removed expense fields)
+- [ ] Allow additional income + other banks (UI toggles needed)
 - [ ] Tick/untick other earnings to remove from affordability check
-- [ ] Experian Affordability Assessment
-- [ ] Show why declined
-- [ ] Reference for credit report (prove NCR reporting was done)
-- [ ] Pull current balance + everything possible from Experian
+- [ ] Experian Affordability Assessment API integration
+- [ ] Pull current balance + everything from Experian
+- [ ] Show why declined (to applicant)
+- [ ] Reference for credit report (Experian ref for NCR reporting)
+- [ ] Product portal integration: PORTAL/EXPIRIEN.CO.ZA
 - [ ] C(P or B)M payments — closed on their system but open on Compuscan
-- [ ] Product portal: PORTAL/EXPIRIEN.CO.ZA
 - [ ] Fix credit check
 
 ### Onboarding / Verification
