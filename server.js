@@ -56,6 +56,7 @@ const creditCheckService = require('./services/creditCheckService');
 const sureSystemsService = require('./services/sureSystemsService');
 const disbursementService = require('./services/disbursementService');
 const experianService = require('./services/experianService');
+const defaultService = require('./services/defaultService');
 const { supabase, supabaseService } = require('./config/supabaseServer');
 const { startNotificationScheduler } = require('./services/notificationScheduler');
 
@@ -2056,6 +2057,75 @@ app.get('/api/experian/profile/:idNumber', async (req, res) => {
         res.json({ success: true, profile: data });
     } catch (error) {
         console.error('Error fetching Experian profile:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- Loan Default Management API routes ---
+app.post('/api/loans/:loanId/mark-default', async (req, res) => {
+    try {
+        const { reason } = req.body;
+        const { loanId } = req.params;
+
+        const result = await defaultService.markLoanInDefault(loanId, reason);
+
+        if (!result.success) {
+            return res.status(400).json({ error: result.error });
+        }
+
+        res.json({ success: true, default: result });
+    } catch (error) {
+        console.error('Error marking loan in default:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/loans/:loanId/clear-default', async (req, res) => {
+    try {
+        const result = await defaultService.clearDefault(req.params.loanId);
+
+        if (!result.success) {
+            return res.status(400).json({ error: result.error });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error clearing default:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/loans/defaults', async (req, res) => {
+    try {
+        const { user_id, days } = req.query;
+        const filters = {};
+        if (user_id) filters.user_id = user_id;
+        if (days) filters.days_in_default = parseInt(days);
+
+        const { data, error } = await defaultService.getDefaultLoans(filters);
+
+        if (error) {
+            return res.status(400).json({ error });
+        }
+
+        res.json({ success: true, defaults: data });
+    } catch (error) {
+        console.error('Error fetching defaults:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/loans/default-metrics', async (req, res) => {
+    try {
+        const { data, error } = await defaultService.getDefaultMetrics();
+
+        if (error) {
+            return res.status(400).json({ error });
+        }
+
+        res.json({ success: true, metrics: data });
+    } catch (error) {
+        console.error('Error fetching default metrics:', error);
         res.status(500).json({ error: error.message });
     }
 });
