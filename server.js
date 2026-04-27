@@ -58,6 +58,7 @@ const disbursementService = require('./services/disbursementService');
 const experianService = require('./services/experianService');
 const defaultService = require('./services/defaultService');
 const feeService = require('./services/feeService');
+const capitecService = require('./services/capitecService');
 const { supabase, supabaseService } = require('./config/supabaseServer');
 const { startNotificationScheduler } = require('./services/notificationScheduler');
 
@@ -2193,6 +2194,117 @@ app.get('/api/loans/default-metrics', async (req, res) => {
         res.json({ success: true, metrics: data });
     } catch (error) {
         console.error('Error fetching default metrics:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- Capitec API routes ---
+app.post('/api/capitec/initiate-transfer', async (req, res) => {
+    try {
+        const { recipientAccount, recipientBank, amount, reference, recipientName } = req.body;
+
+        if (!recipientAccount || !recipientBank || !amount || !reference) {
+            return res.status(400).json({ error: 'Missing required transfer fields' });
+        }
+
+        const { data, error } = await capitecService.initiateTransfer({
+            recipient_account: recipientAccount,
+            recipient_bank: recipientBank,
+            amount,
+            reference,
+            recipient_name: recipientName
+        });
+
+        if (error) {
+            return res.status(400).json({ error });
+        }
+
+        res.json({ success: true, transfer: data });
+    } catch (error) {
+        console.error('Error initiating Capitec transfer:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/capitec/transfer-status/:transactionId', async (req, res) => {
+    try {
+        const { data, error } = await capitecService.getTransferStatus(req.params.transactionId);
+
+        if (error) {
+            return res.status(400).json({ error });
+        }
+
+        res.json({ success: true, status: data });
+    } catch (error) {
+        console.error('Error fetching transfer status:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/capitec/batch-transfer', async (req, res) => {
+    try {
+        const { transfers } = req.body;
+
+        if (!transfers || !Array.isArray(transfers) || transfers.length === 0) {
+            return res.status(400).json({ error: 'transfers array is required' });
+        }
+
+        const { data, error } = await capitecService.createBatchTransfer(transfers);
+
+        if (error) {
+            return res.status(400).json({ error });
+        }
+
+        res.json({ success: true, batch: data });
+    } catch (error) {
+        console.error('Error creating batch transfer:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/capitec/disbursement/:disbursementId/initiate', async (req, res) => {
+    try {
+        const { disbursementId } = req.params;
+
+        const { data: disbursement, error: fetchError } = await supabaseService
+            .from('disbursements')
+            .select('*')
+            .eq('id', disbursementId)
+            .single();
+
+        if (fetchError || !disbursement) {
+            return res.status(404).json({ error: 'Disbursement not found' });
+        }
+
+        const { data: bankAccount } = await supabaseService
+            .from('bank_accounts')
+            .select('*')
+            .eq('id', disbursement.bank_account_id)
+            .single();
+
+        if (!bankAccount) {
+            return res.status(400).json({ error: 'Bank account not found' });
+        }
+
+        const transferData = {
+            recipientAccount: bankAccount.account_number,
+            recipientBank: bankAccount.bank_code || 'STANDARD',
+            amount: disbursement.amount,
+            reference: disbursement.id.toString(),
+            recipientName: bankAccount.account_holder_name
+        };
+
+        const { data: capitecData, error: capitecError } = await capitecService.initiateTransfer(transferData);
+
+        if (capitecError) {
+            return res.status(400).json({ error: capitecError });
+        }
+
+        await capitecService.updateDisbursementCapitecStatus(disbursementId, capitecData);
+
+        res.json({ success: true, transfer: capitecData });
+    } catch (error) {
+        console.error('Error initiating disbursement transfer:', error);
         res.status(500).json({ error: error.message });
     }
 });
