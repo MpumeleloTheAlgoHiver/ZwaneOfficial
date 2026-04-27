@@ -585,6 +585,72 @@ export async function deletePayout(applicationId) {
 }
 
 // =================================================================
+// == DISBURSEMENTS
+// =================================================================
+export async function createDisbursement(disbursementData) {
+  try {
+    const response = await fetch('/api/disbursements/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(disbursementData)
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to create disbursement');
+    return { data: result.disbursement, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+export async function getDisbursement(disbursementId) {
+  try {
+    const response = await fetch(`/api/disbursements/${disbursementId}`);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to fetch disbursement');
+    return { data: result.disbursement, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+export async function getDisbursementsByApplication(applicationId) {
+  try {
+    const response = await fetch(`/api/disbursements/application/${applicationId}`);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to fetch disbursements');
+    return { data: result.disbursements, error: null };
+  } catch (error) {
+    return { data: [], error };
+  }
+}
+
+export async function updateDisbursementStatus(disbursementId, status, details = {}) {
+  try {
+    const response = await fetch(`/api/disbursements/${disbursementId}/update-status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, details })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to update disbursement');
+    return { data: result.disbursement, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+export async function getCashSendConfig() {
+  try {
+    const response = await fetch('/api/disbursements/config/cashsend');
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to fetch CashSend config');
+    return { data: result.config, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+// =================================================================
 // == SETTINGS & ADMIN
 // =================================================================
 export async function updateMyProfile(profileData) {

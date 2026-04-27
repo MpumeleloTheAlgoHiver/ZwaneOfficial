@@ -1,11 +1,14 @@
 import { initLayout } from '../shared/layout.js';
 import { formatCurrency, formatDate } from '../shared/utils.js';
-import { 
-  fetchApplicationDetail, 
-  updateApplicationStatus, 
-  createPayout, 
-  deletePayout, 
-  updateApplicationNotes 
+import {
+  fetchApplicationDetail,
+  updateApplicationStatus,
+  createPayout,
+  createDisbursement,
+  getDisbursementsByApplication,
+  getCashSendConfig,
+  deletePayout,
+  updateApplicationNotes
 } from '../services/dataService.js';
 import { supabase } from '../services/supabaseClient.js'; 
 import { 
@@ -1090,47 +1093,51 @@ const closeModal = () => {
   actionToConfirm = null;
 };
 
-// Final Approval
+// Final Approval with Disbursement
 const approveApplication = async () => {
   const { data: { user } } = await supabase.auth.getUser();
 
-  // 1. GUARD: Check if a payout already exists to prevent database duplication
-  const { data: existingPayout } = await supabase
-    .from('payouts')
-    .select('id')
-    .eq('application_id', currentApplication.id)
-    .maybeSingle();
-
-  if (existingPayout) {
-    showFeedback('A payout record already exists for this application.', 'error');
+  // 1. Check if disbursement exists
+  const { data: existingDisbursements } = await getDisbursementsByApplication(currentApplication.id);
+  if (existingDisbursements && existingDisbursements.length > 0) {
+    showFeedback('Disbursement already exists for this application.', 'error');
     closeModal();
-    return; // STOP: Do not create a duplicate record
+    return;
   }
 
-  // 2. The status update calculates financial columns in the background
+  // 2. Update application status
   const { data: updatedApp, error } = await updateApplicationStatus(currentApplication.id, 'APPROVED');
-  
+
   if (error) {
     showFeedback(error.message, 'error');
     closeModal();
     return;
   }
 
-  // 3. Create the Payout record using the calculated amount
-  const payoutData = {
-    application_id: currentApplication.id,
-    user_id: currentApplication.user_id,
+  // 3. Get CashSend config for fee display
+  const { data: cashsendConfig } = await getCashSendConfig();
+  const bankAccountId = currentApplication.bank_account?.id || null;
+
+  // 4. Create disbursement using new API
+  const disbursementData = {
+    applicationId: currentApplication.id,
+    userId: currentApplication.user_id,
     amount: updatedApp.amount,
-    status: 'pending_disbursement'
+    bankAccountId: bankAccountId,
+    createdBy: user.id
   };
 
-  const { error: payoutError } = await createPayout(payoutData);
-  
-  if (payoutError) {
-    showFeedback("Status updated but payout creation failed: " + payoutError.message, 'error');
+  const { data: disbursement, error: disbursementError } = await createDisbursement(disbursementData);
+
+  if (disbursementError) {
+    showFeedback("Status updated but disbursement creation failed: " + disbursementError.message, 'error');
   } else {
-    showFeedback('Application approved & financial values locked.', 'success');
-    loadApplicationData(); 
+    let message = 'Application approved & disbursement created.';
+    if (disbursement.payout_method === 'cashsend' && disbursement.cashsend_fee) {
+      message += ` CashSend fee: R${disbursement.cashsend_fee.toFixed(2)}`;
+    }
+    showFeedback(message, 'success');
+    loadApplicationData();
   }
   closeModal();
 };
