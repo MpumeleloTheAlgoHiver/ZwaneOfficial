@@ -351,7 +351,7 @@ function initFunnelChart(apps) {
   const bucket1 = ['STARTED'];
   const bucket2 = ['BUREAU_CHECKING', 'BUREAU_OK', 'BUREAU_REFER', 'BANK_LINKING', 'AFFORD_OK', 'AFFORD_REFER'];
   const bucket3 = ['OFFERED', 'OFFER_ACCEPTED', 'CONTRACT_SIGN', 'DEBICHECK_AUTH'];
-  const bucket4 = ['READY_TO_DISBURSE'];
+  const bucket4 = ['APPROVED'];
 
   const counts = [
     data.filter((a) => bucket1.includes(a.status)).length,
@@ -614,7 +614,7 @@ function calculateFallbackStats(pipeline, perf) {
     BANK_LINKING: pipeline.filter((a) => ['BANK_LINKING', 'AFFORD_OK'].includes(a.status)).length,
     OFFERED: pipeline.filter((a) => a.status === 'OFFERED').length,
     CONTRACT_SIGN: pipeline.filter((a) => ['CONTRACT_SIGN', 'OFFER_ACCEPTED'].includes(a.status)).length,
-    READY_TO_DISBURSE: pipeline.filter((a) => a.status === 'READY_TO_DISBURSE').length
+    APPROVED: pipeline.filter((a) => a.status === 'APPROVED').length
   };
   const vintage = (perf || [])
     .map((p) => ({ cohort: p.month_year, recovery_rate: p.disbursed_amount > 0 ? Math.round((p.repaid_amount / p.disbursed_amount) * 100) : 0 }))

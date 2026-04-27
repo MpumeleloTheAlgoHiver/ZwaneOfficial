@@ -17,18 +17,18 @@
 ## Backlog (2026-04-26)
 
 ### Loan rules & calculations
-- [ ] 1st-time applicants: 1 month max term
-- [ ] More than 3 loans: limited to 6 (months)
-- [ ] Online applications limited to 6 months
+- [x] 1st-time applicants: 1 month max term
+- [x] More than 3 loans: limited to 6 (months)
+- [x] Online applications limited to 6 months
 - [ ] Leave loan term open — admin reviews/sets loan period
-- [ ] Interest/fees: 5% + 15% total
-- [ ] First loan of the year always 5%
+- [x] Interest/fees: 5% + 15% total
+- [x] First loan of the year always 5%
 - [ ] Remove option to set date (use system date)
 - [ ] Rename status "Ready" → "Approved"
 - [ ] In default: current balance × 3%
 - [ ] Service fee prorated; next month R60
-- [ ] Add 0.45% (CPI?) to all loan calculations
-- [ ] Add Credit Insurance Contract — line item for CPI (% calc) on all loans
+- [x] Add 0.45% (CPI?) to all loan calculations (already there)
+- [ ] Add Credit Insurance Contract — line item for CPI (% calc) on all loans (display)
 - [ ] Total insurance premium calculation; service fee apportioned
 - [ ] Make loans follow sequence referencing
 - [ ] Custom client reference — keep same as current book

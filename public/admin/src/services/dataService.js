@@ -42,7 +42,7 @@ async function ensureLoanFromApplication(application) {
   }
 
   // 2. Extract calculations from the application's "Offer" columns
-  // These were locked in during the 'READY_TO_DISBURSE' status update
+  // These were locked in during the 'APPROVED' status update
   const totalRepayment = Number(application.offer_total_repayment || 0);
   const startDate = new Date().toISOString();
   
@@ -307,8 +307,8 @@ export async function updateApplicationStatus(applicationId, newStatus) {
 
     let updatePayload = { status: newStatus };
 
-    // When approving (READY_TO_DISBURSE), calculate and store the "Truth"
-    if (['READY_TO_DISBURSE', 'DISBURSED', 'OFFER_ACCEPTED'].includes(newStatus)) {
+    // When approving (APPROVED), calculate and store the "Truth"
+    if (['APPROVED', 'DISBURSED', 'OFFER_ACCEPTED'].includes(newStatus)) {
       const { count: historyCount } = await supabase
         .from('loans')
         .select('*', { count: 'exact', head: true })
@@ -717,7 +717,7 @@ export async function syncApplicationToLoans(applicationId) {
       .single();
     if (appError) throw appError;
 
-    if (app.status !== 'OFFERED' && app.status !== 'DISBURSED' && app.status !== 'READY_TO_DISBURSE') {
+    if (app.status !== 'OFFERED' && app.status !== 'DISBURSED' && app.status !== 'APPROVED') {
         // Just log or ignore
     }
 
