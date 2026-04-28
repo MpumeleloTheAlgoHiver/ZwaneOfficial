@@ -61,6 +61,7 @@ const feeService = require('./services/feeService');
 const capitecService = require('./services/capitecService');
 const analyticsService = require('./services/analyticsService');
 const auditService = require('./services/auditService');
+const exportService = require('./services/exportService');
 const { supabase, supabaseService } = require('./config/supabaseServer');
 const { startNotificationScheduler } = require('./services/notificationScheduler');
 
@@ -2065,6 +2066,74 @@ app.get('/api/experian/profile/:idNumber', async (req, res) => {
     }
 });
 
+app.get('/api/experian/decline-reason/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        // Get user's financial profile and affordability status
+        const { data: profiles, error: profileError } = await supabaseService
+            .from('financial_profiles')
+            .select('monthly_income, debt_obligations, decline_reason, show_decline_reason')
+            .eq('user_id', userId)
+            .single();
+
+        if (profileError || !profiles) {
+            return res.status(404).json({ error: 'Financial profile not found' });
+        }
+
+        if (!profiles.decline_reason || !profiles.show_decline_reason) {
+            return res.json({ success: true, eligible: true });
+        }
+
+        // Get loan application for context
+        const { data: application } = await supabaseService
+            .from('loan_applications')
+            .select('amount, term_months, requested_amount')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        const reason = profiles.decline_reason;
+        const income = profiles.monthly_income || 0;
+        const debts = (profiles.debt_obligations || []).reduce((sum, d) => sum + (d.monthly_payment || 0), 0);
+
+        // Format response based on decline reason
+        let response = {
+            success: true,
+            eligible: false,
+            reason,
+            message: '',
+            recommendation: '',
+            details: {}
+        };
+
+        if (reason === 'Income below minimum threshold') {
+            response.message = `Your monthly income (R${income.toLocaleString('en-ZA', { maximumFractionDigits: 2 })}) is below the minimum requirement of R3,000.`;
+            response.recommendation = 'Your income needs to increase to at least R3,000 per month. Please reapply when your income reaches this threshold.';
+            response.details = { required: 3000, current: income, shortfall: 3000 - income };
+        } else if (reason === 'Monthly debt obligations exceed 50% of income') {
+            const ratio = ((debts / income) * 100).toFixed(1);
+            response.message = `Your existing debt payments (R${debts.toLocaleString('en-ZA', { maximumFractionDigits: 2 })}/month) are ${ratio}% of your income, exceeding the 50% limit.`;
+            response.recommendation = `Reduce your debt obligations or increase your income. Your maximum allowable debt is R${(income * 0.5).toLocaleString('en-ZA', { maximumFractionDigits: 2 })}/month.`;
+            response.details = { current: debts, maximum: income * 0.5, ratio, income };
+        } else if (reason === 'No remaining payment capacity after existing obligations') {
+            const maxPayment = income * 0.2;
+            response.message = `After existing obligations, you have no capacity for additional loan payments.`;
+            response.recommendation = `You need to reduce existing debt payments or increase your income to qualify. Maximum available capacity: R${Math.max(0, (maxPayment - debts)).toLocaleString('en-ZA', { maximumFractionDigits: 2 })}/month.`;
+            response.details = { income, existingDebts: debts, maxAllowedPayment: maxPayment };
+        } else if (reason === 'Unable to retrieve Experian data') {
+            response.message = 'We were unable to retrieve your credit information from Experian. Please verify your ID number and try again.';
+            response.recommendation = 'Contact support if the issue persists.';
+        }
+
+        res.json(response);
+    } catch (error) {
+        console.error('Error fetching decline reason:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // --- Service Fee Calculation API routes ---
 app.post('/api/fees/calculate-prorated', (req, res) => {
     try {
@@ -2403,6 +2472,163 @@ app.get('/api/analytics/products', async (req, res) => {
         res.json({ success: true, metrics });
     } catch (error) {
         console.error('Error fetching product metrics:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- Data Export API routes ---
+app.post('/api/export/dashboard', async (req, res) => {
+    try {
+        const { start_date, end_date, format } = req.body;
+        const { userId } = req.body;
+
+        const { csv, batchId } = await exportService.exportDashboardMetrics(
+            start_date,
+            end_date,
+            format || 'csv'
+        );
+
+        // Log audit event
+        if (userId) {
+            await auditService.logAdminAction(userId, 'export', 'dashboard_metrics', {
+                metadata: {
+                    batchId,
+                    format: format || 'csv',
+                    startDate: start_date,
+                    endDate: end_date
+                }
+            });
+        }
+
+        res.set('Content-Type', 'text/csv');
+        res.set('Content-Disposition', `attachment; filename="dashboard-${batchId}.csv"`);
+        res.send(csv);
+    } catch (error) {
+        console.error('Error exporting dashboard:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/export/analytics', async (req, res) => {
+    try {
+        const { start_date, end_date, format, userId } = req.body;
+
+        const { csv, batchId } = await exportService.exportAnalyticsData(
+            start_date,
+            end_date,
+            format || 'csv'
+        );
+
+        // Log audit event
+        if (userId) {
+            await auditService.logAdminAction(userId, 'export', 'analytics_data', {
+                metadata: {
+                    batchId,
+                    format: format || 'csv',
+                    startDate: start_date,
+                    endDate: end_date
+                }
+            });
+        }
+
+        res.set('Content-Type', 'text/csv');
+        res.set('Content-Disposition', `attachment; filename="analytics-${batchId}.csv"`);
+        res.send(csv);
+    } catch (error) {
+        console.error('Error exporting analytics:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/export/financials', async (req, res) => {
+    try {
+        const { start_date, end_date, format, userId } = req.body;
+
+        const { csv, batchId } = await exportService.exportFinancialsData(
+            start_date,
+            end_date,
+            format || 'csv'
+        );
+
+        // Log audit event
+        if (userId) {
+            await auditService.logAdminAction(userId, 'export', 'financials_statement', {
+                metadata: {
+                    batchId,
+                    format: format || 'csv',
+                    startDate: start_date,
+                    endDate: end_date
+                }
+            });
+        }
+
+        res.set('Content-Type', 'text/csv');
+        res.set('Content-Disposition', `attachment; filename="financials-${batchId}.csv"`);
+        res.send(csv);
+    } catch (error) {
+        console.error('Error exporting financials:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/export/audit-trail', async (req, res) => {
+    try {
+        const { start_date, end_date, format, userId } = req.body;
+
+        const { csv, batchId } = await exportService.exportAuditTrail(
+            start_date,
+            end_date,
+            format || 'csv'
+        );
+
+        // Log audit event
+        if (userId) {
+            await auditService.logAdminAction(userId, 'export', 'audit_trail', {
+                metadata: {
+                    batchId,
+                    format: format || 'csv',
+                    startDate: start_date,
+                    endDate: end_date
+                }
+            });
+        }
+
+        res.set('Content-Type', 'text/csv');
+        res.set('Content-Disposition', `attachment; filename="audit-trail-${batchId}.csv"`);
+        res.send(csv);
+    } catch (error) {
+        console.error('Error exporting audit trail:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/export/payments', async (req, res) => {
+    try {
+        const { start_date, end_date, format, userId } = req.body;
+
+        const { csv, batchId } = await exportService.exportPaymentHistory(
+            start_date,
+            end_date,
+            format || 'csv'
+        );
+
+        // Log audit event
+        if (userId) {
+            await auditService.logAdminAction(userId, 'export', 'payment_history', {
+                metadata: {
+                    batchId,
+                    format: format || 'csv',
+                    startDate: start_date,
+                    endDate: end_date
+                }
+            });
+        }
+
+        res.set('Content-Type', 'text/csv');
+        res.set('Content-Disposition', `attachment; filename="payments-${batchId}.csv"`);
+        res.send(csv);
+    } catch (error) {
+        console.error('Error exporting payments:', error);
         res.status(500).json({ error: error.message });
     }
 });
