@@ -168,6 +168,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             ` : ''}
           </div>
           <div class="flex flex-col items-end gap-2">
+            <button id="export-dashboard-btn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition font-medium text-sm flex items-center gap-2">
+              <i class="fa-solid fa-download"></i>
+              Export
+            </button>
             <div class="status-badge">
               <span class="status-dot ${systemStatus.dot}" style="background-color:${systemStatus.color};"></span>
               <span style="color:${systemStatus.color};">${systemStatus.text}</span>
@@ -294,6 +298,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Render components
   renderKpiCards(financials);
   initStatusDonut(dashData?.portfolioStatus);
+
+  // Initialize export manager and add event listener
+  exportManager.init(profile.id);
+  document.getElementById('export-dashboard-btn').addEventListener('click', () => {
+    exportManager.open('dashboard', 'Dashboard Metrics');
+  });
 
   const riskData = analytics.risk_matrix?.length ? analytics.risk_matrix : [];
   initRiskScatter(riskData);
