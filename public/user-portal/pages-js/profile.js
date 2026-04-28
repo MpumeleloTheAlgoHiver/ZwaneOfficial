@@ -308,26 +308,31 @@ async function loadAffordabilityStatus() {
     if (!container) return;
 
     if (!status.eligible && status.can_view_reason) {
-      const declineReasons = {
-        'Income below minimum threshold': 'Your monthly income is below the minimum requirement. Please try again when your income increases.',
-        'Monthly debt obligations exceed 50% of income': 'Your existing debt obligations are too high relative to your income.',
-        'No remaining payment capacity after existing obligations': 'Your monthly debt payments leave no room for additional loan payments.'
-      };
+      // Fetch detailed decline reason information
+      const declineResponse = await fetch(`/api/experian/decline-reason/${currentUserProfile.id}`);
+      const declineData = await declineResponse.json();
 
-      const reasonText = declineReasons[status.decline_reason] || status.decline_reason;
+      let detailedMessage = declineData.message || status.decline_reason;
+      let recommendation = declineData.recommendation || 'Please update your financial information and reapply.';
 
       container.innerHTML = `
         <div class="inner-card" style="border-left: 4px solid #ef4444;">
-          <div style="display: flex; align-items: center; gap: 1rem;">
-            <i class="fa-solid fa-circle-exclamation" style="font-size: 2rem; color: #ef4444;"></i>
-            <div>
-              <h4 style="color: #ef4444; margin-bottom: 0.5rem;">Application Status</h4>
-              <p style="margin-bottom: 0.5rem; color: #7f1d1d; font-weight: 500;">
-                ${reasonText}
+          <div style="display: flex; align-items: flex-start; gap: 1rem;">
+            <i class="fa-solid fa-circle-exclamation" style="font-size: 2rem; color: #ef4444; flex-shrink: 0; margin-top: 0.25rem;"></i>
+            <div style="flex: 1;">
+              <h4 style="color: #ef4444; margin-bottom: 0.5rem;">Application Not Approved</h4>
+              <p style="margin-bottom: 0.75rem; color: #7f1d1d; font-weight: 500;">
+                ${detailedMessage}
               </p>
-              <p style="color: #9ca3af; font-size: 0.9rem;">
+              <div style="background-color: #fef2f2; border-left: 3px solid #fca5a5; padding: 0.75rem; border-radius: 0.25rem; margin-bottom: 0.75rem;">
+                <p style="margin: 0; color: #7f1d1d; font-size: 0.95rem;">
+                  <i class="fa-solid fa-lightbulb" style="margin-right: 0.5rem;"></i>
+                  <strong>What you can do:</strong> ${recommendation}
+                </p>
+              </div>
+              <p style="color: #9ca3af; font-size: 0.9rem; margin: 0;">
                 <i class="fa-solid fa-circle-info"></i>
-                Please update your financial information and reapply.
+                Contact our support team for assistance
               </p>
             </div>
           </div>
