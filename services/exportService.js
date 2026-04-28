@@ -64,18 +64,18 @@ async function exportDashboardMetrics(startDate, endDate, format = 'csv') {
 
 async function exportAnalyticsData(startDate, endDate, format = 'csv') {
   try {
-    // Fetch loans with related data
-    const { data: loans, error } = await supabaseService
-      .from('loans')
+    // Fetch loan applications with analytics data
+    const { data: applications, error } = await supabaseService
+      .from('loan_applications')
       .select(`
         id,
         user_id,
         amount,
         status,
-        current_balance,
-        in_default,
-        created_at,
-        profiles:user_id(full_name, email)
+        offer_principal,
+        offer_total_interest,
+        offer_total_initiation_fees,
+        created_at
       `)
       .gte('created_at', startDate || '2020-01-01')
       .lte('created_at', endDate || new Date().toISOString())
@@ -83,14 +83,14 @@ async function exportAnalyticsData(startDate, endDate, format = 'csv') {
 
     if (error) throw error;
 
-    const formattedData = (loans || []).map(loan => ({
-      'Loan ID': loan.id,
-      'Customer Name': loan.profiles?.full_name || 'N/A',
-      'Principal': loan.amount || 0,
-      'Current Balance': loan.current_balance || 0,
-      'Status': loan.status || 'N/A',
-      'In Default': loan.in_default ? 'Yes' : 'No',
-      'Created Date': new Date(loan.created_at).toLocaleDateString('en-ZA')
+    const formattedData = (applications || []).map(app => ({
+      'Application ID': app.id,
+      'Requested Amount': app.amount || 0,
+      'Offered Principal': app.offer_principal || 0,
+      'Interest': app.offer_total_interest || 0,
+      'Initiation Fees': app.offer_total_initiation_fees || 0,
+      'Status': app.status || 'N/A',
+      'Created Date': new Date(app.created_at).toLocaleDateString('en-ZA')
     }));
 
     if (format === 'json') {
