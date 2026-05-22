@@ -1,105 +1,43 @@
--- SACRRA 700v2 COMPLETE SETUP & SHOWCASE SEED (FULL CASCADE RESET)
--- RUN THIS ENTIRE SCRIPT AT ONCE TO INITIALIZE THE SCHEMA AND TEST DATA.
+-- SACRRA 700v2 PRODUCTION SETUP (REFINED V6 - REVENUE ANALYTICS SYNC)
+-- This version mirrors the Balance Sheet Logic from Revenue Analytics.
 
--- 1. HARD RESET (Clear old schema)
-DROP VIEW IF EXISTS v_monthly_extract_accounts CASCADE;
-DROP TABLE IF EXISTS sacrra_rejections CASCADE;
-DROP TABLE IF EXISTS sacrra_extract_runs CASCADE;
-DROP TABLE IF EXISTS accounts CASCADE;
-DROP TABLE IF EXISTS consumers CASCADE;
+-- 1. DROP THE OLD DUMMY VIEW
+DROP VIEW IF EXISTS sacrra_monthly_export;
 
--- 2. CREATE TABLES (Correct Schema)
-CREATE TABLE consumers (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    sa_id TEXT UNIQUE NOT NULL,
-    first_name TEXT,
-    surname TEXT,
-    date_of_birth TEXT,
-    created_at TIMESTAMPTZ DEFAULT now()
-);
+-- 2. CREATE THE PRODUCTION VIEW
+-- Note: 'SECURITY INVOKER' ensures it works with your Supabase Auth settings
+CREATE VIEW sacrra_monthly_export WITH (security_invoker = true) AS
+WITH loan_performance AS (
+    SELECT 
+        l.id as loan_id,
+        l.user_id,
+        l.principal_amount,
+        l.monthly_payment,
+        l.start_date,
+        COALESCE(SUM(p.amount), 0) as total_paid,
+        -- Arrears: (Months since start * monthly_payment) - total_paid
+        -- This logic mirrors the analytics.js "Waterfall" engine
+        GREATEST(0, (EXTRACT(YEAR FROM age(NOW(), l.start_date)) * 12 + EXTRACT(MONTH FROM age(NOW(), l.start_date))) * l.monthly_payment - COALESCE(SUM(p.amount), 0)) as calculated_arrears
+    FROM loans l
+    LEFT JOIN payments p ON l.id = p.loan_id
+    GROUP BY l.id, l.user_id, l.principal_amount, l.monthly_payment, l.start_date
+)
+SELECT
+    'D' AS f1,                                             -- Record Type
+    RPAD(UPPER(SPLIT_PART(p.full_name, ' ', 2)), 30, ' ') AS f15, -- Surname
+    RPAD(COALESCE(p.identity_number, ''), 13, ' ') AS f10,      -- ID Number
+    
+    -- Balance from Analytics Logic (Principal - Principal Paid)
+    LPAD((GREATEST(0, lp.principal_amount - lp.total_paid) * 100)::text, 12, '0') AS f44,
+    
+    -- Instalment (Contractual)
+    LPAD((lp.monthly_payment * 100)::text, 12, '0') AS f48,
+    
+    -- Arrears (Calculated)
+    LPAD((lp.calculated_arrears * 100)::text, 12, '0') AS f49,
 
-CREATE TABLE accounts (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_number TEXT UNIQUE NOT NULL,
-    consumer_id UUID REFERENCES consumers(id),
-    account_type TEXT DEFAULT 'P',
-    current_balance BIGINT DEFAULT 0,
-    instalment_amount BIGINT DEFAULT 0,
-    arrears_amount BIGINT DEFAULT 0,
-    months_in_arrears INTEGER DEFAULT 0,
-    status_code TEXT DEFAULT '00',
-    loan_reason_code TEXT DEFAULT 'P',
-    payment_type TEXT DEFAULT '01',
-    last_payment_date TEXT DEFAULT '00000000',
-    last_payment_amount BIGINT DEFAULT 0,
-    term INTEGER DEFAULT 24,
-    opened_date TEXT DEFAULT '20230101',
-    active BOOLEAN DEFAULT true,
-    branch_code TEXT DEFAULT '0001',
-    sub_account TEXT DEFAULT '01',
-    supplier_ref TEXT DEFAULT 'AA0001',
-    created_at TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE TABLE sacrra_extract_runs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    month_end TEXT NOT NULL,
-    record_count INTEGER,
-    status TEXT,
-    created_at TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE TABLE sacrra_rejections (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_number TEXT,
-    field_name TEXT,
-    error_message TEXT,
-    severity TEXT, -- This is the missing column
-    resolved BOOLEAN DEFAULT false,
-    created_at TIMESTAMPTZ DEFAULT now()
-);
-
--- 3. CREATE COMPLIANCE VIEW
-CREATE VIEW v_monthly_extract_accounts AS
-SELECT 
-    a.*,
-    c.sa_id,
-    c.first_name,
-    c.surname,
-    c.date_of_birth
-FROM accounts a
-JOIN consumers c ON a.consumer_id = c.id;
-
--- 4. SEED SHOWCASE DATA
--- 4.1 Seed Consumers
-INSERT INTO consumers (sa_id, first_name, surname, date_of_birth)
-VALUES 
-('8501015009087', 'Thabo', 'Mokoena', '19850101'),
-('9205125218084', 'Sarah', 'Levin', '19920512'),
-('7811235190083', 'James', 'Smit', '19781123'),
-('8802285211082', 'Naledi', 'Zwane', '19880228'),
-('9507155140087', 'Kevin', 'Naidoo', '19950715'),
-('8203045213081', 'Elena', 'Botha', '19820304'),
-('9004255142080', 'Bongani', 'Dlamini', '19900425'),
-('7512305191089', 'Catherine', 'OReilly', '19751230'),
-('8406185214085', 'Siyabonga', 'Gumede', '19840618'),
-('9108105141086', 'Zoe', 'Hendricks', '19910810');
-
--- 4.2 Seed Accounts
-INSERT INTO accounts (account_number, consumer_id, current_balance, instalment_amount, months_in_arrears, status_code, loan_reason_code)
-SELECT 
-    'ZN-' || floor(random() * 90000 + 10000)::text || '-001',
-    id,
-    floor(random() * 5000000 + 100000),
-    floor(random() * 500000 + 50000),
-    floor(random() * 2),
-    '00',
-    'P'
-FROM consumers;
-
--- 4.3 Seed Rejections (Matches the Validation Workspace design)
-INSERT INTO sacrra_rejections (account_number, field_name, error_message, severity)
-VALUES 
-('ZN-10294-001', 'Identity_Number', 'ID checksum failed (Invalid SA Identity Format)', 'Critical'),
-('ZN-49203-045', 'Opening_Balance', 'Negative value detected in credit-only account', 'Critical'),
-('ZN-29384-092', 'Postal_Code', 'Length mismatch (Expected 4, received 5)', 'Warning');
+    RPAD(COALESCE(lp.loan_id::text, ''), 30, ' ') AS f40,       -- Match Key (Field 40)
+    TO_CHAR(COALESCE(lp.start_date, NOW()), 'YYYYMMDD') AS f26, -- Date Opened
+    RPAD('', 570, ' ') AS filler                                -- Filler to reach 700
+FROM loan_performance lp
+JOIN profiles p ON lp.user_id = p.id;

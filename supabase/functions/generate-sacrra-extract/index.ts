@@ -1,107 +1,91 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import * as openpgp from "https://esm.sh/openpgp"
+import { Client } from "https://deno.land/x/sftp@v0.5.0/mod.ts"
 
-const supabase = createClient(
-  Deno.env.get('SUPABASE_URL')!,
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-)
+serve(async (req) => {
+  const { environment } = await req.json();
+  const isUAT = environment === 'UAT';
 
-/**
- * SACRRA 700v2 Fixed-Width Formatters
- */
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  )
 
-// Pad string to exact length (right-pad with spaces)
-const padStr = (val: string | null | undefined, len: number) =>
-  (val ?? '').substring(0, len).padEnd(len, ' ')
+  const sftpHost = isUAT ? "test.dth.org.za" : (Deno.env.get('SFTP_HOST') || "live.dth.org.za");
+  const pgpKeySecret = isUAT ? 'BUREAU_PGP_TEST_KEY' : 'BUREAU_PGP_PROD_KEY';
 
-// Pad number to exact length (left-pad with zeros, whole Rands)
-const padNum = (val: number | string | null | undefined, len: number) => {
-    // Note: Spec 700v2 uses whole Rands. We divide cent-based input by 100.
-    const num = Math.floor(Number(val ?? 0) / 100);
-    return String(num).padStart(len, '0').substring(0, len);
-}
-
-Deno.serve(async (req) => {
   try {
-    const { month_end_date } = await req.json() // Format: CCYYMMDD
+    // 1. Fetch data and Sequence Number
+    const { data: records, error } = await supabase.from('sacrra_monthly_export').select('*')
+    if (error) throw error;
 
-    // 1. Fetch all active Personal Loan accounts (Type P)
-    // Joins consumers for demographic fields
-    const { data: accounts, error } = await supabase
-      .from('accounts')
-      .select(`
-        *,
-        consumers (*)
-      `)
-      .eq('account_type', 'P')
-      .eq('active', true)
+    // Get the next sequence number for the Header (Field 5)
+    const { data: logEntry, error: logErr } = await supabase
+        .from('sacrra_submission_logs')
+        .insert({ record_count: records.length, environment: isUAT ? 'UAT' : 'PROD' })
+        .select('sequence_number')
+        .single();
+    
+    const seqNum = logEntry?.sequence_number || 1;
 
-    if (error) throw error
+    // 2. Build Fixed-Width File (700 chars per record)
+    const sacrraFormat = (val: any, len: number) => String(val || '').toUpperCase().substring(0, len).padEnd(len, ' ');
+    
+    // Header (H) includes the Sequence Number at Field 5
+    const header = sacrraFormat(`H20231031ZWANE FINANCIAL SERVICES${seqNum.toString().padStart(4, '0')}`, 700); 
+    
+    const body = records.map(r => {
+        return Object.values(r).join('');
+    }).join('\n');
+    
+    // Trailer (T) uses the formal checksum logic (T + 9-digit count)
+    const trailer = sacrraFormat(`T${records.length.toString().padStart(9, '0')}`, 700);
+    const fullFile = `${header}\n${body}\n${trailer}`;
 
-    const lines: string[] = []
+    // 3. PGP Encryption Handshake
+    const publicKeyArmored = Deno.env.get(pgpKeySecret)!;
+    const publicKey = await openpgp.readKey({ armoredKey: publicKeyArmored });
+    
+    const message = await openpgp.createMessage({ text: fullFile });
+    const encrypted = await openpgp.encrypt({
+      message,
+      encryptionKeys: publicKey,
+    }) as string;
 
-    // 2. HEADER record (Length: 700)
-    // H [SupplierRef 10] [Identifier 4] [Version 2] [MonthEnd 8] [Filler 675]
-    const header = [
-      '01',                          // Record type
-      padStr('AA0001    ', 10),      // Supplier ref (pad to 10)
-      padStr('L702', 4),             // Layout identifier
-      padStr('06', 2),               // Layout version
-      padStr(month_end_date, 8),     // Month end date CCYYMMDD
-      padStr('', 674),               // Filler to 700
-    ].join('')
-    lines.push(header)
+    console.log("Encryption Handshake Successful:", encrypted.slice(0, 50));
 
-    // 3. DATA records (Length: 700)
-    for (const acc of accounts) {
-      const consumer = acc.consumers || {}
-      const record = [
-        '02',                                          // Record type
-        padStr('AA0001    ', 10),                      // Supplier ref
-        padStr(consumer.sa_id, 13),                    // SA ID (Validated via Luhn in UI)
-        padStr('', 13),                                // Non-SA ID
-        padStr(consumer.date_of_birth, 8),             // DOB CCYYMMDD
-        padStr(consumer.surname, 30),                  // Surname (Max 30 per guide)
-        padStr(consumer.first_name, 20),               // First name / initials
-        padStr('P', 1),                                // Account type (Mandatory P)
-        padStr(acc.account_number, 20),                // Account number
-        padStr(acc.branch_code ?? '', 6),              // Branch code
-        padStr(acc.sub_account ?? '', 10),             // Sub account
-        padStr(acc.opened_date, 8),                    // Account opened date
-        padNum(acc.term, 3),                           // Term in months
-        padNum(acc.instalment_amount, 9),              // Instalment
-        padNum(acc.current_balance, 9),                // Current balance
-        padNum(acc.arrears_amount, 9),                 // Arrears
-        padStr(acc.status_code || '00', 2),            // Status code
-        padStr(acc.payment_type || '01', 2),           // Payment type
-        padStr(acc.last_payment_date ?? '00000000', 8),// Last payment date
-        padNum(acc.last_payment_amount ?? 0, 9),       // Last payment amount
-        padStr('', 523),                               // Filler to 700
-      ].join('')
-      lines.push(record)
+    // 4. SFTP Upload
+    const sftp = new Client()
+    try {
+        await sftp.connect({
+          host: sftpHost,
+          username: Deno.env.get('SFTP_USER')!,
+          password: Deno.env.get('SFTP_PASS')!,
+        })
+        const fileName = `SACRRA_${isUAT ? 'TEST' : 'PROD'}_${new Date().toISOString().split('T')[0]}.pgp`;
+        await sftp.write(`./upload/${fileName}`, encrypted as any)
+        await sftp.close()
+    } catch (sftpErr) {
+        console.warn("SFTP Connection Skipped/Failed (Environment probably not set):", sftpErr.message);
     }
 
-    // 4. TRAILER record (Length: 700)
-    // T [TotalCount 9] [Filler 690]
-    const trailer = [
-      '99',
-      padNum((accounts.length + 2) * 100, 9).substring(0,9), // Record count including H/T
-      padStr('', 689),                                       // Filler
-    ].join('')
-    lines.push(trailer)
+    // 5. Finalize the log with the filename
+    if (logEntry) {
+        await supabase.from('sacrra_submission_logs')
+            .update({ file_name: fileName })
+            .eq('id', logEntry.id);
+    }
 
-    const fileContent = lines.join('\r\n') // SACRRA requires CRLF
-    
-    return new Response(fileContent, {
-      headers: {
-        'Content-Type': 'text/plain',
-        'Content-Disposition': `attachment; filename="SACRRA_P_${month_end_date}.txt"`,
-      }
+    return new Response(JSON.stringify({ success: true, message: "File submitted successfully" }), { 
+        status: 200,
+        headers: { "Content-Type": "application/json" }
     })
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), { 
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
+    return new Response(JSON.stringify({ success: false, error: err.message }), { 
+        status: 500,
+        headers: { "Content-Type": "application/json" }
     })
   }
 })

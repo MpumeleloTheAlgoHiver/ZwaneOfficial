@@ -1,7 +1,8 @@
 import { initLayout } from '../shared/layout.js';
 import { fetchUsers, fetchBranches, claimClientProtocol, getCurrentAdminProfile, fetchFullUserProfile } from '../services/dataService.js';
 import { supabase } from '../services/supabaseClient.js'; 
-import { formatDate, formatCurrency } from '../shared/utils.js';
+import { formatDate, formatCurrency, validateSAID } from '../shared/utils.js';
+import { renderProfileCard } from '../components/profile-card.js';
 
 // --- STATE ---
 let allUsers = [];
@@ -22,49 +23,52 @@ const LIST_VIEW_HTML = `
 <div id="view-list" class="flex flex-col h-full animate-fade-in">
   <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4 shrink-0">
     <div>
-      <h1 class="text-2xl font-bold text-gray-900">User Directory</h1>
-      <p class="mt-1 text-sm text-gray-500">Manage clients, staff, and assignments.</p>
+      <h1 class="text-2xl font-bold text-gray-900 tracking-tight">User Directory</h1>
+      <p class="mt-1 text-sm text-gray-500 font-medium">Manage institutional clients and branch assignments.</p>
     </div>
     
     <div class="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-        <select id="role-filter" class="bg-white border border-gray-300 text-gray-700 py-2 pl-4 pr-8 rounded-lg text-sm font-medium focus:ring-orange-500">
+        <select id="role-filter" class="bg-white border border-gray-200 text-gray-700 py-2.5 pl-4 pr-10 rounded-2xl text-sm font-bold focus:ring-[#a04100] shadow-sm">
             <option value="all">All Roles</option>
             <option value="client">Clients</option>
             <option value="staff">Staff</option>
         </select>
 
-        <select id="branch-filter" class="bg-white border border-gray-300 text-gray-700 py-2 pl-4 pr-8 rounded-lg text-sm font-medium focus:ring-orange-500 w-full sm:w-48">
+        <select id="branch-filter" class="bg-white border border-gray-200 text-gray-700 py-2.5 pl-4 pr-10 rounded-2xl text-sm font-bold focus:ring-[#a04100] w-full sm:w-48 shadow-sm">
             <option value="all">All Branches</option>
             <option disabled>Loading...</option>
         </select>
 
         <div class="relative w-full sm:w-72">
-            <input type="text" id="user-search" placeholder="Search Name, Email, ID or UUID..." 
-                   class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-orange-500 text-sm">
-            <i class="fa-solid fa-search absolute left-3 top-2.5 text-gray-400"></i>
+            <input type="text" id="user-search" placeholder="Search Identity, Email, ID..." 
+                   class="w-full pl-12 pr-4 py-2.5 border border-gray-200 rounded-2xl focus:ring-[#a04100] text-sm font-bold shadow-sm">
+            <span class="material-symbols-outlined absolute left-4 top-2.5 text-slate-400">search</span>
         </div>
     </div>
   </div>
 
-  <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden flex-1 min-h-0">
+  <div class="bg-white rounded-[32px] shadow-sm border border-slate-100 flex flex-col overflow-hidden flex-1 min-h-0">
     <div class="overflow-auto custom-scrollbar"> 
-      <table class="min-w-full divide-y divide-gray-200 relative">
-        <thead class="bg-gray-50 sticky top-0 z-10 shadow-sm"> 
+      <table class="min-w-full divide-y divide-slate-50 relative">
+        <thead class="bg-slate-50/50 sticky top-0 z-10"> 
           <tr>
-            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50">User Identity</th>
-            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50">System ID</th>
-            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50">Branch</th>
-            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50">Email / Contact</th>
-            <th class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50">Action</th>
+            <th class="px-8 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Client Identity</th>
+            <th class="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Match Key</th>
+            <th class="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Branch</th>
+            <th class="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Compliance</th>
+            <th class="px-8 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Action</th>
           </tr>
         </thead>
-        <tbody id="users-table-body" class="bg-white divide-y divide-gray-200">
-          <tr><td colspan="5" class="p-10 text-center text-gray-400">Loading...</td></tr>
+        <tbody id="users-table-body" class="bg-white divide-y divide-slate-50">
+          <tr><td colspan="5" class="p-20 text-center text-slate-300 font-bold">Initialising Directory...</td></tr>
         </tbody>
       </table>
     </div>
   </div>
-  <div class="mt-2 text-xs text-gray-400 text-right">Showing <span id="visible-count">0</span> records</div>
+  <div class="mt-4 flex justify-between items-center px-2">
+    <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Registry <span id="visible-count">0</span></div>
+    <div id="user-pagination-container"></div>
+  </div>
 </div>
 `;
 
@@ -79,66 +83,18 @@ const DETAIL_VIEW_HTML = `
         </button>
         <div class="flex gap-2">
             <button id="btn-transfer-branch" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 shadow-sm">
-                <i class="fa-solid fa-building-columns mr-2 text-orange-600"></i> Transfer Branch
+                <i class="fa-solid fa-building-columns mr-2 text-[#a04100]"></i> Transfer Branch
             </button>
         </div>
     </div>
 
-    <div class="grid grid-cols-12 gap-6 h-full overflow-hidden">
+    <div class="grid grid-cols-12 gap-8 h-full overflow-hidden">
         
-        <div class="col-span-12 lg:col-span-4 flex flex-col gap-6 overflow-y-auto custom-scrollbar pb-10">
-            
-            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 relative overflow-hidden">
-                <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-orange-500 to-orange-600"></div>
-                
-                <div class="flex flex-col items-center text-center">
-                    <div class="w-24 h-24 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center text-3xl font-bold mb-4 border-4 border-white shadow-md">
-                        <span id="detail-avatar">U</span>
-                    </div>
-                    <h2 id="detail-name" class="text-xl font-bold text-gray-900">Loading...</h2>
-                    <span id="detail-role-badge" class="mt-2 px-3 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-600">CLIENT</span>
-                    
-                    <div class="mt-6 w-full border-t border-gray-100 pt-4 grid grid-cols-2 gap-4 text-left">
-                        <div>
-                            <p class="text-[10px] uppercase font-bold text-gray-400">System ID (UUID)</p>
-                            <p id="detail-uuid" class="text-xs font-mono text-gray-600 break-all select-all cursor-pointer hover:text-orange-600" title="Click to Copy">...</p>
-                        </div>
-                        <div>
-                            <p class="text-[10px] uppercase font-bold text-gray-400">Joined</p>
-                            <p id="detail-joined" class="text-xs font-medium text-gray-700">...</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
+        <div id="profile-card-container" class="col-span-12 lg:col-span-4 flex flex-col gap-6 overflow-y-auto custom-scrollbar pb-10">
+            <!-- Profile Card Injected Here -->
+        </div>
 
-            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-                <h3 class="text-sm font-bold text-gray-900 uppercase tracking-wide mb-4 flex items-center gap-2">
-                    <i class="fa-solid fa-address-card text-gray-400"></i> Contact Details
-                </h3>
-                <div class="space-y-4">
-                    <div class="flex items-start gap-3">
-                        <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0"><i class="fa-solid fa-envelope"></i></div>
-                        <div class="flex-1 min-w-0">
-                            <p class="text-xs text-gray-400 font-bold">Email Address</p>
-                            <p id="detail-email" class="text-sm font-medium text-gray-900 truncate">...</p>
-                        </div>
-                    </div>
-                    <div class="flex items-start gap-3">
-                        <div class="w-8 h-8 rounded-lg bg-green-50 text-green-600 flex items-center justify-center shrink-0"><i class="fa-solid fa-id-card"></i></div>
-                        <div class="flex-1">
-                            <p class="text-xs text-gray-400 font-bold">Identity Number</p>
-                            <p id="detail-idnum" class="text-sm font-mono font-medium text-gray-900">...</p>
-                        </div>
-                    </div>
-                    <div class="flex items-start gap-3">
-                        <div class="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center shrink-0"><i class="fa-solid fa-location-dot"></i></div>
-                        <div class="flex-1">
-                            <p class="text-xs text-gray-400 font-bold">Assigned Branch</p>
-                            <p id="detail-branch" class="text-sm font-bold text-gray-900">...</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
+        <div class="col-span-12 lg:col-span-8 flex flex-col gap-6 overflow-y-auto custom-scrollbar pb-10">
 
             <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
                 <h3 class="text-sm font-bold text-gray-900 uppercase tracking-wide mb-4 flex items-center gap-2">
@@ -257,30 +213,17 @@ window.switchView = (viewName) => {
 
 window.openUserDetail = async (userId) => {
     try {
-        // 1. Show Loading UI
         document.body.style.cursor = 'wait';
-        
-        // 2. Fetch Deep Data
         const data = await fetchFullUserProfile(userId);
         currentUserDetail = data;
 
-        // 3. Populate UI
         const p = data.profile;
-        const branchName = p.branches?.name || 'Online / Unassigned';
+        const isLuhnValid = validateSAID(p.identity_number || p.id_number);
         
-        // Header
-        document.getElementById('detail-avatar').textContent = (p.full_name || 'U').charAt(0);
-        document.getElementById('detail-name').textContent = p.full_name || 'Unknown User';
-        document.getElementById('detail-role-badge').textContent = getRoleLabel(p.role);
+        // Inject Premium Profile Card
+        const container = document.getElementById('profile-card-container');
+        if (container) container.innerHTML = renderProfileCard(p, { isLuhnValid });
         
-        // Sidebar Info
-        document.getElementById('detail-uuid').textContent = p.id;
-        document.getElementById('detail-joined').textContent = formatDate(p.created_at);
-        document.getElementById('detail-email').textContent = p.email || 'No Email';
-        document.getElementById('detail-email').title = p.email || ''; 
-        document.getElementById('detail-idnum').textContent = p.identity_number || 'N/A';
-        document.getElementById('detail-branch').textContent = branchName;
-
         // Financials
         const fins = data.financials || {};
         document.getElementById('detail-income').textContent = formatCurrency(fins.monthly_income || 0);
@@ -290,7 +233,6 @@ window.openUserDetail = async (userId) => {
         document.getElementById('stat-total-loans').textContent = data.loans.length;
         document.getElementById('stat-total-docs').textContent = data.documents.length;
         
-        // Calc Active Debt
         const activeDebt = data.loans
             .filter(l => ['DISBURSED', 'ACTIVE'].includes(l.status))
             .reduce((sum, l) => sum + Number(l.amount), 0);
@@ -299,16 +241,16 @@ window.openUserDetail = async (userId) => {
         // Render Loans Table
         const loanBody = document.getElementById('detail-loans-body');
         if (data.loans.length === 0) {
-            loanBody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-sm text-gray-400">No application history found.</td></tr>`;
+            loanBody.innerHTML = `<tr><td colspan="5" class="p-12 text-center text-xs font-bold text-slate-300">No applications found.</td></tr>`;
         } else {
             loanBody.innerHTML = data.loans.map(l => `
-                <tr class="hover:bg-gray-50 transition-colors cursor-pointer" onclick="window.location.href='/admin/application-detail?id=${l.id}'">
-                    <td class="px-6 py-3 text-xs font-mono text-gray-600">#${l.id}</td>
-                    <td class="px-6 py-3 text-xs text-gray-600">${formatDate(l.created_at)}</td>
-                    <td class="px-6 py-3 text-xs font-bold text-gray-900">${formatCurrency(l.amount)}</td>
-                    <td class="px-6 py-3 text-xs">${getStatusBadge(l.status)}</td>
-                    <td class="px-6 py-3 text-right">
-                        <i class="fa-solid fa-chevron-right text-gray-300"></i>
+                <tr class="hover:bg-slate-50 transition-colors cursor-pointer group" onclick="window.location.href='/admin/application-detail?id=${l.id}'">
+                    <td class="px-8 py-5 text-[10px] font-black text-slate-400 font-mono">#${l.id.substring(0, 8)}</td>
+                    <td class="px-6 py-5 text-xs font-bold text-slate-600">${formatDate(l.created_at)}</td>
+                    <td class="px-6 py-5 text-sm font-black text-slate-900">${formatCurrency(l.amount)}</td>
+                    <td class="px-6 py-5">${getStatusBadge(l.status)}</td>
+                    <td class="px-8 py-5 text-right">
+                        <span class="material-symbols-outlined text-slate-300 group-hover:text-[#a04100] transition-colors">chevron_right</span>
                     </td>
                 </tr>
             `).join('');
@@ -317,33 +259,30 @@ window.openUserDetail = async (userId) => {
         // Render Docs Grid
         const docGrid = document.getElementById('detail-docs-grid');
         if (data.documents.length === 0) {
-            docGrid.innerHTML = `<div class="col-span-3 text-center text-sm text-gray-400 py-4 border-2 border-dashed border-gray-100 rounded-lg">No documents uploaded.</div>`;
+            docGrid.innerHTML = `<div class="col-span-3 text-center text-[10px] font-black text-slate-400 py-8 border-2 border-dashed border-slate-50 rounded-3xl">No documents found</div>`;
         } else {
             docGrid.innerHTML = data.documents.map(d => `
-                <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100 hover:bg-white hover:shadow-sm transition-all group">
-                    <div class="w-10 h-10 rounded bg-white border border-gray-200 flex items-center justify-center text-orange-500">
-                        <i class="fa-solid fa-file-lines"></i>
+                <div class="flex items-center gap-4 p-4 bg-slate-50/50 rounded-2xl border border-slate-100 hover:bg-white hover:shadow-xl hover:shadow-slate-200/20 transition-all group">
+                    <div class="w-12 h-12 rounded-xl bg-white border border-slate-100 flex items-center justify-center text-[#a04100] shadow-sm">
+                        <span class="material-symbols-outlined">description</span>
                     </div>
                     <div class="flex-1 min-w-0">
-                        <p class="text-xs font-bold text-gray-900 truncate" title="${d.file_name}">${d.file_name}</p>
-                        <p class="text-[10px] text-gray-400 uppercase">${d.file_type || 'DOC'}</p>
+                        <p class="text-[10px] font-black text-slate-900 truncate" title="${d.file_name}">${d.file_name}</p>
+                        <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">${d.file_type || 'DOC'}</p>
                     </div>
-                    <a href="${d.file_path}" target="_blank" class="text-gray-300 hover:text-orange-600 p-2"><i class="fa-solid fa-download"></i></a>
+                    <a href="${d.file_path}" target="_blank" class="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-[#a04100] transition-all"><span class="material-symbols-outlined text-[20px]">download</span></a>
                 </div>
             `).join('');
         }
 
-        // Setup Branch Transfer Button
         const btnTransfer = document.getElementById('btn-transfer-branch');
-        
-        btnTransfer.onclick = () => window.openBranchModal();
-        
-        // Switch Views
+        if (btnTransfer) btnTransfer.onclick = () => window.openBranchModal();
+
         window.switchView('detail');
 
     } catch (error) {
         console.error("Detail Error:", error);
-        alert("Could not load user details: " + error.message);
+        alert("Could not load user details.");
     } finally {
         document.body.style.cursor = 'default';
     }
@@ -401,72 +340,63 @@ window.confirmBranchTransfer = async () => {
 
 const renderUserList = (data) => {
     const tbody = document.getElementById('users-table-body');
-    const countEl = document.getElementById('visible-count');
     if (!tbody) return;
 
-    // 1. Pagination Calculation
-    const totalPages = Math.ceil(data.length / itemsPerPageUsers) || 1;
     const start = (currentPageUsers - 1) * itemsPerPageUsers;
     const paginatedData = data.slice(start, start + itemsPerPageUsers);
 
-    if (countEl) countEl.textContent = data.length;
-
     if (paginatedData.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-sm text-gray-400">No users found.</td></tr>`;
-        renderUserPaginationControls(0);
+        tbody.innerHTML = `<tr><td colspan="5" class="p-20 text-center text-slate-300 font-bold">No results matching your query.</td></tr>`;
         return;
     }
 
-    // 2. Render Rows
     tbody.innerHTML = paginatedData.map(u => {
         const branchName = u.branches?.name || 'Online';
-        const isStaffMember = isStaff(u.role);
+        const isLuhnValid = validateSAID(u.identity_number || u.id_number);
         
-        let badgeClass = isStaffMember ? 'bg-purple-100 text-purple-700' : 'bg-green-50 text-green-700';
-        // Highlight users not in my branch (for branch admins)
-        if (!isStaffMember && currentAdmin.role !== 'super_admin' && u.branch_id !== currentAdmin.branch_id) {
-            badgeClass = 'bg-yellow-50 text-yellow-700';
-        }
-
-        const shortId = u.id.substring(0, 6) + '...';
-
         return `
-        <tr class="hover:bg-gray-50 transition-colors group">
-            <td class="px-6 py-4">
-                <div class="flex items-center">
-                    <div class="h-9 w-9 rounded-full flex items-center justify-center text-xs font-bold mr-3 border border-gray-200 ${isStaffMember ? 'bg-purple-50 text-purple-600' : 'bg-gray-100 text-gray-500'}">
+        <tr class="hover:bg-slate-50/50 transition-colors group cursor-pointer" onclick="window.openUserDetail('${u.id}')">
+            <td class="px-8 py-6">
+                <div class="flex items-center gap-4">
+                    <div class="h-10 w-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center text-xs font-black text-slate-400">
                         ${(u.full_name || 'U').charAt(0)}
                     </div>
                     <div>
-                        <div class="text-sm font-bold text-gray-900">${u.full_name || 'Unknown'}</div>
-                        <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wide">${getRoleLabel(u.role)}</div>
+                        <div class="text-sm font-black text-slate-900">${u.full_name || 'Unknown'}</div>
+                        <div class="text-[9px] font-black text-slate-400 uppercase tracking-widest">${getRoleLabel(u.role)}</div>
                     </div>
                 </div>
             </td>
-            <td class="px-6 py-4">
-                <div class="text-xs font-mono text-gray-500 bg-gray-50 px-2 py-1 rounded inline-block border border-gray-100" title="Full UUID: ${u.id}">
-                    ${shortId}
+            <td class="px-6 py-6">
+                <div class="text-[10px] font-black text-slate-500 font-mono tracking-tighter">
+                    ${u.id.substring(0, 13).toUpperCase()}
                 </div>
             </td>
-            <td class="px-6 py-4">
-                 <span class="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wide border border-transparent ${badgeClass}">
+            <td class="px-6 py-6">
+                 <span class="px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-slate-100 text-slate-500">
                     ${branchName}
                  </span>
             </td>
-            <td class="px-6 py-4">
-                <div class="text-xs text-gray-900 font-medium">${u.email || '-'}</div>
-                <div class="text-[10px] text-gray-400">${u.identity_number || ''}</div>
+            <td class="px-6 py-6">
+                <div class="flex items-center gap-2">
+                    <span class="w-1.5 h-1.5 rounded-full ${isLuhnValid ? 'bg-emerald-500' : 'bg-red-500'}"></span>
+                    <span class="text-[10px] font-black uppercase tracking-widest ${isLuhnValid ? 'text-emerald-600' : 'text-red-600'}">
+                        ${isLuhnValid ? 'Verified' : 'Invalid ID'}
+                    </span>
+                </div>
             </td>
-            <td class="px-6 py-4 text-right">
-                <button onclick="window.openUserDetail('${u.id}')" class="text-gray-400 hover:text-orange-600 transition-colors p-2 rounded-full hover:bg-orange-50">
-                    <i class="fa-solid fa-eye"></i>
+            <td class="px-8 py-6 text-right">
+                <button class="w-10 h-10 flex items-center justify-center text-slate-300 group-hover:text-[#a04100] transition-colors">
+                    <span class="material-symbols-outlined text-[20px]">chevron_right</span>
                 </button>
             </td>
         </tr>`;
     }).join('');
 
-    // 3. Update Controls
-    renderUserPaginationControls(totalPages);
+    const countEl = document.getElementById('visible-count');
+    if (countEl) countEl.textContent = data.length;
+
+    renderUserPaginationControls(Math.ceil(data.length / itemsPerPageUsers) || 1);
 };
 
 // ✅ FIXED: applyFilters now handles page resets correctly

@@ -32,3 +32,20 @@ export const formatDate = (isoString) => {
         day: 'numeric'
     });
 };
+export const validateSAID = (id) => {
+    if (!id) return false;
+    const str = id.toString().trim();
+    if (str.length !== 13 || isNaN(Number(str))) return false;
+    
+    let sum = 0;
+    for (let i = 0; i < 12; i++) {
+        let digit = parseInt(str[i]);
+        if (i % 2 !== 0) {
+            digit *= 2;
+            if (digit > 9) digit -= 9;
+        }
+        sum += digit;
+    }
+    const checkDigit = (10 - (sum % 10)) % 10;
+    return checkDigit === parseInt(str[12]);
+};

@@ -1,7 +1,7 @@
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/+esm';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const supabaseUrl = import.meta?.env?.VITE_SUPABASE_URL || "https://jmnjkxfxenrudpvjprcu.supabase.co";
-const supabaseAnonKey = import.meta?.env?.VITE_SUPABASE_ANON_KEY || "REMOVED_ANON_KEY";
+const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || "https://jmnjkxfxenrudpvjprcu.supabase.co";
+const supabaseAnonKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY) || "REMOVED_ANON_KEY";
 
 // --- Sanity Check ---
 // This check ensures the variables are filled.
