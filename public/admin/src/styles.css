@@ -3,19 +3,36 @@
 @tailwind components;
 @tailwind utilities;
 
-
-.nav-link .sidebar-nav-icon {
-  color: var(--color-text-muted);
-  transition: color 0.2s ease;
+/* Material Symbols rendering */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  font-size: 22px;
+  line-height: 1;
+  vertical-align: middle;
+  user-select: none;
 }
 
-.nav-link:hover .sidebar-nav-icon,
-.nav-link:focus .sidebar-nav-icon,
-.nav-link:focus-visible .sidebar-nav-icon {
-  color: var(--color-primary);
+/* Glass card component */
+.glass-card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.04);
 }
 
-/* Admin navbar icons inherit parent hover color */
+.glass-card:hover {
+  transform: translateY(-2px);
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease;
+  box-shadow: 0 8px 30px -4px rgba(0, 0, 0, 0.08);
+}
+
+/* Active nav link icon fill */
+.nav-link-active .material-symbols-outlined {
+  font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Admin navbar FA icons inherit parent hover color */
 button:hover > i,
 button:focus-visible > i {
   color: inherit !important;
