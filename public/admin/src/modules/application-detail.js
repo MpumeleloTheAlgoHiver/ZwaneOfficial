@@ -853,6 +853,44 @@ const initTabs = () => {
 
 // --- Status Update Logic ---
 window.updateStatus = async (newStatus) => {
+    // ── Status transition gates ───────────────────────────────────
+    if (newStatus === 'AFFORD_OK') {
+        const hasBureau = currentApplication.bureau_score_band ||
+            ['BUREAU_OK', 'BANK_LINKING'].includes(currentApplication.status);
+        if (!hasBureau) {
+            showFeedback('Cannot confirm affordability — no bureau result on record. Run the credit check first.', 'error');
+            return;
+        }
+        const { data: fp } = await supabase
+            .from('financial_profiles')
+            .select('monthly_income')
+            .eq('user_id', currentApplication.user_id)
+            .maybeSingle();
+        if (!fp?.monthly_income) {
+            showFeedback('Cannot confirm affordability — no income on record. Complete open banking first.', 'error');
+            return;
+        }
+    }
+
+    if (newStatus === 'OFFERED') {
+        if (!currentApplication.offer_principal || currentApplication.offer_principal <= 0) {
+            showFeedback('Cannot send contract — loan offer not configured yet.', 'error');
+            return;
+        }
+    }
+
+    if (newStatus === 'READY_TO_DISBURSE') {
+        if (currentApplication.status !== 'OFFER_ACCEPTED' && !currentApplication.contract_signed_at) {
+            showFeedback('Cannot queue for disbursement — contract has not been signed yet.', 'error');
+            return;
+        }
+        if (!currentApplication.bank_account_id) {
+            showFeedback('Cannot queue for disbursement — no bank account linked.', 'error');
+            return;
+        }
+    }
+    // ── End gates ─────────────────────────────────────────────────
+
     const { error } = await updateApplicationStatus(currentApplication.id, newStatus);
     if (error) {
         showFeedback(error.message, 'error');

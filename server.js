@@ -56,6 +56,7 @@ const creditCheckService = require('./services/creditCheckService');
 const sureSystemsService = require('./services/sureSystemsService');
 const { supabase, supabaseService } = require('./config/supabaseServer');
 const { startNotificationScheduler } = require('./services/notificationScheduler');
+const { logApiCall, tracked } = require('./services/apiUsageLogger');
 
 const DOCUSEAL_API_KEY = process.env.DOCUSEAL_API_KEY;
 const DOCUSEAL_TEMPLATE_ID = process.env.DOCUSEAL_TEMPLATE_ID;
@@ -344,13 +345,13 @@ async function docuSealRequest(method, endpoint, data) {
 
 /**
  * buildDocuSealSubmission
- * Maps dynamic data to the Zwane Financial Services Small Credit Agreement.
+ * Maps dynamic data to the AlgoLend Small Credit Agreement.
  * * @param {Object} applicationData - Data from public.loan_applications
  * @param {Object} profileData - Data from public.profiles
  * @param {Object} branchData - Data from public.branches
- * @param {string} creditProviderEmail - Email of the ZFS representative
+ * @param {string} creditProviderEmail - Email of the credit provider representative
  */
-function buildDocuSealSubmission(applicationData = {}, profileData = {}, branchData = {}, creditProviderEmail) {
+function buildDocuSealSubmission(applicationData = {}, profileData = {}, branchData = {}, creditProviderEmail, settings = {}) {
     const formatCurrency = (val) => `R ${parseFloat(val || 0).toFixed(2)}`;
     const formatDate = (date) => date ? new Date(date).toLocaleDateString('en-ZA') : 'N/A';
 
@@ -385,14 +386,14 @@ function buildDocuSealSubmission(applicationData = {}, profileData = {}, branchD
                 role: 'Credit Provider',
                 email: creditProviderEmail,
                 values: {
-                    provider_name: "Zwane Financial Services",
-                    provider_ncr: "NCRCP13510",
-                    provider_branch_code: "ZFS",
-                    provider_reg_no: "2023/123456/07", // Static or from settings
-                    provider_vat_no: "4012345678",    // Static or from settings
-                    provider_tel: branchData.phone || "0691195046",
-                    provider_physical_address: branchData.address || "Soweto",
-                    provider_postal_address: branchData.address || "Soweto"
+                    provider_name: settings.company_name || process.env.COMPANY_NAME || "AlgoLend",
+                    provider_ncr: settings.ncr_number || process.env.COMPANY_NCR || "NCRCP13510",
+                    provider_branch_code: settings.provider_branch_code || process.env.COMPANY_BRANCH_CODE || "ZFS",
+                    provider_reg_no: settings.company_reg_number || process.env.COMPANY_REG_NUMBER || "",
+                    provider_vat_no: settings.company_vat_number || process.env.COMPANY_VAT_NUMBER || "",
+                    provider_tel: branchData.phone || settings.company_phone || process.env.COMPANY_PHONE || "",
+                    provider_physical_address: branchData.address || settings.company_physical_address || "",
+                    provider_postal_address: branchData.address || settings.company_postal_address || ""
                 }
             },
             {
@@ -653,17 +654,18 @@ app.get('/api/kyc/user/:userId/status', async (req, res) => {
 app.post('/api/truid/create-session', async (req, res) => {
     try {
         const payload = req.body || {};
-        const result = await truid.initiateCollection({
-            ...payload,
-            name: payload.name || payload.metadata?.full_name,
-            idNumber: payload.idNumber || payload.metadata?.id_number || payload.metadata?.idNumber,
-            email: payload.email,
-            mobile: payload.phone,
-            correlation: {
-                userId: payload.userId,
-                applicationId: payload.metadata?.applicationId || null
-            }
-        });
+        const appId = payload.metadata?.applicationId || null;
+        const result = await tracked(
+            { service: 'truid', operation: 'initiate_collection', applicationId: appId, userId: payload.userId },
+            () => truid.initiateCollection({
+                ...payload,
+                name: payload.name || payload.metadata?.full_name,
+                idNumber: payload.idNumber || payload.metadata?.id_number || payload.metadata?.idNumber,
+                email: payload.email,
+                mobile: payload.phone,
+                correlation: { userId: payload.userId, applicationId: appId }
+            })
+        );
 
         return res.json({
             success: true,
@@ -781,10 +783,9 @@ app.post('/api/credit-check', async (req, res) => {
             ? authHeader.slice(7)
             : null;
 
-        const result = await creditCheckService.performCreditCheck(
-            userData,
-            applicationId,
-            authToken
+        const result = await tracked(
+            { service: 'experian', operation: 'credit_check', applicationId: String(applicationId) },
+            () => creditCheckService.performCreditCheck(userData, applicationId, authToken)
         );
 
         return res.json(result);
@@ -934,7 +935,10 @@ app.post('/api/suresystems/mandates/test-payload', async (req, res) => {
 app.post('/api/suresystems/mandates/load', async (req, res) => {
     try {
         const payload = req.body || {};
-        const result = await sureSystemsService.loadMandate(payload);
+        const result = await tracked(
+            { service: 'suresystems', operation: 'load_mandate', applicationId: String(payload.applicationId || '') },
+            () => sureSystemsService.loadMandate(payload)
+        );
         return res.json({ success: true, contractReference: result.contractReference, ...result.response });
     } catch (error) {
         console.error('SureSystems mandate load error:', error.message || error);
@@ -1342,22 +1346,22 @@ app.post('/api/docuseal/send-contract', async (req, res) => {
     }
 
     try {
-        // FIX: Actually fetch the branch from the database
         const branchId = applicationData.branch_id || profileData.branch_id || 1;
-        const { data: branchData, error: branchError } = await supabaseService
-            .from('branches')
-            .select('*')
-            .eq('id', branchId)
-            .maybeSingle();
 
-        if (branchError) console.error('Error fetching branch:', branchError);
+        // Fetch branch AND system_settings in parallel
+        const [{ data: branchData }, settings] = await Promise.all([
+            supabaseService.from('branches').select('*').eq('id', branchId).maybeSingle(),
+            loadSystemSettings()
+        ]);
 
-        const creditProviderEmail = process.env.CREDIT_PROVIDER_EMAIL || "info@zwanefinancial.co.za";
-        
-        // Pass the real branchData now
-        const payload = buildDocuSealSubmission(applicationData, profileData, branchData || {}, creditProviderEmail);
-        
-        const response = await docuSealRequest('post', '/submissions', payload);
+        const creditProviderEmail = process.env.CREDIT_PROVIDER_EMAIL || settings.company_email || "info@algolend.co.za";
+
+        const payload = buildDocuSealSubmission(applicationData, profileData, branchData || {}, creditProviderEmail, settings);
+
+        const response = await tracked(
+            { service: 'docuseal', operation: 'send_contract', applicationId: String(applicationData.id || '') },
+            () => docuSealRequest('post', '/submissions', payload)
+        );
         return res.json(response.data);
     } catch (error) {
         return handleDocuSealError(error, res);
@@ -2006,6 +2010,224 @@ app.get('/admin/sacrra', (req, res) => {
     sendAdminPage('sacrra.html', res);
 });
 
+
+// ─── Capitec payout CSV export ────────────────────────────────────────────────
+// POST /api/payouts/capitec-csv
+// Body: { applicationIds: string[], markDisbursed?: boolean }
+// Returns: text/csv in Capitec batch-payment format.
+// Also logs a suresystems billing event so the payment attempt is tracked.
+app.post('/api/payouts/capitec-csv', async (req, res) => {
+    try {
+        const { applicationIds = [], markDisbursed = false } = req.body || {};
+
+        if (!applicationIds.length) {
+            return res.status(400).json({ error: 'applicationIds array is required' });
+        }
+
+        // Fetch applications + their bank accounts and profiles
+        const { data: apps, error: fetchErr } = await supabaseService
+            .from('loan_applications')
+            .select(`
+                id, amount, offer_principal, offer_monthly_repayment, offer_total_repayment,
+                term_months, created_at, status,
+                profiles:user_id ( full_name, identity_number, client_number ),
+                bank_accounts:bank_account_id (
+                    bank_name, account_holder, account_number, branch_code, account_type
+                )
+            `)
+            .in('id', applicationIds)
+            .in('status', ['READY_TO_DISBURSE', 'AFFORD_OK', 'OFFER_ACCEPTED']);
+
+        if (fetchErr) throw fetchErr;
+        if (!apps || apps.length === 0) {
+            return res.status(404).json({ error: 'No eligible applications found for the given IDs.' });
+        }
+
+        // Build Capitec batch-payment CSV rows
+        // Reference format: ClientNumber–LoanNumber (ROADMAP)
+        const csvHeaders = [
+            'Reference',
+            'Account Holder',
+            'Bank Name',
+            'Account Number',
+            'Branch Code',
+            'Account Type',
+            'Amount',
+            'ID Number',
+            'Application ID'
+        ].join(',');
+
+        const rows = apps.map((app) => {
+            const bank = app.bank_accounts || {};
+            const profile = app.profiles || {};
+            const loanNumber = String(app.id).padStart(6, '0');
+            const clientNumber = profile.client_number || String(app.id);
+            const reference = `${clientNumber}-${loanNumber}`;
+            const disbursalAmount = (app.offer_principal || app.amount || 0).toFixed(2);
+            const accountType = (bank.account_type || 'current').toLowerCase() === 'savings' ? 'Savings' : 'Current';
+
+            return [
+                `"${reference}"`,
+                `"${(bank.account_holder || profile.full_name || '').replace(/"/g, '""')}"`,
+                `"${(bank.bank_name || '').replace(/"/g, '""')}"`,
+                `"${bank.account_number || ''}"`,
+                `"${bank.branch_code || ''}"`,
+                `"${accountType}"`,
+                disbursalAmount,
+                `"${profile.identity_number || ''}"`,
+                app.id
+            ].join(',');
+        });
+
+        const csvContent = [csvHeaders, ...rows].join('\n');
+
+        // Optionally mark as DISBURSED
+        if (markDisbursed) {
+            const ids = apps.map((a) => a.id);
+            await supabaseService
+                .from('loan_applications')
+                .update({ status: 'DISBURSED', updated_at: new Date().toISOString() })
+                .in('id', ids);
+
+            // Log a billing event for each disbursement
+            const usageRows = ids.map((id) => ({
+                client_id: (process.env.CLIENT_ID || process.env.COMPANY_NAME || 'default').toLowerCase().replace(/\s+/g, '-'),
+                service: 'capitec',
+                operation: 'payout_csv',
+                application_id: String(id),
+                status: 'success',
+            }));
+            await supabaseService.from('api_usage_log').insert(usageRows).catch(() => {});
+        }
+
+        const date = new Date().toISOString().slice(0, 10);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="capitec_payout_${date}.csv"`);
+        return res.send(csvContent);
+
+    } catch (err) {
+        console.error('[capitec-csv] error:', err.message || err);
+        return res.status(500).json({ error: err.message || 'CSV generation failed' });
+    }
+});
+
+// GET /api/payouts/ready — list applications ready for disbursement
+app.get('/api/payouts/ready', async (req, res) => {
+    try {
+        const { data, error } = await supabaseService
+            .from('loan_applications')
+            .select(`
+                id, amount, offer_principal, offer_total_repayment, term_months, created_at, status,
+                profiles:user_id ( full_name, identity_number, client_number ),
+                bank_accounts:bank_account_id ( bank_name, account_number, branch_code, account_type, account_holder )
+            `)
+            .in('status', ['READY_TO_DISBURSE'])
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        return res.json({ applications: data || [] });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/billing/usage — API usage summary for a client (used by mint-admin)
+app.get('/api/billing/usage', async (req, res) => {
+    try {
+        const { month, service } = req.query;
+        const clientId = (process.env.CLIENT_ID || process.env.COMPANY_NAME || 'default')
+            .toLowerCase().replace(/\s+/g, '-');
+
+        let query = supabaseService
+            .from('api_usage_log')
+            .select('service, operation, status, created_at, application_id, latency_ms')
+            .eq('client_id', clientId)
+            .order('created_at', { ascending: false })
+            .limit(500);
+
+        if (service) query = query.eq('service', service);
+        if (month) {
+            const start = new Date(month + '-01');
+            const end = new Date(start);
+            end.setMonth(end.getMonth() + 1);
+            query = query.gte('created_at', start.toISOString()).lt('created_at', end.toISOString());
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        // Aggregate by service + operation
+        const summary = {};
+        (data || []).forEach((row) => {
+            const key = `${row.service}::${row.operation}`;
+            if (!summary[key]) summary[key] = { service: row.service, operation: row.operation, total: 0, success: 0, error: 0 };
+            summary[key].total++;
+            if (row.status === 'success') summary[key].success++;
+            else summary[key].error++;
+        });
+
+        return res.json({ clientId, rows: data, summary: Object.values(summary) });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── Default interest calculation (NCA: 3% × current balance) ───────────────
+// POST /api/loans/default-interest
+// Body: { applicationId }
+// Returns: current outstanding balance + default interest amount
+app.post('/api/loans/default-interest', async (req, res) => {
+    try {
+        const { applicationId } = req.body || {};
+        if (!applicationId) return res.status(400).json({ error: 'applicationId required' });
+
+        const { data: app, error } = await supabaseService
+            .from('loan_applications')
+            .select('id, offer_principal, offer_total_repayment, offer_monthly_repayment, term_months, repayment_start_date, status')
+            .eq('id', applicationId)
+            .single();
+
+        if (error || !app) return res.status(404).json({ error: 'Application not found' });
+
+        // Calculate outstanding balance: total repayable minus payments received
+        const { data: payments } = await supabaseService
+            .from('repayments')
+            .select('amount')
+            .eq('application_id', applicationId)
+            .eq('status', 'confirmed');
+
+        const totalPaid = (payments || []).reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+        const currentBalance = Math.max(0, parseFloat(app.offer_total_repayment || 0) - totalPaid);
+
+        // NCA default interest: 3% per month on current outstanding balance
+        const DEFAULT_INTEREST_RATE = 0.03;
+        const defaultInterestMonthly = currentBalance * DEFAULT_INTEREST_RATE;
+
+        await supabaseService
+            .from('loan_applications')
+            .update({
+                status: 'IN_DEFAULT',
+                offer_details: {
+                    default_interest_rate: DEFAULT_INTEREST_RATE,
+                    default_balance: currentBalance,
+                    default_monthly_charge: defaultInterestMonthly,
+                    defaulted_at: new Date().toISOString(),
+                }
+            })
+            .eq('id', applicationId);
+
+        return res.json({
+            applicationId,
+            currentBalance,
+            defaultInterestRate: DEFAULT_INTEREST_RATE,
+            defaultInterestMonthly,
+            totalPaid,
+        });
+    } catch (err) {
+        console.error('[default-interest] error:', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
 
 // --- 8. Start Server ---
 app.listen(PORT, () => {
