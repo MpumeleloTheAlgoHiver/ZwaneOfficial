@@ -46,3 +46,28 @@ begin
       with check (true);
   end if;
 end $$;
+
+-- Optional extension: store full raw TruID products and extracted salary metadata.
+-- Safe to run multiple times.
+alter table public.truid_collections
+  add column if not exists raw_payload jsonb null,
+  add column if not exists income_payload jsonb null,
+  add column if not exists transactions_payload jsonb null,
+  add column if not exists salary_amount numeric(14,2) null,
+  add column if not exists salary_date date null,
+  add column if not exists salary_dates jsonb null;
+
+create index if not exists idx_truid_collections_salary_date
+  on public.truid_collections(salary_date);
+
+create index if not exists idx_truid_collections_salary_amount
+  on public.truid_collections(salary_amount);
+
+create index if not exists idx_truid_collections_raw_payload_gin
+  on public.truid_collections using gin (raw_payload);
+
+create index if not exists idx_truid_collections_income_payload_gin
+  on public.truid_collections using gin (income_payload);
+
+create index if not exists idx_truid_collections_transactions_payload_gin
+  on public.truid_collections using gin (transactions_payload);

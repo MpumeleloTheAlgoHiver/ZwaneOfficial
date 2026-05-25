@@ -48,18 +48,6 @@ function loadSavedAccounts() {
   return savedAccounts || [];
 }
 
-function normalizeDateForStorage(dateValue) {
-  if (!dateValue) {
-    return null;
-  }
-  const date = new Date(dateValue);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-  date.setUTCHours(0, 0, 0, 0);
-  return date.toISOString();
-}
-
 async function loadSavedAccountsFromDB(supabase, userId) {
   try {
     const { data, error } = await supabase
@@ -134,6 +122,245 @@ function formatCurrency(value) {
   return `R ${number.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
 }
 
+function escapeHtml(value = '') {
+  return `${value}`
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+async function ensurePdfLibraries() {
+  if (typeof window.jspdf !== 'undefined') return true;
+
+  return new Promise((resolve, reject) => {
+    const script1 = document.createElement('script');
+    script1.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    script1.onload = () => {
+      const script2 = document.createElement('script');
+      script2.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
+      script2.onload = () => resolve(true);
+      script2.onerror = () => reject(new Error('Unable to load PDF table library.'));
+      document.head.appendChild(script2);
+    };
+    script1.onerror = () => reject(new Error('Unable to load PDF library.'));
+    document.head.appendChild(script1);
+  });
+}
+
+function readImageDimensions(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve({
+      width: image.width || 1,
+      height: image.height || 1
+    });
+    image.onerror = () => reject(new Error('Unable to read signature image.'));
+    image.src = dataUrl;
+  });
+}
+
+async function buildCreditLifeContractPdfBlob(application, session, summary) {
+  const contract = pendingLoanConfig?.creditLifeContract || {};
+  const signedAt = contract.signedAt ? new Date(contract.signedAt).toLocaleString() : 'Not signed';
+  const applicantName = session?.user?.user_metadata?.full_name || session?.user?.email || 'Applicant';
+  const contractText = contract.contractText || 'No contract text stored.';
+  const loanSignature = pendingLoanConfig?.signature || null;
+  const creditLifeSignature = contract.signature || null;
+
+  await ensurePdfLibraries();
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'pt',
+    format: 'a4'
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 40;
+  let y = margin;
+
+  const ensureSpace = (needed = 40) => {
+    if (y + needed <= pageHeight - margin) return;
+    doc.addPage();
+    y = margin;
+  };
+
+  doc.setFillColor(255, 247, 237);
+  doc.rect(0, 0, pageWidth, 110, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(194, 65, 12);
+  doc.text('CREDIT LIFE CONTRACT', margin, y);
+  y += 24;
+  doc.setTextColor(17, 24, 39);
+  doc.setFontSize(22);
+  doc.text('Signed Contract Snapshot', margin, y);
+  y += 26;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(75, 85, 99);
+  doc.text(`Generated on ${new Date().toLocaleString()}`, margin, y);
+  y = 130;
+
+  const metaRows = [
+    ['Application ID', application.id],
+    ['Applicant', applicantName],
+    ['Signed At', signedAt],
+    ['Contract Version', contract.contractVersion || 'v1'],
+    ['Loan Amount', formatCurrency(pendingLoanConfig?.amount || 0)],
+    ['Credit Life Premium', formatCurrency(summary?.totalCreditLife || 0)]
+  ];
+
+  doc.autoTable({
+    startY: y,
+    theme: 'grid',
+    head: [['Field', 'Value']],
+    body: metaRows,
+    styles: {
+      font: 'helvetica',
+      fontSize: 10,
+      cellPadding: 8,
+      textColor: [31, 41, 55]
+    },
+    headStyles: {
+      fillColor: [234, 88, 12],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold'
+    },
+    alternateRowStyles: {
+      fillColor: [249, 250, 251]
+    },
+    margin: { left: margin, right: margin }
+  });
+
+  y = doc.lastAutoTable.finalY + 24;
+  ensureSpace(120);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(107, 114, 128);
+  doc.text('CONTRACT TEXT', margin, y);
+  y += 18;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+  doc.setTextColor(31, 41, 55);
+  const wrapped = doc.splitTextToSize(contractText, pageWidth - margin * 2);
+  wrapped.forEach((line) => {
+    ensureSpace(18);
+    doc.text(line, margin, y);
+    y += 16;
+  });
+
+  const addSignatureBlock = async (title, dataUrl) => {
+    ensureSpace(220);
+    doc.setDrawColor(229, 231, 235);
+    doc.setFillColor(249, 250, 251);
+    doc.roundedRect(margin, y, pageWidth - margin * 2, 190, 12, 12, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(107, 114, 128);
+    doc.text(title.toUpperCase(), margin + 16, y + 24);
+
+    if (dataUrl) {
+      const dims = await readImageDimensions(dataUrl);
+      const maxWidth = pageWidth - margin * 2 - 32;
+      const maxHeight = 130;
+      const ratio = Math.min(maxWidth / dims.width, maxHeight / dims.height);
+      const width = dims.width * ratio;
+      const height = dims.height * ratio;
+      const x = margin + 16 + ((maxWidth - width) / 2);
+      const imageY = y + 38 + ((maxHeight - height) / 2);
+      doc.addImage(dataUrl, 'PNG', x, imageY, width, height, undefined, 'FAST');
+      doc.setDrawColor(209, 213, 219);
+      doc.rect(margin + 16, y + 38, maxWidth, maxHeight);
+    } else {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(11);
+      doc.setTextColor(156, 163, 175);
+      doc.text('No signature captured', margin + 16, y + 98);
+      doc.setDrawColor(209, 213, 219);
+      doc.rect(margin + 16, y + 38, pageWidth - margin * 2 - 32, 130);
+    }
+
+    y += 210;
+  };
+
+  await addSignatureBlock('Loan Signature', loanSignature);
+  await addSignatureBlock('Credit Life Signature', creditLifeSignature);
+
+  return doc.output('blob');
+}
+
+async function uploadCreditLifeContractArtifact(supabase, session, application, summary) {
+  if (!pendingLoanConfig?.hasCreditLifeInsurance || !pendingLoanConfig?.creditLifeContract?.accepted) {
+    return null;
+  }
+
+  const fileName = `credit-life-contract-${application.id}.pdf`;
+  const storagePath = `${session.user.id}/credit-life/${application.id}/${fileName}`;
+  const pdfBlob = await buildCreditLifeContractPdfBlob(application, session, summary);
+  const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
+
+  const { error: uploadError } = await supabase.storage
+    .from('documents')
+    .upload(storagePath, file, {
+      contentType: 'application/pdf',
+      cacheControl: '3600',
+      upsert: true
+    });
+
+  if (uploadError) {
+    throw new Error(`Failed to upload Credit Life contract: ${uploadError.message}`);
+  }
+
+  const { data: urlData } = supabase.storage.from('documents').getPublicUrl(storagePath);
+  const publicUrl = urlData?.publicUrl || null;
+
+  const documentRow = {
+    user_id: session.user.id,
+    application_id: application.id,
+    file_name: fileName,
+    original_name: fileName,
+    file_type: 'credit_life_contract',
+    file_path: publicUrl || storagePath,
+    mime_type: 'application/pdf',
+    file_size: file.size,
+    status: 'uploaded'
+  };
+
+  const { data: existingDoc } = await supabase
+    .from('document_uploads')
+    .select('id')
+    .eq('user_id', session.user.id)
+    .eq('application_id', application.id)
+    .eq('file_type', 'credit_life_contract')
+    .maybeSingle();
+
+  if (existingDoc?.id) {
+    const { error: docUpdateError } = await supabase
+      .from('document_uploads')
+      .update(documentRow)
+      .eq('id', existingDoc.id);
+    if (docUpdateError) {
+      throw new Error(`Failed to save Credit Life document record: ${docUpdateError.message}`);
+    }
+  } else {
+    const { error: docInsertError } = await supabase
+      .from('document_uploads')
+      .insert(documentRow);
+    if (docInsertError) {
+      throw new Error(`Failed to save Credit Life document record: ${docInsertError.message}`);
+    }
+  }
+
+  return {
+    fileName,
+    filePath: publicUrl || storagePath
+  };
+}
+
 function formatPeriod(period) {
   const months = Number(period) || 0;
   return months ? `${months} month${months > 1 ? 's' : ''}` : '--';
@@ -175,7 +402,7 @@ function renderLoanSummary() {
   setText('summaryLoanPeriod', formatPeriod(pendingLoanConfig.period));
   setText('summaryMonthlyPayment', formatCurrency(summary.monthlyPayment));
   setText('summaryTotalRepayment', formatCurrency(summary.totalRepayment));
-  setText('summaryFirstDebit', formatDate(pendingLoanConfig.startDate));
+  setText('summaryFirstDebit', 'Set by admin after review');
 
   const signatureChip = document.getElementById('signatureStatus');
   if (signatureChip) {
@@ -395,7 +622,6 @@ async function handleBankFormSubmit() {
     }
 
     const summary = ensureLoanSummary(pendingLoanConfig);
-    const firstPaymentDateIso = normalizeDateForStorage(pendingLoanConfig.startDate);
     
     // Step 1: Save or retrieve bank account from database
     let bankAccountId = null;
@@ -464,6 +690,8 @@ async function handleBankFormSubmit() {
       offer_total_interest: Number(summary?.totalInterest) || 0,
       offer_total_admin_fees: Number(summary?.totalMonthlyFees) || 0,
       offer_total_initiation_fees: Number(summary?.totalInitiationFees) || 0,
+      offer_credit_life_monthly: Number(summary?.creditLifeMonthly) || 0,
+      offer_credit_life_total: Number(summary?.totalCreditLife) || 0,
       offer_monthly_repayment: Number(summary?.monthlyPayment) || 0,
       offer_total_repayment: Number(summary?.totalRepayment) || 0
     };
@@ -488,14 +716,23 @@ async function handleBankFormSubmit() {
             purpose: 'Personal Loan',
             status: 'STARTED',
             bank_account_id: bankAccountId,
-            repayment_start_date: firstPaymentDateIso,
+            has_credit_life_insurance: Boolean(pendingLoanConfig?.hasCreditLifeInsurance),
             ...offerFields,
             offer_details: {
               interest_rate: pendingLoanConfig.interestRate,
               total_interest: summary?.totalInterest,
               total_repayment: summary?.totalRepayment,
               monthly_payment: summary?.monthlyPayment,
-              first_payment_date: firstPaymentDateIso,
+              credit_life_enabled: Boolean(pendingLoanConfig?.hasCreditLifeInsurance),
+              credit_life_rate: 0.0045,
+              credit_life_total: Number(summary?.totalCreditLife) || 0,
+              credit_life_monthly: Number(summary?.creditLifeMonthly) || 0,
+              credit_life_contract_signed: Boolean(pendingLoanConfig?.creditLifeContract?.accepted),
+              credit_life_signed_at: pendingLoanConfig?.creditLifeContract?.signedAt || null,
+              credit_life_signature_data: pendingLoanConfig?.creditLifeContract?.signature || null,
+              credit_life_contract_version: pendingLoanConfig?.creditLifeContract?.contractVersion || 'v1',
+              credit_life_contract_text: pendingLoanConfig?.creditLifeContract?.contractText || null,
+              first_payment_date: null,
               signature_data: pendingLoanConfig.signature
             }
           })
@@ -527,14 +764,23 @@ async function handleBankFormSubmit() {
         purpose: 'Personal Loan',
         status: 'STARTED',
         bank_account_id: bankAccountId,
-        repayment_start_date: firstPaymentDateIso,
+        has_credit_life_insurance: Boolean(pendingLoanConfig?.hasCreditLifeInsurance),
         ...offerFields,
         offer_details: {
           interest_rate: pendingLoanConfig.interestRate,
           total_interest: summary?.totalInterest,
           total_repayment: summary?.totalRepayment,
           monthly_payment: summary?.monthlyPayment,
-          first_payment_date: firstPaymentDateIso,
+          credit_life_enabled: Boolean(pendingLoanConfig?.hasCreditLifeInsurance),
+          credit_life_rate: 0.0045,
+          credit_life_total: Number(summary?.totalCreditLife) || 0,
+          credit_life_monthly: Number(summary?.creditLifeMonthly) || 0,
+          credit_life_contract_signed: Boolean(pendingLoanConfig?.creditLifeContract?.accepted),
+          credit_life_signed_at: pendingLoanConfig?.creditLifeContract?.signedAt || null,
+          credit_life_signature_data: pendingLoanConfig?.creditLifeContract?.signature || null,
+          credit_life_contract_version: pendingLoanConfig?.creditLifeContract?.contractVersion || 'v1',
+          credit_life_contract_text: pendingLoanConfig?.creditLifeContract?.contractText || null,
+          first_payment_date: null,
           signature_data: pendingLoanConfig.signature
         }
       };
@@ -550,6 +796,33 @@ async function handleBankFormSubmit() {
       }
       
       newApplication = createdApp;
+    }
+
+    const creditLifeArtifact = await uploadCreditLifeContractArtifact(supabase, session, newApplication, summary);
+    if (creditLifeArtifact) {
+      const updatedOfferDetails = {
+        ...(newApplication.offer_details || {}),
+        credit_life_contract_file_name: creditLifeArtifact.fileName,
+        credit_life_contract_file_path: creditLifeArtifact.filePath
+      };
+
+      const { data: refreshedApp, error: artifactLinkError } = await supabase
+        .from('loan_applications')
+        .update({
+          offer_details: updatedOfferDetails,
+          credit_life_contract_file_name: creditLifeArtifact.fileName,
+          credit_life_contract_file_path: creditLifeArtifact.filePath
+        })
+        .eq('id', newApplication.id)
+        .eq('user_id', session.user.id)
+        .select()
+        .single();
+
+      if (artifactLinkError) {
+        throw new Error(`Credit Life contract saved, but could not attach it to the application: ${artifactLinkError.message}`);
+      }
+
+      newApplication = refreshedApp;
     }
 
     sessionStorage.setItem('lastApplicationId', newApplication.id);

@@ -1,4 +1,6 @@
 // Module loading functions
+const PENDING_LOAN_KEY = 'pendingLoanConfig';
+
 window.loadLoanModule = function() {
   const moduleContainer = document.getElementById('module-container');
   const moduleContent = document.getElementById('module-content');
@@ -8,6 +10,7 @@ window.loadLoanModule = function() {
     .then(html => {
       moduleContent.innerHTML = html;
       moduleContainer.classList.remove('hidden');
+      hydrateLoanConfigFromPendingStorage();
       
       // Initialize after loading
       setTimeout(async () => {
@@ -15,7 +18,7 @@ window.loadLoanModule = function() {
         await fetchAffordabilityRatio();
         initializeLoanSlider();
         initializePeriodSlider();
-        initializeDatePicker();
+        initializeCreditLifeOption();
         initializeSignatureCanvas();
         calculateAndUpdateSummary();
       }, 100);
@@ -32,8 +35,15 @@ window.closeModule = function() {
 let loanConfig = {
   amount: 5000,
   period: 1,
-  startDate: null,
   interestRate: 0.20, // 20% annual simple interest
+  hasCreditLifeInsurance: false,
+  creditLifeContract: {
+    accepted: false,
+    signature: null,
+    signedAt: null,
+    contractVersion: 'v1',
+    contractText: ''
+  },
   signature: null,
   maxAllowedPeriod: 1, // Will be updated based on loan history
   completedOneMonthLoans: 0,
@@ -41,41 +51,35 @@ let loanConfig = {
   affordabilityRatio: null // Max monthly payment from financial profile
 };
 
-function parseDateInputValue(value) {
-  if (!value) return null;
-  const parts = value.split('-').map(Number);
-  if (parts.length !== 3 || parts.some((part) => Number.isNaN(part))) {
-    return null;
-  }
-  const [year, month, day] = parts;
-  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+function getDefaultCreditLifeContract() {
+  return {
+    accepted: false,
+    signature: null,
+    signedAt: null,
+    contractVersion: 'v1',
+    contractText: ''
+  };
 }
 
-function formatDateForInput(date) {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-    return '';
-  }
-  const working = new Date(date);
-  working.setUTCHours(0, 0, 0, 0);
-  return working.toISOString().split('T')[0];
-}
+function hydrateLoanConfigFromPendingStorage() {
+  try {
+    const raw = sessionStorage.getItem(PENDING_LOAN_KEY);
+    if (!raw) return;
 
-function toIsoDateMidnight(date) {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-    return null;
-  }
-  const normalized = new Date(date);
-  normalized.setUTCHours(0, 0, 0, 0);
-  return normalized.toISOString();
-}
+    const pending = JSON.parse(raw);
+    if (!pending || typeof pending !== 'object') return;
 
-function getConfiguredStartDate() {
-  const value = loanConfig.startDate;
-  if (!value) return null;
-  if (value instanceof Date) {
-    return value;
+    loanConfig.amount = Number(pending.amount) || loanConfig.amount;
+    loanConfig.period = Number(pending.period) || loanConfig.period;
+    loanConfig.signature = pending.signature || null;
+    loanConfig.hasCreditLifeInsurance = Boolean(pending.hasCreditLifeInsurance);
+    loanConfig.creditLifeContract = {
+      ...getDefaultCreditLifeContract(),
+      ...(pending.creditLifeContract || {})
+    };
+  } catch (error) {
+    console.warn('Unable to hydrate staged loan config:', error);
   }
-  return parseDateInputValue(value);
 }
 
 // Check user's loan history to determine max allowed period
@@ -205,10 +209,11 @@ function calculateMaxLoanAmount() {
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
+  hydrateLoanConfigFromPendingStorage();
   checkLoanHistory().then(() => {
     initializeLoanSlider();
     initializePeriodSlider();
-    initializeDatePicker();
+    initializeCreditLifeOption();
     initializeSignatureCanvas();
     calculateAndUpdateSummary();
   });
@@ -221,6 +226,7 @@ function initializeLoanSlider() {
   const errorText = document.getElementById('amountErrorText');
 
   if (!input) return;
+  input.value = loanConfig.amount;
 
   function validateAmount(amount) {
     errorDiv.classList.remove('show');
@@ -279,6 +285,11 @@ function initializePeriodSlider() {
   const lockMessage = document.getElementById('periodLockMessage');
 
   if (!slider || !periodDisplay) return;
+  slider.value = loanConfig.period;
+  periodDisplay.textContent = loanConfig.period;
+  if (periodPlural) {
+    periodPlural.textContent = loanConfig.period > 1 ? 's' : '';
+  }
 
   // Show lock message if period is restricted
   if (loanConfig.maxAllowedPeriod < 24 && lockMessage) {
@@ -326,91 +337,253 @@ function initializePeriodSlider() {
   slider.max = loanConfig.maxAllowedPeriod;
 }
 
-// Date Picker Initialization
-function initializeDatePicker() {
-  const dateInput = document.getElementById('startDate');
-  if (!dateInput) return;
-  const icon = document.querySelector('.date-input-icon');
+let suppressCreditLifeCheckboxHandler = false;
+let creditLifeModal = null;
+let creditLifeCanvas = null;
+let creditLifeCtx = null;
+let creditLifeDrawing = false;
 
-  // Set minimum date to today
-  const today = new Date();
-  today.setHours(12, 0, 0, 0);
-  dateInput.min = formatDateForInput(today);
+function initializeCreditLifeOption() {
+  const checkbox = document.getElementById('creditLifeCheckbox');
+  const status = document.getElementById('creditLifeContractStatus');
+  if (!checkbox) return;
 
-  const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-  lastDayOfMonth.setHours(12, 0, 0, 0);
-  dateInput.max = formatDateForInput(lastDayOfMonth);
+  initializeCreditLifeContractModal();
+  checkbox.checked = Boolean(loanConfig.hasCreditLifeInsurance);
+  checkbox.addEventListener('change', () => {
+    if (suppressCreditLifeCheckboxHandler) return;
 
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  const defaultValue = tomorrow.getMonth() !== today.getMonth()
-    ? formatDateForInput(lastDayOfMonth)
-    : formatDateForInput(tomorrow);
-
-  dateInput.value = defaultValue;
-  loanConfig.startDate = parseDateInputValue(defaultValue);
-
-  dateInput.addEventListener('change', (e) => {
-    loanConfig.startDate = parseDateInputValue(e.target.value);
-  });
-
-  if (icon && !icon.dataset.pickerBound) {
-    icon.addEventListener('click', () => {
-      if (dateInput.showPicker) {
-        dateInput.showPicker();
-      } else {
-        dateInput.focus();
-        // Fallback: trigger click to open native picker on some browsers
-        dateInput.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    if (checkbox.checked) {
+      if (hasSignedCreditLifeContract()) {
+        loanConfig.hasCreditLifeInsurance = true;
+        calculateAndUpdateSummary();
+        return;
       }
-    });
-    icon.dataset.pickerBound = 'true';
+
+      suppressCreditLifeCheckboxHandler = true;
+      checkbox.checked = false;
+      suppressCreditLifeCheckboxHandler = false;
+      openCreditLifeContractModal();
+      return;
+    }
+
+    loanConfig.hasCreditLifeInsurance = checkbox.checked;
+    resetCreditLifeContractState();
+    if (status) {
+      status.style.display = 'none';
+    }
+    calculateAndUpdateSummary();
+  });
+}
+
+function initializeCreditLifeContractModal() {
+  creditLifeModal = document.getElementById('creditLifeContractModal');
+  creditLifeCanvas = document.getElementById('creditLifeSignatureCanvas');
+  if (!creditLifeCanvas) return;
+
+  creditLifeCtx = creditLifeCanvas.getContext('2d');
+  resizeCreditLifeCanvas();
+  window.addEventListener('resize', resizeCreditLifeCanvas);
+
+  creditLifeCtx.strokeStyle = '#111827';
+  creditLifeCtx.lineWidth = 2.5;
+  creditLifeCtx.lineCap = 'round';
+  creditLifeCtx.lineJoin = 'round';
+
+  creditLifeCanvas.addEventListener('mousedown', startCreditLifeDrawing);
+  creditLifeCanvas.addEventListener('mousemove', drawCreditLifeSignature);
+  creditLifeCanvas.addEventListener('mouseup', stopCreditLifeDrawing);
+  creditLifeCanvas.addEventListener('mouseout', stopCreditLifeDrawing);
+  creditLifeCanvas.addEventListener('touchstart', handleCreditLifeTouchStart, { passive: false });
+  creditLifeCanvas.addEventListener('touchmove', handleCreditLifeTouchMove, { passive: false });
+  creditLifeCanvas.addEventListener('touchend', stopCreditLifeDrawing);
+
+  if (!loanConfig.creditLifeContract.contractText) {
+    loanConfig.creditLifeContract.contractText = captureCreditLifeContractText();
+  }
+  updateCreditLifeContractStatus();
+}
+
+function captureCreditLifeContractText() {
+  const contractText = document.getElementById('creditLifeContractText');
+  return contractText ? contractText.innerText.trim() : '';
+}
+
+function hasSignedCreditLifeContract() {
+  return Boolean(
+    loanConfig.creditLifeContract?.accepted &&
+    loanConfig.creditLifeContract?.signature
+  );
+}
+
+function resetCreditLifeContractState() {
+  loanConfig.creditLifeContract = {
+    ...getDefaultCreditLifeContract(),
+    contractText: captureCreditLifeContractText() || loanConfig.creditLifeContract?.contractText || ''
+  };
+  loanConfig.hasCreditLifeInsurance = false;
+  updateCreditLifeContractStatus();
+  if (creditLifeCtx && creditLifeCanvas) {
+    creditLifeCtx.clearRect(0, 0, creditLifeCanvas.width, creditLifeCanvas.height);
   }
 }
+
+function resizeCreditLifeCanvas() {
+  if (!creditLifeCanvas || !creditLifeCtx) return;
+  const rect = creditLifeCanvas.getBoundingClientRect();
+  creditLifeCanvas.width = rect.width;
+  creditLifeCanvas.height = rect.height;
+
+  if (loanConfig.creditLifeContract?.signature) {
+    const img = new Image();
+    img.onload = () => creditLifeCtx.drawImage(img, 0, 0);
+    img.src = loanConfig.creditLifeContract.signature;
+  }
+}
+
+function startCreditLifeDrawing(event) {
+  if (!creditLifeCanvas || !creditLifeCtx) return;
+  creditLifeDrawing = true;
+  const rect = creditLifeCanvas.getBoundingClientRect();
+  creditLifeCtx.beginPath();
+  creditLifeCtx.moveTo(event.clientX - rect.left, event.clientY - rect.top);
+}
+
+function drawCreditLifeSignature(event) {
+  if (!creditLifeDrawing || !creditLifeCanvas || !creditLifeCtx) return;
+  const rect = creditLifeCanvas.getBoundingClientRect();
+  creditLifeCtx.lineTo(event.clientX - rect.left, event.clientY - rect.top);
+  creditLifeCtx.stroke();
+}
+
+function stopCreditLifeDrawing() {
+  if (!creditLifeDrawing || !creditLifeCanvas) return;
+  creditLifeDrawing = false;
+  loanConfig.creditLifeContract.signature = creditLifeCanvas.toDataURL();
+  updateCreditLifeContractStatus();
+}
+
+function handleCreditLifeTouchStart(event) {
+  event.preventDefault();
+  const touch = event.touches[0];
+  startCreditLifeDrawing(touch);
+}
+
+function handleCreditLifeTouchMove(event) {
+  event.preventDefault();
+  if (!creditLifeDrawing) return;
+  const touch = event.touches[0];
+  drawCreditLifeSignature(touch);
+}
+
+function updateCreditLifeContractStatus() {
+  const summaryToggle = document.getElementById('summaryCreditLifeToggle');
+  const status = document.getElementById('creditLifeContractStatus');
+  const meta = document.getElementById('creditLifeSignatureMeta');
+  const signedAt = loanConfig.creditLifeContract?.signedAt
+    ? new Date(loanConfig.creditLifeContract.signedAt).toLocaleString()
+    : '';
+
+  if (meta) {
+    meta.textContent = loanConfig.creditLifeContract?.signature
+      ? 'Signature captured. Accept to keep Credit Life selected.'
+      : 'Sign in the box to accept this contract.';
+  }
+
+  if (status) {
+    if (hasSignedCreditLifeContract()) {
+      status.style.display = 'block';
+      status.textContent = signedAt
+        ? `Credit Life contract signed on ${signedAt}.`
+        : 'Credit Life contract signed.';
+    } else {
+      status.style.display = 'none';
+    }
+  }
+
+  if (summaryToggle && loanConfig.hasCreditLifeInsurance && hasSignedCreditLifeContract()) {
+    summaryToggle.textContent = summaryToggle.textContent.replace('Included', 'Included and signed');
+  }
+}
+
+function openCreditLifeContractModal() {
+  if (!creditLifeModal) return;
+  creditLifeModal.style.display = 'block';
+  document.body.style.overflow = 'hidden';
+  requestAnimationFrame(() => {
+    resizeCreditLifeCanvas();
+    updateCreditLifeContractStatus();
+  });
+}
+
+window.closeCreditLifeContractModal = function(keepSelection = false) {
+  if (creditLifeModal) {
+    creditLifeModal.style.display = 'none';
+  }
+  document.body.style.overflow = '';
+
+  if (!keepSelection) {
+    suppressCreditLifeCheckboxHandler = true;
+    const checkbox = document.getElementById('creditLifeCheckbox');
+    if (checkbox) checkbox.checked = false;
+    suppressCreditLifeCheckboxHandler = false;
+    resetCreditLifeContractState();
+    calculateAndUpdateSummary();
+  }
+};
+
+window.clearCreditLifeSignature = function() {
+  if (!creditLifeCtx || !creditLifeCanvas) return;
+  creditLifeCtx.clearRect(0, 0, creditLifeCanvas.width, creditLifeCanvas.height);
+  loanConfig.creditLifeContract.signature = null;
+  loanConfig.creditLifeContract.accepted = false;
+  loanConfig.creditLifeContract.signedAt = null;
+  updateCreditLifeContractStatus();
+};
+
+window.acceptCreditLifeContract = function() {
+  if (!loanConfig.creditLifeContract?.signature) {
+    if (typeof showToast === 'function') {
+      showToast('Signature Required', 'Please sign the Credit Life contract before continuing.', 'warning', 3000);
+    } else {
+      alert('Please sign the Credit Life contract before continuing.');
+    }
+    return;
+  }
+
+  loanConfig.creditLifeContract = {
+    ...loanConfig.creditLifeContract,
+    accepted: true,
+    signedAt: new Date().toISOString(),
+    contractText: captureCreditLifeContractText() || loanConfig.creditLifeContract.contractText,
+    contractVersion: loanConfig.creditLifeContract.contractVersion || 'v1'
+  };
+  loanConfig.hasCreditLifeInsurance = true;
+
+  suppressCreditLifeCheckboxHandler = true;
+  const checkbox = document.getElementById('creditLifeCheckbox');
+  if (checkbox) checkbox.checked = true;
+  suppressCreditLifeCheckboxHandler = false;
+
+  updateCreditLifeContractStatus();
+  calculateAndUpdateSummary();
+  window.closeCreditLifeContractModal(true);
+
+  if (typeof showToast === 'function') {
+    showToast('Credit Life Added', 'The signed Credit Life contract has been attached to this application.', 'success', 3500);
+  }
+};
 
 function getLoanSummary() {
   // Normalize core inputs to avoid zero/NaN edge cases before math
   const amount = Math.max(0, Number(loanConfig.amount) || 0);
   const period = Math.max(1, Number(loanConfig.period) || 1);
   const interestRate = Number(loanConfig.interestRate) || 0;
-  const MONTHLY_FEE = 60; // R60 admin fee per 30-day period
+  const MONTHLY_FEE = 60; // R60 admin fee per month
   const INITIATION_FEE_RATE = 0.15; // 15% of loan amount per month
-  const DAYS_PER_MONTH = 30; // Standard 30-day month for calculations
-  
-  // Calculate prorated admin fee based on repayment schedule
-  let totalMonthlyFees = 0;
-  
-  const configuredStartDate = getConfiguredStartDate();
-  if (configuredStartDate) {
-    // Calculate days from loan start to first payment date
-    const start = new Date();
-    start.setHours(12, 0, 0, 0);
-    const paymentDate = new Date(configuredStartDate);
-    paymentDate.setHours(12, 0, 0, 0);
-    
-    // Calculate actual days between today and payment date
-    const daysUntilPayment = Math.max(1, Math.ceil((paymentDate - start) / (1000 * 60 * 60 * 24)));
-    
-    // Prorate the first month's admin fee: (days used / 30 days) * R60
-    const proratedDays = Math.min(daysUntilPayment, DAYS_PER_MONTH);
-    const firstMonthFee = (MONTHLY_FEE / DAYS_PER_MONTH) * proratedDays;
-    
-    // For multi-month loans, add full fees for remaining months
-    const remainingMonthsFees = period > 1 ? MONTHLY_FEE * (period - 1) : 0;
-    totalMonthlyFees = firstMonthFee + remainingMonthsFees;
-    
-    console.log(`📊 Admin fee prorated: First month ${proratedDays} days @ R${(MONTHLY_FEE / DAYS_PER_MONTH).toFixed(2)}/day = R${firstMonthFee.toFixed(2)}${period > 1 ? ` + ${period - 1} months @ R60 = R${totalMonthlyFees.toFixed(2)}` : ''}`);
-  } else {
-    // If no start date, charge full monthly fee per month
-    totalMonthlyFees = MONTHLY_FEE * period;
-  }
-  
-  // NOTE: Admin fee charging logic:
-  // - First payment period: Fee is prorated based on days from loan disbursement to payment date
-  // - Example: 15 days until first payment = (15/30) × R60 = R30
-  // - Subsequent months: Full R60 fee charged per month
-  // - Early repayment will trigger recalculation and refund of unused fees
+  const CREDIT_LIFE_RATE = 0.0045; // 0.45% of loan amount
+  // Admin fee charged per month (repayment date is scheduled by admin after review)
+  const totalMonthlyFees = MONTHLY_FEE * period;
   
   // Simple interest calculation: I = P × R × T
   // Total interest = principal × annual rate × (months / 12)
@@ -421,11 +594,15 @@ function getLoanSummary() {
   
   // Total initiation fees (charged every month)
   const totalInitiationFees = initiationFeePerMonth * period;
+
+  // Optional Credit Life insurance (Aspis)
+  const totalCreditLife = loanConfig.hasCreditLifeInsurance
+    ? amount * CREDIT_LIFE_RATE
+    : 0;
+  const creditLifeMonthly = totalCreditLife / period;
   
   // Combined total fees
-  const totalFees = totalMonthlyFees + totalInitiationFees;
-  const totalCreditLife = 0;
-  const creditLifeMonthly = 0;
+  const totalFees = totalMonthlyFees + totalInitiationFees + totalCreditLife;
   const combinedFees = totalFees;
   
   // Total repayment = principal + total interest + all fees
@@ -454,7 +631,6 @@ function getLoanSummary() {
 
 // Calculate Interest and Update Summary
 function calculateAndUpdateSummary() {
-  const configuredStartDate = getConfiguredStartDate();
   const summary = getLoanSummary();
 
   document.getElementById('summaryAmount').textContent = `R ${formatCurrency(loanConfig.amount)}`;
@@ -462,44 +638,17 @@ function calculateAndUpdateSummary() {
   document.getElementById('summaryPeriod').textContent = `${loanConfig.period} Month${loanConfig.period > 1 ? 's' : ''}`;
   document.getElementById('summaryInterest').textContent = `R ${formatCurrency(summary.totalInterest)}`;
   
-  // Update admin fee display with proration notice
+  // Update admin fee display
   const summaryFeeElement = document.getElementById('summaryFee');
   if (summaryFeeElement) {
     summaryFeeElement.textContent = `R ${formatCurrency(summary.totalMonthlyFees)}`;
-    
-    // Add proration notice for all loans with start date
-    if (configuredStartDate) {
-      const start = new Date();
-      start.setHours(12, 0, 0, 0);
-      const paymentDate = new Date(configuredStartDate);
-      paymentDate.setHours(12, 0, 0, 0);
-      const daysUntilPayment = Math.max(1, Math.ceil((paymentDate - start) / (1000 * 60 * 60 * 24)));
-      const proratedDays = Math.min(daysUntilPayment, 30);
-      
-      // Update the label to show prorated calculation
-      const labelElement = summaryFeeElement.previousElementSibling;
-      if (labelElement && labelElement.classList.contains('summary-label')) {
-        if (loanConfig.period === 1) {
-          labelElement.innerHTML = `
-            Total Admin Fees (${proratedDays} days @ R2/day)
-            <i class="fas fa-info-circle" style="color: var(--color-primary); font-size: 0.8rem; margin-left: 4px;" title="Prorated based on ${proratedDays} days until first payment"></i>
-          `;
-        } else {
-          labelElement.innerHTML = `
-            Total Admin Fees (1st: ${proratedDays} days, then R60/month)
-            <i class="fas fa-info-circle" style="color: var(--color-primary); font-size: 0.8rem; margin-left: 4px;" title="First payment prorated for ${proratedDays} days, then R60 per month"></i>
-          `;
-        }
-      }
-    } else {
-      // Reset to standard label when no start date
-      const labelElement = summaryFeeElement.previousElementSibling;
-      if (labelElement && labelElement.classList.contains('summary-label')) {
-        labelElement.innerHTML = `
-          Total Admin Fees (R60/month)
-          <i class="fas fa-info-circle" style="color: var(--color-primary); font-size: 0.8rem; margin-left: 4px;" title="R60 per month"></i>
-        `;
-      }
+
+    const labelElement = summaryFeeElement.previousElementSibling;
+    if (labelElement && labelElement.classList.contains('summary-label')) {
+      labelElement.innerHTML = `
+        Total Admin Fees (R60/month)
+        <i class="fas fa-info-circle" style="color: var(--color-primary); font-size: 0.8rem; margin-left: 4px;" title="R60 per month"></i>
+      `;
     }
   }
   
@@ -507,6 +656,18 @@ function calculateAndUpdateSummary() {
   const initiationFeeElement = document.getElementById('summaryInitiationFee');
   if (initiationFeeElement) {
     initiationFeeElement.textContent = `R ${formatCurrency(summary.totalInitiationFees)}`;
+  }
+
+  const creditLifeElement = document.getElementById('summaryCreditLife');
+  if (creditLifeElement) {
+    creditLifeElement.textContent = `R ${formatCurrency(summary.totalCreditLife)}`;
+  }
+
+  const creditLifeToggleElement = document.getElementById('summaryCreditLifeToggle');
+  if (creditLifeToggleElement) {
+    creditLifeToggleElement.textContent = loanConfig.hasCreditLifeInsurance
+      ? `${hasSignedCreditLifeContract() ? 'Included and signed' : 'Included'} (+R ${formatCurrency(summary.totalCreditLife)})`
+      : 'Not included';
   }
 
   document.getElementById('summaryMonthly').textContent = `R ${formatCurrency(summary.monthlyPayment)}`;
@@ -609,7 +770,6 @@ window.clearSignature = function() {
 window.prepareLoanApplication = function() {
   const submitBtn = document.getElementById('submitBtn');
   const termsCheckbox = document.getElementById('termsCheckbox');
-  const configuredStartDate = getConfiguredStartDate();
 
   if (!loanConfig.signature) {
     if (typeof showToast === 'function') {
@@ -629,12 +789,13 @@ window.prepareLoanApplication = function() {
     return;
   }
 
-  if (!configuredStartDate) {
+  if (loanConfig.hasCreditLifeInsurance && !hasSignedCreditLifeContract()) {
     if (typeof showToast === 'function') {
-      showToast('Date Required', 'Please select a first repayment date to continue.', 'warning', 3000);
+      showToast('Credit Life Signature Required', 'Please sign the Credit Life contract to keep that option selected.', 'warning', 3500);
     } else {
-      alert('⚠️ Please select a first repayment date');
+      alert('Please sign the Credit Life contract to keep that option selected.');
     }
+    openCreditLifeContractModal();
     return;
   }
 
@@ -644,12 +805,18 @@ window.prepareLoanApplication = function() {
   }
 
   const summary = getLoanSummary();
-  const firstPaymentDateIso = configuredStartDate ? toIsoDateMidnight(configuredStartDate) : null;
   const pendingLoanPayload = {
     amount: loanConfig.amount,
     period: loanConfig.period,
-    startDate: firstPaymentDateIso,
     interestRate: loanConfig.interestRate,
+    hasCreditLifeInsurance: Boolean(loanConfig.hasCreditLifeInsurance),
+    creditLifeContract: {
+      accepted: Boolean(loanConfig.creditLifeContract?.accepted),
+      signature: loanConfig.creditLifeContract?.signature || null,
+      signedAt: loanConfig.creditLifeContract?.signedAt || null,
+      contractVersion: loanConfig.creditLifeContract?.contractVersion || 'v1',
+      contractText: loanConfig.creditLifeContract?.contractText || captureCreditLifeContractText()
+    },
     signature: loanConfig.signature,
     summary,
     offer_principal: Number(loanConfig.amount) || 0,
@@ -657,6 +824,8 @@ window.prepareLoanApplication = function() {
     offer_total_interest: Number(summary.totalInterest) || 0,
     offer_total_admin_fees: Number(summary.totalMonthlyFees) || 0,
     offer_total_initiation_fees: Number(summary.totalInitiationFees) || 0,
+    offer_credit_life_monthly: Number(summary.creditLifeMonthly) || 0,
+    offer_credit_life_total: Number(summary.totalCreditLife) || 0,
     offer_monthly_repayment: Number(summary.monthlyPayment) || 0,
     offer_total_repayment: Number(summary.totalRepayment) || 0,
     stagedAt: new Date().toISOString()
