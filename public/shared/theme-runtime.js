@@ -1,28 +1,28 @@
-const DEFAULT_AUTH_OVERLAY_COLOR = '#EA580C';
+const DEFAULT_AUTH_OVERLAY_COLOR = '#7C3AED';
 
-const DEFAULT_COMPANY_NAME = 'Your Company';
+const DEFAULT_COMPANY_NAME = 'AlgoLend';
 
 const DEFAULT_CAROUSEL_SLIDES = [
   {
-    title: 'A Leap to\nFinancial Freedom',
-    text: 'We offer credit of up to R200,000, with repayment terms extending up to a maximum of 36 months.'
+    title: 'End-to-End\nCredit Management',
+    text: 'A fully branded digital lending platform, built around your credit policy and client journey.'
   },
   {
-    title: 'Flexible Repayments',
-    text: "Repayment terms are tailored to each client's cash flow, risk profile, and agreed-upon conditions."
+    title: 'Built for Business Lending',
+    text: 'Purpose-built underwriting, compliance, and portfolio management for corporate credit providers.'
   },
   {
-    title: 'Save on Interest',
-    text: 'Our interest rates and fees are highly competitive, ensuring great value for our clients.'
+    title: 'White-Label Ready',
+    text: 'Deploy under your brand with your colors, your workflows, and your risk appetite — in weeks, not years.'
   }
 ];
 
 const DEFAULT_SYSTEM_SETTINGS = {
   id: 'global',
   company_name: DEFAULT_COMPANY_NAME,
-  primary_color: '#E7762E',
-  secondary_color: '#F97316',
-  tertiary_color: '#FACC15',
+  primary_color: '#7C3AED',
+  secondary_color: '#1A1F36',
+  tertiary_color: '#A78BFA',
   theme_mode: 'light',
   company_logo_url: null,
   auth_background_url: null,
@@ -138,7 +138,7 @@ const applyDocumentBranding = (companyName) => {
   if (!safeName) return;
   const currentTitle = document.title || '';
   if (!currentTitle) return;
-  const nextTitle = currentTitle.replace(/zwane/gi, safeName);
+  const nextTitle = currentTitle.replace(/algolend/gi, safeName);
   if (nextTitle !== currentTitle) {
     document.title = nextTitle;
   }

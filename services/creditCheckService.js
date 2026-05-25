@@ -3,17 +3,21 @@ const axios = require('axios');
 const xml2js = require('xml2js');
 const AdmZip = require('adm-zip');
 
-// Experian API Configuration
+// Experian API Configuration — credentials MUST be set as env vars, not in source
 const COMPANY_ORIGIN = process.env.COMPANY_NAME || 'YourCompany';
 
+if (!process.env.EXPERIAN_USERNAME || !process.env.EXPERIAN_PASSWORD) {
+    console.warn('[creditCheckService] EXPERIAN_USERNAME / EXPERIAN_PASSWORD not set in env — credit checks will fail');
+}
+
 const EXPERIAN_CONFIG = {
-    url: 'https://apis.experian.co.za/NormalSearchService', // Experian South Africa SOAP endpoint, dont forget to put these in env
-    username: '32389-api',
-    password: '9N=v@ZQapik1',
+    url: process.env.EXPERIAN_API_URL || 'https://apis.experian.co.za/NormalSearchService',
+    username: process.env.EXPERIAN_USERNAME || '',
+    password: process.env.EXPERIAN_PASSWORD || '',
     version: '1.0',
     origin: COMPANY_ORIGIN,
     origin_version: '0.0.1',
-    testMode: false // Disabled - using real Experian API
+    testMode: process.env.EXPERIAN_TEST_MODE === 'true'
 };
 
 /**

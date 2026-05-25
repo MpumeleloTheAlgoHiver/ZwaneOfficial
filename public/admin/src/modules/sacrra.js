@@ -25,13 +25,13 @@ const sacrraState = {
 
 export async function init(container) {
     container.innerHTML = `
-        <div id="sacrra-portal" class="flex min-h-screen bg-[#fff8f6] font-sans text-slate-800">
+        <div id="sacrra-portal" class="flex min-h-screen bg-[#f5f3ff] font-sans text-slate-800">
             <aside id="sacrra-sidebar" class="fixed left-0 top-0 h-full w-[280px] z-40 bg-white border-r border-slate-200 shadow-[20px_0_40px_rgba(0,0,0,0.02)] flex flex-col py-8">
                 <div class="px-8 mb-10">
-                    <img src="/admin/assets/zfs-logo.png" alt="Zwane Financial Services" class="h-16 w-auto object-contain mb-2">
+                    <img src="/shared/algolend-logo.svg" alt="AlgoLend" class="h-12 w-auto object-contain mb-2">
                     <div class="flex items-center gap-2 px-1">
-                        <span class="w-2 h-2 rounded-full bg-[#a04100]"></span>
-                        <p class="text-[10px] font-black text-[#a04100] uppercase tracking-[0.2em]">Compliance Engine</p>
+                        <span class="w-2 h-2 rounded-full bg-[#7C3AED]"></span>
+                        <p class="text-[10px] font-black text-[#7C3AED] uppercase tracking-[0.2em]">Compliance Engine</p>
                     </div>
                 </div>
 
@@ -204,7 +204,9 @@ async function fetchData() {
         sacrraState.members = (membersRes.data || []).map(m => ({
             ...m,
             isValidId: validateSAID(m.f10_id_number),
-            matchKey: (m.f02_supplier_ref?.trim() || '') + (m.f40_account_number?.trim() || '')
+            // Match key = SRN (6 chars) + Account Number — used for bureau rejection linking
+            matchKey: (m.f02_supplier_ref?.trim() || '').slice(0, 6).padEnd(6, ' ')
+                    + (m.f40_account_number || m.internal_id || '').replace(/\s/g, '')
         }));
         
         sacrraState.submissions = historyRes.data || [];
@@ -218,9 +220,9 @@ async function fetchData() {
             activeIssues: issues.toString(),
             totalRecords: total.toString(),
             bureauAcceptance: {
-                experian: sacrraState.submissions.some(s => s.status === 'ACCEPTED') ? 'VERIFIED' : 'PENDING',
+                experian:   sacrraState.submissions.some(s => s.status === 'ACCEPTED') ? 'VERIFIED' : 'PENDING',
                 transunion: 'PENDING',
-                xds: 'PENDING'
+                xds:        'PENDING'
             }
         };
     } catch (e) {
@@ -254,7 +256,7 @@ function renderView() {
                     <span class="material-symbols-outlined fill-1">account_balance</span>
                 </div>
                 <div>
-                    <h1 class="text-sm font-black text-slate-900 uppercase tracking-tighter">Zwane Official</h1>
+                    <h1 class="text-sm font-black text-slate-900 uppercase tracking-tighter">AlgoLend</h1>
                     <p class="text-[9px] font-bold text-orange-600 uppercase tracking-widest">Compliance Engine</p>
                 </div>
             </div>
@@ -288,41 +290,86 @@ function renderNavItem(view, icon, label) {
 }
 
 function renderOverview(container) {
+    const total  = Number(sacrraState.stats.totalRecords) || 0;
+    const issues = Number(sacrraState.stats.activeIssues) || 0;
+    const clean  = total - issues;
+    const scorePct = total > 0 ? Math.round((clean / total) * 100) : 100;
+    // SVG donut: r=54 → circumference = 2π×54 ≈ 339.3
+    const CIRC = 339.3;
+    const dash = (scorePct / 100) * CIRC;
+
     container.innerHTML = `
         <div class="grid grid-cols-12 gap-8 mb-10">
-            <div class="col-span-12 lg:col-span-4 bg-gradient-to-br from-[#a04100] to-[#6a2b00] p-8 rounded-[32px] shadow-2xl shadow-orange-900/20 text-white relative overflow-hidden group">
-                <p class="text-white/70 font-bold uppercase tracking-widest text-[10px] mb-4">Compliance Score</p>
-                <h3 class="text-6xl font-black mb-2">${sacrraState.stats.score}</h3>
-                <div class="flex items-center gap-2 text-white/80 text-sm font-bold">
-                    <span class="material-symbols-outlined text-sm">check_circle</span>
-                    Institutional Schema Verified
-                </div>
-            </div>
-            
-            <div class="col-span-12 md:col-span-6 lg:col-span-4 bg-white p-8 rounded-[32px] border border-slate-200/60 shadow-sm">
-                <div class="flex justify-between items-start mb-6">
-                    <div class="w-12 h-12 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center">
-                        <span class="material-symbols-outlined">warning</span>
+
+            <!-- Compliance score ring -->
+            <div class="col-span-12 lg:col-span-4 bg-gradient-to-br from-[#a04100] to-[#6a2b00] p-8 rounded-[32px] shadow-2xl shadow-orange-900/20 text-white relative overflow-hidden">
+                <p class="text-white/70 font-bold uppercase tracking-widest text-[10px] mb-6">Compliance Score</p>
+                <div class="flex items-center gap-6">
+                    <div class="relative w-32 h-32 shrink-0">
+                        <svg viewBox="0 0 120 120" class="w-full h-full -rotate-90">
+                            <circle cx="60" cy="60" r="54" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="10"/>
+                            <circle id="score-ring" cx="60" cy="60" r="54" fill="none"
+                                stroke="white" stroke-width="10"
+                                stroke-linecap="round"
+                                stroke-dasharray="${CIRC}"
+                                stroke-dashoffset="${CIRC}"
+                                style="transition: stroke-dashoffset 1.4s cubic-bezier(0.22,1,0.36,1)"/>
+                        </svg>
+                        <div class="absolute inset-0 flex flex-col items-center justify-center">
+                            <span id="score-pct" class="text-2xl font-black text-white">0%</span>
+                        </div>
                     </div>
-                    <span class="text-[10px] font-black uppercase tracking-widest text-slate-400">Bureau Health</span>
-                </div>
-                <div class="space-y-3">
-                    ${renderBureauStatus('Experian', sacrraState.stats.bureauAcceptance.experian)}
-                    ${renderBureauStatus('TransUnion', sacrraState.stats.bureauAcceptance.transunion)}
+                    <div>
+                        <div class="text-white/70 text-xs font-bold uppercase tracking-widest mb-1">Clean records</div>
+                        <div id="count-clean" class="text-4xl font-black">0</div>
+                        <div class="text-white/60 text-xs mt-2">${issues} issue${issues !== 1 ? 's' : ''} detected</div>
+                        <div class="flex items-center gap-2 text-white/80 text-xs font-bold mt-3">
+                            <span class="material-symbols-outlined text-sm">verified</span>
+                            Layout 700v2 · v2.8
+                        </div>
+                    </div>
                 </div>
             </div>
 
+            <!-- Bureau health bars -->
+            <div class="col-span-12 md:col-span-6 lg:col-span-4 bg-white p-8 rounded-[32px] border border-slate-200/60 shadow-sm">
+                <div class="flex justify-between items-start mb-6">
+                    <div class="w-12 h-12 bg-orange-50 text-[#a04100] rounded-2xl flex items-center justify-center">
+                        <span class="material-symbols-outlined">account_balance</span>
+                    </div>
+                    <span class="text-[10px] font-black uppercase tracking-widest text-slate-400">Bureau Health</span>
+                </div>
+                <div class="space-y-5">
+                    ${renderBureauStatus('Experian',   sacrraState.stats.bureauAcceptance.experian,   scorePct)}
+                    ${renderBureauStatus('TransUnion', sacrraState.stats.bureauAcceptance.transunion, scorePct)}
+                    ${renderBureauStatus('XDS',        sacrraState.stats.bureauAcceptance.xds,        scorePct)}
+                </div>
+            </div>
+
+            <!-- Live records count-up -->
             <div class="col-span-12 md:col-span-6 lg:col-span-4 bg-white p-8 rounded-[32px] border border-slate-200/60 shadow-sm flex flex-col justify-between">
                 <div>
                     <div class="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-6">
                         <span class="material-symbols-outlined">database</span>
                     </div>
                     <p class="text-slate-400 font-bold uppercase tracking-widest text-[10px] mb-1">Live Records</p>
-                    <h3 class="text-4xl font-black text-slate-900">${sacrraState.stats.totalRecords}</h3>
+                    <h3 id="count-total" class="text-5xl font-black text-slate-900">0</h3>
                 </div>
-                <p class="text-xs font-bold text-blue-500 mt-4 bg-blue-50 px-3 py-1 rounded-full w-fit">Production Ready</p>
+                <div class="mt-6">
+                    <div class="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
+                        <span>Clean</span><span>Issues</span>
+                    </div>
+                    <div class="h-3 bg-slate-100 rounded-full overflow-hidden">
+                        <div id="split-bar" class="h-full bg-emerald-400 rounded-full"
+                             style="width:0%; transition: width 1.2s cubic-bezier(0.22,1,0.36,1)"></div>
+                    </div>
+                    <div class="flex justify-between text-[10px] font-bold text-slate-500 mt-1">
+                        <span>${clean}</span><span>${issues}</span>
+                    </div>
+                </div>
             </div>
         </div>
+
         <div id="sacrra-issue-workspace" class="bg-white rounded-[32px] border border-slate-100 shadow-sm overflow-hidden">
             <div class="px-8 py-8 border-b border-slate-50 flex justify-between items-center">
                 <div>
@@ -333,17 +380,63 @@ function renderOverview(container) {
             <div id="issue-list-container"></div>
         </div>
     `;
+
     renderIssueList();
+
+    // Animate after paint
+    requestAnimationFrame(() => setTimeout(() => {
+        // Ring
+        const ring = document.getElementById('score-ring');
+        if (ring) ring.style.strokeDashoffset = String(CIRC - dash);
+
+        // Score % count-up
+        animateCount('score-pct', 0, scorePct, 1400, v => v + '%');
+
+        // Clean records count-up
+        animateCount('count-clean', 0, clean, 1400);
+
+        // Total count-up
+        animateCount('count-total', 0, total, 1200);
+
+        // Split bar
+        const bar = document.getElementById('split-bar');
+        if (bar) bar.style.width = (total > 0 ? (clean / total) * 100 : 100) + '%';
+
+        // Bureau bar animations (staggered)
+        document.querySelectorAll('.bureau-bar-fill').forEach((el, i) => {
+            setTimeout(() => { el.style.width = el.dataset.target; }, i * 150);
+        });
+    }, 60));
 }
 
-function renderBureauStatus(name, status) {
+function animateCount(id, from, to, duration, fmt = v => String(v)) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const start = performance.now();
+    function step(now) {
+        const t = Math.min((now - start) / duration, 1);
+        const ease = 1 - Math.pow(1 - t, 4);
+        el.textContent = fmt(Math.round(from + (to - from) * ease));
+        if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+}
+
+function renderBureauStatus(name, status, scorePct = 0) {
     const isVerified = status === 'VERIFIED';
+    const barPct = isVerified ? scorePct : Math.round(scorePct * 0.6);
+    const barColor = isVerified ? 'bg-emerald-400' : 'bg-slate-200';
+    const textColor = isVerified ? 'text-emerald-600' : 'text-slate-400';
     return `
-        <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-slate-600">${name}</span>
-            <div class="flex items-center gap-2">
-                <span class="text-[9px] font-black uppercase tracking-widest ${isVerified ? 'text-emerald-600' : 'text-slate-400'}">${status}</span>
-                <span class="w-2 h-2 rounded-full ${isVerified ? 'bg-emerald-500' : 'bg-slate-200'}"></span>
+        <div>
+            <div class="flex items-center justify-between mb-1.5">
+                <span class="text-xs font-bold text-slate-700">${name}</span>
+                <span class="text-[9px] font-black uppercase tracking-widest ${textColor}">${status}</span>
+            </div>
+            <div class="h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div class="bureau-bar-fill h-full ${barColor} rounded-full"
+                     data-target="${barPct}%"
+                     style="width:0%; transition: width 1s cubic-bezier(0.22,1,0.36,1)"></div>
             </div>
         </div>
     `;
@@ -353,13 +446,23 @@ function renderIssueList() {
     const container = document.getElementById('issue-list-container');
     if (!container) return;
     
-    // DETECT DEEP COMPLIANCE ISSUES
+    // DETECT DEEP COMPLIANCE ISSUES (Layout 700v2)
     const issues = sacrraState.members.filter(m => {
         m.issues = [];
-        if (!m.isValidId) m.issues.push('ID_LUHN_FAIL');
-        if (!m.f13_address_1.trim()) m.issues.push('MISSING_ADDRESS');
-        if (!m.f35_employer.trim()) m.issues.push('MISSING_EMPLOYER');
-        if (!m.f10_id_number.trim()) m.issues.push('EMPTY_IDENTITY');
+        if (!m.isValidId)                                       m.issues.push('ID_LUHN_FAIL');
+        if (!m.f10_id_number?.trim())                           m.issues.push('EMPTY_IDENTITY');
+        if (!m.f06_surname?.trim())                             m.issues.push('MISSING_SURNAME');
+        if (!m.f07_first_names?.trim())                         m.issues.push('MISSING_FIRST_NAME');
+        if (!m.f13_address_1?.trim())                           m.issues.push('MISSING_ADDRESS');
+        if (!m.f41_opening_balance || m.f41_opening_balance === '000000000000') m.issues.push('MISSING_OPENING_BALANCE');
+        if (!m.f43_date_opened || m.f43_date_opened === '00000000') m.issues.push('MISSING_DATE_OPENED');
+        // Status code '00' and 'X' are invalid in v2.8
+        const sc = (m.f50_status_code || '').trim();
+        if (!VALID_STATUS_CODES.has(sc))                        m.issues.push(`INVALID_STATUS_CODE:${sc || 'BLANK'}`);
+        // Account number must exist and have no spaces
+        const acct = (m.f40_account_number || '').trim();
+        if (!acct)                                              m.issues.push('MISSING_ACCOUNT_NUMBER');
+        else if (/\s/.test(acct))                               m.issues.push('ACCOUNT_NUMBER_HAS_SPACES');
         return m.issues.length > 0;
     });
     
@@ -615,74 +718,116 @@ function renderExportModalUI() {
     });
 }
 
+// Valid Layout 700v2 status codes — '00' and 'X' were removed in v2.8
+const VALID_STATUS_CODES = new Set(['C','D','E','I','J','L','P','T','V','W','Z']);
+
+function pad(val, len, char = ' ') {
+    return String(val || '').slice(0, len).padEnd(len, char);
+}
+function zeroPad(val, len) {
+    return String(val || '').slice(0, len).padStart(len, '0');
+}
+
 window.generateSacrraFile = async () => {
     if (sacrraState.members.length === 0) return alert("No data found.");
-    
-    const settings = sacrraState.exportSettings;
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const fileName = `SACRRA_${settings.type}_${dateStr}.txt`;
-    
-    // Header Record (H)
-    let fileContent = `H${dateStr}${'ZWANEFINANCE'.padEnd(20)}${'700V2'.padEnd(10)}${''.padEnd(659)}\n`;
 
-    // Data Records (D) - SURGICAL SAMPLE ALIGNMENT
+    // Pre-flight validation — block file generation if critical errors exist
+    const invalidStatus = sacrraState.members.filter(m => !VALID_STATUS_CODES.has((m.f50_status_code || '').trim()));
+    const invalidId     = sacrraState.members.filter(m => !m.isValidId);
+    if (invalidStatus.length > 0 || invalidId.length > 0) {
+        const msg = [];
+        if (invalidId.length)     msg.push(`${invalidId.length} records with invalid SA ID (Luhn fail)`);
+        if (invalidStatus.length) msg.push(`${invalidStatus.length} records with invalid status code`);
+        if (!confirm(`⚠️ Compliance issues detected:\n• ${msg.join('\n• ')}\n\nThese records will likely be rejected by the bureaux. Generate file anyway?`)) return;
+    }
+
+    const settings  = sacrraState.exportSettings;
+    const now       = new Date();
+    // Month-end date = last day of current month
+    const lastDay   = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const monthEnd  = lastDay.toISOString().slice(0, 10).replace(/-/g, '');
+    const dateStr   = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const fileName  = `SACRRA_${settings.type}_${dateStr}.txt`;
+
+    // SRN: 2 letters + 4 digits (6 chars) — from system_settings.provider_branch_code
+    const srn = (sacrraState.members[0]?.f02_supplier_ref || 'AL0001').trim().slice(0, 6).padEnd(6, ' ');
+
+    // ── Header Record ─────────────────────────────────────────────────
+    // Pos 1:    Record type = 'H'
+    // Pos 2–7:  SRN (6 chars)
+    // Pos 8–15: Month-end date CCYYMMDD
+    // Pos 16–19: Layout version 'L702'
+    // Pos 20–700: Spaces
+    let fileContent = ('H' + srn + monthEnd + 'L702').padEnd(700, ' ') + '\n';
+
+    // ── Data Records ──────────────────────────────────────────────────
     sacrraState.members.forEach(m => {
-        let line = settings.type === 'DAILY' ? settings.prefix : (m.f01_record_type || 'R'); 
-        line += (m.f10_id_number || "").slice(0, 15).padEnd(15, " "); // Pos 2
-        line += "".padEnd(15, " "); // SILENCE
-        line += (m.f11_gender || "M").slice(0, 1).padEnd(1, " "); // Pos 32
-        line += (m.f12_date_of_birth || "19000101").slice(0, 8).padEnd(8, " "); // Pos 33
-        line += (m.f02_supplier_ref || "CS06626").slice(0, 15).padEnd(15, " "); // Pos 41
-        line += (m.f40_match_index || "60").slice(0, 30).padEnd(30, " "); // Pos 56
-        line += (m.f06_surname || "").toUpperCase().slice(0, 30).padEnd(30, " "); // Pos 86
-        line += (m.f08_title || "MR").slice(0, 5).padEnd(5, " "); // Pos 116
-        line += (m.f07_first_names || "").toUpperCase().slice(0, 30).padEnd(30, " "); // Pos 121
-        line += (m.f09_middle_names || "").toUpperCase().slice(0, 15).padEnd(15, " "); // NEW: Middle
-        
-        // ADDRESS & EMPLOYMENT BLOCK
-        line += (m.f13_address_1 || "").slice(0, 30).padEnd(30, " ");
-        line += (m.f14_address_2 || "").slice(0, 30).padEnd(30, " ");
-        line += (m.f15_city || "").slice(0, 30).padEnd(30, " ");
-        line += (m.f16_province || "").slice(0, 30).padEnd(30, " ");
-        line += (m.f17_postal || "").slice(0, 10).padEnd(10, " ");
-        line += (m.f35_employer || "").slice(0, 50).padEnd(50, " ");
-        line += (m.f36_occupation || "").slice(0, 30).padEnd(30, " ");
+        const recordType = settings.type === 'DAILY' ? settings.prefix : (m.f01_record_type || 'R');
+        const statusCode = (m.f50_status_code || 'L').trim().slice(0, 1);
+        const accountNo  = (m.f40_account_number || m.internal_id || '').replace(/\s/g, '');
 
-        // LIFECYCLE BLOCK
-        line += "00O ".padEnd(4, " ");
-        line += "00M ".padEnd(4, " ");
-        line += (m.f43_date_opened || "20230302").slice(0, 8).padEnd(8, " ");
-        line += (m.f44_current_balance || "000000000000").slice(0, 12).padEnd(12, " ");
-        line += (m.f45_installment || "000000000000").slice(0, 12).padEnd(12, " ");
-        line += (m.f49_arrears_amount || "000000000000").slice(0, 12).padEnd(12, " ");
-        line += (m.f50_status_code || "00").slice(0, 2).padEnd(2, " ");
+        // Positive status codes (C, E, P, T) → financial fields zero out
+        const isPositive = ['C', 'E', 'P', 'T'].includes(statusCode);
+        const balance    = isPositive ? '000000000000' : pad(m.f44_current_balance, 12, '0');
+        const instalment = isPositive ? '000000000000' : pad(m.f45_installment, 12, '0');
+        const arrears    = isPositive ? '000000000000' : pad(m.f49_arrears_amount, 12, '0');
+        const mthsArr    = isPositive ? '00' : zeroPad(m.f53_months_in_arrears, 2);
 
-        // CONTACT MATRIX
-        line += (m.f31_mobile || "").slice(0, 15).padEnd(15, " ");
-        line += (m.f32_work || "").slice(0, 15).padEnd(15, " ");
-        
-        fileContent += line.padEnd(700, " ").slice(0, 700) + "\n";
+        let line = '';
+        line += recordType.slice(0, 1);                                   // 1:   Record type
+        line += pad(accountNo, 20);                                        // 2–21: Account number
+        line += pad(m.f02_supplier_ref, 6);                                // 22–27: SRN
+        line += pad(m.f03_account_type || 'M', 1);                         // 28:   Account type
+        line += statusCode;                                                // 29:   Status code
+        line += pad(m.f51_status_date || dateStr, 8);                      // 30–37: Status date
+        line += pad(m.f43_date_opened || '00000000', 8);                   // 38–45: Date opened
+        line += pad(m.f41_opening_balance || '000000000000', 12);          // 46–57: Opening balance
+        line += balance;                                                   // 58–69: Current balance
+        line += instalment;                                                // 70–81: Instalment
+        line += arrears;                                                   // 82–93: Arrears
+        line += mthsArr;                                                   // 94–95: Months in arrears
+        line += pad(m.f46_first_payment_date || '00000000', 8);            // 96–103: First payment date
+        line += pad(m.f10_id_number, 13);                                  // 104–116: SA ID
+        line += '  ';                                                      // 117–118: Non-SA ID type (blank)
+        line += pad('', 20);                                               // 119–138: Non-SA ID number
+        line += (m.f11_gender || 'M').slice(0, 1);                         // 139:  Gender
+        line += pad(m.f12_date_of_birth || '00000000', 8);                 // 140–147: DOB
+        line += pad(m.f08_title || 'MR', 5);                               // 148–152: Title
+        line += pad((m.f06_surname || '').toUpperCase(), 30);              // 153–182: Surname
+        line += pad((m.f07_first_names || '').toUpperCase(), 30);          // 183–212: First names
+        line += pad((m.f09_middle_names || '').toUpperCase(), 15);         // 213–227: Middle names
+        line += pad(m.f13_address_1, 30);                                  // 228–257: Address 1
+        line += pad(m.f14_address_2, 30);                                  // 258–287: Address 2
+        line += pad(m.f15_city, 30);                                       // 288–317: City
+        line += pad(m.f16_province, 30);                                   // 318–347: Province
+        line += pad(m.f17_postal, 10);                                     // 348–357: Postal code
+        line += pad(m.f31_mobile, 15);                                     // 358–372: Mobile
+        line += pad(m.f32_work, 15);                                       // 373–387: Work phone
+        line += pad(m.f35_employer, 50);                                   // 388–437: Employer
+        line += pad(m.f36_occupation, 30);                                 // 438–467: Occupation
+
+        fileContent += line.padEnd(700, ' ').slice(0, 700) + '\n';
     });
 
-    // Trailer Record (T)
-    const trailerCount = sacrraState.members.length.toString().padStart(10, '0');
-    fileContent += `T${trailerCount}${''.padEnd(689)}\n`;
+    // ── Trailer Record ────────────────────────────────────────────────
+    // Pos 1: 'T', Pos 2–11: zero-padded record count, Pos 12–700: spaces
+    fileContent += ('T' + zeroPad(sacrraState.members.length, 10)).padEnd(700, ' ') + '\n';
 
-    // Log to Database
+    // Log submission
     await supabase.from('sacrra_submissions').insert([{
-        file_name: fileName,
+        file_name:       fileName,
         submission_type: settings.type,
-        record_count: sacrraState.members.length,
-        status: 'PENDING'
+        record_count:    sacrraState.members.length,
+        status:          'PENDING'
     }]);
 
     const blob = new Blob([fileContent], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
+    const url  = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = url;
+    link.href  = url;
     link.download = fileName;
     link.click();
-    
+
     window.hideExportModal();
     setTimeout(() => window.refreshSacrraData(), 1000);
 };

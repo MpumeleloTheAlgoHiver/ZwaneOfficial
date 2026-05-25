@@ -812,6 +812,41 @@ async function renderSystemSettingsTab() {
             </section>
 
             <section class="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                <h4 class="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Company Legal Details</h4>
+                <p class="text-xs text-gray-400 mb-4">These details appear in loan contracts and NCA disclosures generated via DocuSeal.</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">NCR Registration Number</label>
+                        <input type="text" id="ncr-number-input" value="${escapeHtmlAttr(systemSettingsDraft.ncr_number || '')}" class="w-full border-gray-300 rounded-lg p-2.5 text-sm focus:ring-orange-500 focus:border-orange-500" placeholder="NCRCP12345">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Company Registration Number</label>
+                        <input type="text" id="company-reg-input" value="${escapeHtmlAttr(systemSettingsDraft.company_reg_number || '')}" class="w-full border-gray-300 rounded-lg p-2.5 text-sm focus:ring-orange-500 focus:border-orange-500" placeholder="2023/123456/07">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">VAT Number</label>
+                        <input type="text" id="company-vat-input" value="${escapeHtmlAttr(systemSettingsDraft.company_vat_number || '')}" class="w-full border-gray-300 rounded-lg p-2.5 text-sm focus:ring-orange-500 focus:border-orange-500" placeholder="4012345678">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Branch Code (for contracts)</label>
+                        <input type="text" id="provider-branch-code-input" value="${escapeHtmlAttr(systemSettingsDraft.provider_branch_code || '')}" class="w-full border-gray-300 rounded-lg p-2.5 text-sm focus:ring-orange-500 focus:border-orange-500" placeholder="ZFS">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Company Phone</label>
+                        <input type="text" id="company-phone-input" value="${escapeHtmlAttr(systemSettingsDraft.company_phone || '')}" class="w-full border-gray-300 rounded-lg p-2.5 text-sm focus:ring-orange-500 focus:border-orange-500" placeholder="0691195046">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Physical Address</label>
+                        <input type="text" id="company-physical-address-input" value="${escapeHtmlAttr(systemSettingsDraft.company_physical_address || '')}" class="w-full border-gray-300 rounded-lg p-2.5 text-sm focus:ring-orange-500 focus:border-orange-500" placeholder="123 Main Street, Johannesburg, 2001">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Postal Address</label>
+                        <input type="text" id="company-postal-address-input" value="${escapeHtmlAttr(systemSettingsDraft.company_postal_address || '')}" class="w-full border-gray-300 rounded-lg p-2.5 text-sm focus:ring-orange-500 focus:border-orange-500" placeholder="PO Box 1234, Johannesburg, 2001">
+                    </div>
+                </div>
+            </section>
+
+            <section class="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
                 <h4 class="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Theme Colors</h4>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     ${COLOR_FIELDS.map(f => `
@@ -899,6 +934,13 @@ async function renderSystemSettingsTab() {
     });
 
     document.getElementById('company-name-input')?.addEventListener('input', (e) => commitThemeDraft({ company_name: e.target.value }));
+    document.getElementById('ncr-number-input')?.addEventListener('input', (e) => commitThemeDraft({ ncr_number: e.target.value }));
+    document.getElementById('company-reg-input')?.addEventListener('input', (e) => commitThemeDraft({ company_reg_number: e.target.value }));
+    document.getElementById('company-vat-input')?.addEventListener('input', (e) => commitThemeDraft({ company_vat_number: e.target.value }));
+    document.getElementById('provider-branch-code-input')?.addEventListener('input', (e) => commitThemeDraft({ provider_branch_code: e.target.value }));
+    document.getElementById('company-phone-input')?.addEventListener('input', (e) => commitThemeDraft({ company_phone: e.target.value }));
+    document.getElementById('company-physical-address-input')?.addEventListener('input', (e) => commitThemeDraft({ company_physical_address: e.target.value }));
+    document.getElementById('company-postal-address-input')?.addEventListener('input', (e) => commitThemeDraft({ company_postal_address: e.target.value }));
     document.getElementById('wallpaper-flip-toggle')?.addEventListener('change', (e) => commitThemeDraft({ auth_background_flip: e.target.checked }));
     document.getElementById('overlay-disable-toggle')?.addEventListener('change', (e) => commitThemeDraft({ auth_overlay_enabled: !e.target.checked }));
     document.getElementById('overlay-color-picker')?.addEventListener('input', (e) => {

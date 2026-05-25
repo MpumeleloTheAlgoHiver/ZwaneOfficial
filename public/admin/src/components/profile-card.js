@@ -23,7 +23,7 @@ export function renderProfileCard(profile, options = {}) {
     return `
         <div class="bg-white rounded-[32px] border border-slate-200/60 shadow-sm overflow-hidden relative group transition-all hover:shadow-xl hover:shadow-slate-200/40 ${className}">
             <!-- Brand Accent -->
-            <div class="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#a04100] to-[#6a2b00]"></div>
+            <div class="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#7C3AED] to-[#5B21B6]"></div>
             
             <div class="p-8">
                 <div class="flex items-start justify-between mb-8">
@@ -72,7 +72,7 @@ export function renderProfileCard(profile, options = {}) {
                 ${showActions ? `
                 <div class="mt-8 pt-8 border-t border-slate-50 flex gap-3">
                     <button onclick="window.openUserDetail('${profile.id}')" class="flex-1 py-3 bg-slate-900 text-white rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg shadow-slate-900/20 hover:bg-black transition-all">View Details</button>
-                    <button class="w-12 h-12 flex items-center justify-center border border-slate-200 rounded-xl text-slate-400 hover:text-[#a04100] hover:border-[#a04100] transition-all">
+                    <button class="w-12 h-12 flex items-center justify-center border border-slate-200 rounded-xl text-slate-400 hover:text-[#7C3AED] hover:border-[#7C3AED] transition-all">
                         <span class="material-symbols-outlined">edit</span>
                     </button>
                 </div>

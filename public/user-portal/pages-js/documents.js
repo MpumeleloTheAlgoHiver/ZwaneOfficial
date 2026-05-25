@@ -687,9 +687,9 @@ window.downloadStatement = async function() {
         const uidShort = session?.user?.id ? session.user.id.substring(0, 6).toUpperCase() : '000000';
 
         doc.setFontSize(24);
-        doc.setTextColor(231, 118, 46);
+        doc.setTextColor(124, 58, 237);
         doc.setFont("helvetica", "bold");
-        doc.text("Zwane Financial Services", 14, 22);
+        doc.text("AlgoLend", 14, 22);
         
         doc.setFontSize(16);
         doc.setTextColor(28, 28, 30);
@@ -735,7 +735,7 @@ window.downloadStatement = async function() {
             }
         });
 
-        doc.save(`Zwane Financial Services_Statement_${uidShort}.pdf`);
+        doc.save(`AlgoLend_Statement_${uidShort}.pdf`);
 
     } catch (error) {
         console.error("Error generating PDF:", error);

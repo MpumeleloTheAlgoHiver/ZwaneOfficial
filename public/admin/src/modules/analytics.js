@@ -242,6 +242,7 @@ function processData(searchTerm = '') {
 
     if (appState.exportPeriod !== 'all') {
         data = data.filter(row => {
+            if (!row || !row.month) return false;
             const [year, month] = row.month.split('-').map(Number);
             const rowDate = new Date(year, month - 1, 1);
             if (appState.exportPeriod === 'current_month') return rowDate.getMonth() === now.getMonth() && rowDate.getFullYear() === now.getFullYear();
@@ -263,10 +264,11 @@ function processData(searchTerm = '') {
         data = data.filter(row => getArrearsValue(row) > 0);
     }
 
+    data = data.filter(row => row && row.month);
     data.sort((a, b) => {
         switch (appState.sortMode) {
-            case 'month_desc': return b.month.localeCompare(a.month);
-            case 'month_asc':  return a.month.localeCompare(b.month);
+            case 'month_desc': return (b.month || '').localeCompare(a.month || '');
+            case 'month_asc':  return (a.month || '').localeCompare(b.month || '');
             case 'amount_desc': return getPrincipalValue(b) - getPrincipalValue(a);
             case 'amount_asc':  return getPrincipalValue(a) - getPrincipalValue(b);
             default: return 0;

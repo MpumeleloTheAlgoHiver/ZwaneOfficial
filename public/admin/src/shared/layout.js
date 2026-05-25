@@ -4,7 +4,7 @@ import { ensureThemeLoaded, getCompanyName, DEFAULT_SYSTEM_SETTINGS } from './th
 const appShell = document.getElementById('app-shell');
 let userProfile = null;
 let userRole = 'borrower';
-const DEFAULT_BRAND_LOGO = 'https://static.wixstatic.com/media/f82622_cde1fbd5680141c5b0fccca81fb92ad6~mv2.png';
+const DEFAULT_BRAND_LOGO = '/shared/algolend-logo.svg';
 
 const escapeAttr = (value = '') => {
   if (!value) return '';
@@ -134,6 +134,7 @@ function renderAppShell(profile, role, theme = null) {
 
       <div class="p-4 border-t border-gray-200 bg-gray-200/50">
         <button id="sign-out-btn" class="sign-out-btn flex items-center w-full p-3 rounded-xl border border-transparent transition-all group hover:bg-brand-accent hover:shadow-lg">
+
            <div class="w-8 h-8 rounded-full bg-white flex items-center justify-center text-xs text-gray-700 font-bold mr-3 shadow-sm">
               ${displayName.charAt(0)}
            </div>
@@ -143,6 +144,7 @@ function renderAppShell(profile, role, theme = null) {
            </div>
           <i class="fa-solid fa-arrow-right-from-bracket text-gray-400 transition-colors group-hover:text-white"></i>
         </button>
+        <p class="text-center text-[10px] text-gray-400 mt-3 tracking-wide">Powered by <strong class="text-gray-500">Mint Platforms</strong></p>
       </div>
     </div>
     

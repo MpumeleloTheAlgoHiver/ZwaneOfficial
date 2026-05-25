@@ -338,35 +338,50 @@ function updateDashboardStats(data) {
 async function handleBulkDisburse() {
     if (selectedPayoutIds.size === 0) return;
 
-    if (!confirm(`Are you sure you want to mark ${selectedPayoutIds.size} items as DISBURSED and download the CSV?`)) return;
+    if (!confirm(`Are you sure you want to mark ${selectedPayoutIds.size} items as DISBURSED and download the Capitec CSV?`)) return;
 
     const selectedItems = allPayouts.filter(p => selectedPayoutIds.has(p.id));
-    
-    // 1. Download CSV first (safeguard)
-    downloadCSV(selectedItems);
+    const applicationIds = selectedItems.map(p => p.application_id).filter(Boolean);
 
     const btn = document.getElementById('btn-bulk-disburse');
     const originalText = btn.innerHTML;
-    btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Processing...`;
+    btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Generating CSV...`;
     btn.disabled = true;
 
     try {
-        // 2. Process updates sequentially
-        for (const payout of selectedItems) {
-            await approvePayout(payout.id); 
-            await updateApplicationStatus(payout.application_id, 'DISBURSED');
+        // Single server call — generates Capitec CSV + marks DISBURSED atomically
+        const res = await fetch('/api/payouts/capitec-csv', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ applicationIds, markDisbursed: true })
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+            throw new Error(err.error || `Server error ${res.status}`);
         }
-        
-        alert("Disbursement processed successfully!");
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `capitec_payout_${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        alert(`${selectedItems.length} payout(s) marked as DISBURSED and CSV downloaded.`);
         selectedPayoutIds.clear();
-        await loadData(); // Reload data to refresh list
+        await loadData();
 
     } catch (error) {
-        console.error(error);
-        alert("Some updates failed. Please refresh and check.");
+        console.error('Capitec CSV error:', error);
+        alert(`CSV generation failed: ${error.message}`);
         await loadData();
     } finally {
         btn.innerHTML = originalText;
+        btn.disabled = false;
     }
 }
 

@@ -262,6 +262,62 @@ export async function fetchPayouts() {
   return supabase.from('payouts').select('*, profile:user_id(full_name, email), application:loan_applications(status, branch_id, bank_account:bank_account_id(*))').order('created_at', { ascending: false });
 }
 
+export async function approvePayout(payoutId) {
+    const { data, error } = await supabase.from('payouts').update({ status: 'APPROVED', approved_at: new Date().toISOString() }).eq('id', payoutId).select().single();
+    return { data, error: error ? error.message : null };
+}
+
+export async function createPayout(applicationId, payoutData = {}) {
+    const { data, error } = await supabase.from('payouts').insert([{ application_id: applicationId, status: 'PENDING', ...payoutData }]).select().single();
+    return { data, error: error ? error.message : null };
+}
+
+export async function deletePayout(payoutId) {
+    const { error } = await supabase.from('payouts').delete().eq('id', payoutId);
+    return { error: error ? error.message : null };
+}
+
+export async function updateApplicationNotes(applicationId, notes) {
+    const { data, error } = await supabase.from('loan_applications').update({ notes }).eq('id', applicationId).select().single();
+    return { data, error: error ? error.message : null };
+}
+
+export async function fetchBranches() {
+    const { data, error } = await supabase.from('branches').select('*').order('name');
+    return { data: data || [], error: error ? error.message : null };
+}
+
+export async function claimClientProtocol(userId, branchId) {
+    const { data, error } = await supabase.from('profiles').update({ branch_id: branchId }).eq('id', userId).select().single();
+    return { data, error: error ? error.message : null };
+}
+
+export async function updateUserRole(userId, role) {
+    const { data, error } = await supabase.from('profiles').update({ role }).eq('id', userId).select().single();
+    return { data, error: error ? error.message : null };
+}
+
+export async function getPaymentMethods() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { data: [], error: 'Not authenticated' };
+    const { data, error } = await supabase.from('bank_accounts').select('*').eq('user_id', user.id);
+    return { data: data || [], error: error ? error.message : null };
+}
+
+export async function addPaymentMethod(methodData) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { data: null, error: 'Not authenticated' };
+    const { data, error } = await supabase.from('bank_accounts').insert([{ ...methodData, user_id: user.id }]).select().single();
+    return { data, error: error ? error.message : null };
+}
+
+export async function updateMyAvatar(avatarUrl) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { data: null, error: 'Not authenticated' };
+    const { data, error } = await supabase.from('profiles').update({ avatar_url: avatarUrl }).eq('id', user.id).select().single();
+    return { data, error: error ? error.message : null };
+}
+
 export async function updateMyProfile(profileData) {
   const { first, last } = splitFullName(profileData.full_name);
   return supabase.from('consumers').update({ first_name: first, surname: last, phone_mobile: profileData.contact_number }).eq('id', profileData.id);
@@ -443,6 +499,115 @@ export async function fetchAnalyticsData() {
 
     // ... Waterfall logic remains same but using friendly field names from the view ...
     return { data: loans, error: null }; // Simplified for now to ensure stability
+}
+
+export async function fetchMonthlyLoanPerformance() {
+    const { data, error } = await supabase
+        .from('loan_applications')
+        .select('created_at, offer_principal, offer_total_repayment, offer_monthly_repayment, status, term_months')
+        .order('created_at', { ascending: true });
+    if (error) return { data: [] };
+
+    const byMonth = {};
+    for (const row of data || []) {
+        const month = (row.created_at || '').slice(0, 7);
+        if (!month) continue;
+        if (!byMonth[month]) byMonth[month] = { month, originated: 0, disbursed: 0, repaid: 0, defaulted: 0, count: 0 };
+        byMonth[month].count++;
+        byMonth[month].originated += Number(row.offer_principal) || 0;
+        if (row.status === 'DISBURSED')   byMonth[month].disbursed  += Number(row.offer_principal) || 0;
+        if (row.status === 'REPAID')      byMonth[month].repaid     += Number(row.offer_total_repayment) || 0;
+        if (row.status === 'IN_DEFAULT')  byMonth[month].defaulted  += Number(row.offer_principal) || 0;
+    }
+    return { data: Object.values(byMonth) };
+}
+
+export async function fetchFinancialsData() {
+    const { data, error } = await supabase
+        .from('loan_applications')
+        .select('offer_principal, offer_total_repayment, offer_monthly_repayment, offer_total_interest, offer_total_initiation_fees, offer_total_admin_fees, status')
+    if (error) return { data: {} };
+
+    const rows = data || [];
+    const sum = (field) => rows.reduce((a, r) => a + (Number(r[field]) || 0), 0);
+    const withStatus = (s) => rows.filter(r => r.status === s);
+
+    return {
+        data: {
+            total_book_value:    sum('offer_principal'),
+            total_repayments:    sum('offer_total_repayment'),
+            total_interest:      sum('offer_total_interest'),
+            total_fees:          sum('offer_total_admin_fees'),
+            total_initiation:    sum('offer_total_initiation_fees'),
+            disbursed_count:     withStatus('DISBURSED').length,
+            repaid_count:        withStatus('REPAID').length,
+            default_count:       withStatus('IN_DEFAULT').length,
+            total_count:         rows.length,
+        }
+    };
+}
+
+export async function fetchPortfolioAnalytics() {
+    const { data, error } = await supabase
+        .from('loan_applications')
+        .select('created_at, status, offer_principal, term_months, bureau_score_band')
+        .order('created_at', { ascending: true });
+    if (error) return { data: null };
+
+    const rows = data || [];
+    const statusCounts = rows.reduce((acc, r) => {
+        acc[r.status] = (acc[r.status] || 0) + 1;
+        return acc;
+    }, {});
+
+    const riskMatrix = Object.entries(
+        rows.reduce((acc, r) => {
+            const band = r.bureau_score_band || 'UNKNOWN';
+            if (!acc[band]) acc[band] = { band, count: 0, value: 0 };
+            acc[band].count++;
+            acc[band].value += Number(r.offer_principal) || 0;
+            return acc;
+        }, {})
+    ).map(([, v]) => v);
+
+    const vintage = rows.reduce((acc, r) => {
+        const month = (r.created_at || '').slice(0, 7);
+        if (!month) return acc;
+        if (!acc[month]) acc[month] = { month, total: 0, defaulted: 0 };
+        acc[month].total++;
+        if (r.status === 'IN_DEFAULT') acc[month].defaulted++;
+        return acc;
+    }, {});
+
+    return {
+        data: {
+            funnel:      statusCounts,
+            risk_matrix: riskMatrix,
+            vintage:     Object.values(vintage),
+        }
+    };
+}
+
+export async function fetchFinancialTrends() {
+    const { data, error } = await supabase
+        .from('loan_applications')
+        .select('created_at, offer_principal, offer_total_repayment, offer_monthly_repayment, status')
+        .order('created_at', { ascending: true });
+    if (error) return { data: [] };
+
+    // Aggregate by month: { month: 'YYYY-MM', disbursed, repayments, count }
+    const byMonth = {};
+    for (const row of data || []) {
+        const month = (row.created_at || '').slice(0, 7);
+        if (!month) continue;
+        if (!byMonth[month]) byMonth[month] = { month, disbursed: 0, repayments: 0, count: 0 };
+        byMonth[month].count++;
+        if (row.status === 'DISBURSED' || row.status === 'REPAID') {
+            byMonth[month].disbursed  += Number(row.offer_principal) || 0;
+            byMonth[month].repayments += Number(row.offer_total_repayment) || 0;
+        }
+    }
+    return { data: Object.values(byMonth) };
 }
 
 export const getCurrentAdminProfile = async () => {

@@ -1330,38 +1330,80 @@ function validateRepaymentDate(dateString) {
     return { valid: true };
 }
 
-function calculateLoanDetails(amount, period, startDate, historyCount) {
-    const MONTHLY_FEE = 60;           
-    const INITIATION_FEE_RATE = 0.15; // Fixed 15% per month
-    const DAYS_PER_MONTH = 30;
-    
-    // Tiered Interest: 20% for first 3 loans, 18% thereafter
-    let totalRate = (historyCount < 3) ? 0.20 : 0.18;
-    let interestPortion = totalRate - INITIATION_FEE_RATE; // 5% or 3%
+/**
+ * NCA-compliant loan calculation.
+ *
+ * Rules (South Africa, short-term credit):
+ *  - Interest:         5% per month on principal
+ *  - Initiation fee:   15% of principal — ONE-TIME (not per month)
+ *                      Waived for the borrower's first loan of the calendar year
+ *  - Service fee:      R69/month (capped NCA); prorated first month if startDate given
+ *  - Credit life (CPI):0.45% of principal per month
+ *  - VAT:              15% on (initiation fee + service fees); not on interest or CPI
+ *
+ * @param {number}  amount       Loan principal (ZAR)
+ * @param {number}  period       Loan term in months
+ * @param {string}  [startDate]  First repayment date ISO string (for proration)
+ * @param {number}  [historyCount]  Number of completed loans (used for first-of-year rule)
+ * @param {boolean} [isFirstLoanOfYear]  Override flag from server-side check
+ */
+function calculateLoanDetails(amount, period, startDate, historyCount = 0, isFirstLoanOfYear = false) {
+    const INTEREST_RATE_MONTHLY = 0.05;        // 5% per month (NCA max for short-term)
+    const INITIATION_FEE_RATE   = 0.15;        // 15% of principal, ONE-TIME
+    const CREDIT_LIFE_RATE      = 0.0045;      // 0.45% per month
+    const SERVICE_FEE_MONTHLY   = 69;          // R69/month (NCA cap; previously R60 — bumped to NCA max)
+    const VAT_RATE              = 0.15;
+    const DAYS_PER_MONTH        = 30;
 
-    let totalMonthlyFees = 0;
+    // First loan of the year = no initiation fee
+    const waiveInitiation = isFirstLoanOfYear || historyCount === 0;
+
+    // ── Service fee (prorated first month) ──────────────────────────
+    let totalServiceFees = 0;
     if (startDate) {
-        const start = new Date();
+        const now = new Date();
         const paymentDate = new Date(startDate);
-        const daysUntilPayment = Math.max(1, Math.ceil((paymentDate - start) / (1000 * 60 * 60 * 24)));
+        const daysUntilPayment = Math.max(1, Math.ceil((paymentDate - now) / (1000 * 60 * 60 * 24)));
         const proratedDays = Math.min(daysUntilPayment, DAYS_PER_MONTH);
-        
-        const firstMonthFee = (MONTHLY_FEE / DAYS_PER_MONTH) * proratedDays;
-        const remainingMonthsFees = period > 1 ? MONTHLY_FEE * (period - 1) : 0;
-        totalMonthlyFees = firstMonthFee + remainingMonthsFees;
+        const firstMonthFee = (SERVICE_FEE_MONTHLY / DAYS_PER_MONTH) * proratedDays;
+        totalServiceFees = firstMonthFee + (period > 1 ? SERVICE_FEE_MONTHLY * (period - 1) : 0);
     } else {
-        totalMonthlyFees = MONTHLY_FEE * period;
+        totalServiceFees = SERVICE_FEE_MONTHLY * period;
     }
 
-    const totalInterest = amount * interestPortion * (period / 12);
-    const totalInitiationFees = (amount * INITIATION_FEE_RATE) * period; 
-    
-    const totalRepayment = amount + totalInterest + totalMonthlyFees + totalInitiationFees;
-    const monthlyPayment = totalRepayment / period;
+    // ── Core components ─────────────────────────────────────────────
+    const totalInterest       = amount * INTEREST_RATE_MONTHLY * period;
+    const totalInitiationFees = waiveInitiation ? 0 : amount * INITIATION_FEE_RATE;
+    const totalCreditLife     = amount * CREDIT_LIFE_RATE * period;
+    const monthlyCreditLife   = amount * CREDIT_LIFE_RATE;
 
-    return { 
-        totalInterest, totalRepayment, monthlyPayment, 
-        totalMonthlyFees, totalInitiationFees, totalRate, interestPortion, initiationRate: INITIATION_FEE_RATE 
+    // ── VAT on fees (NOT on interest, NOT on credit life) ───────────
+    const vatAmount = (totalInitiationFees + totalServiceFees) * VAT_RATE;
+
+    // ── Totals ──────────────────────────────────────────────────────
+    const totalCostOfCredit = totalInterest + totalInitiationFees + totalServiceFees + totalCreditLife + vatAmount;
+    const totalRepayment    = amount + totalCostOfCredit;
+    const monthlyPayment    = totalRepayment / period;
+
+    return {
+        principal:            amount,
+        period,
+        totalInterest,
+        totalInitiationFees,
+        totalServiceFees,
+        totalCreditLife,
+        monthlyCreditLife,
+        vatAmount,
+        totalCostOfCredit,
+        totalRepayment,
+        monthlyPayment,
+        interestRateMonthly:  INTEREST_RATE_MONTHLY,
+        initiationRate:       waiveInitiation ? 0 : INITIATION_FEE_RATE,
+        waiveInitiation,
+        // Legacy aliases so existing callers that read these names don't break
+        totalMonthlyFees:     totalServiceFees,
+        totalRate:            INTEREST_RATE_MONTHLY + (waiveInitiation ? 0 : INITIATION_FEE_RATE),
+        interestPortion:      INTEREST_RATE_MONTHLY,
     };
 }
 
@@ -1371,36 +1413,48 @@ function calculateLoanDetails(amount, period, startDate, historyCount) {
 
 async function renderLoanConfiguration(container) {
     // 1. Fetch History and Affordability Data if not in state
-    if (inBranchState.targetUser && (inBranchState.loanHistoryCount === undefined || inBranchState.loanHistoryCount === 0)) {
-         const { data: loanData } = await supabase.from('loan_applications').select('id')
-            .eq('user_id', inBranchState.targetUser.id).eq('status', '');
-         inBranchState.loanHistoryCount = loanData?.length || 0;
+    if (inBranchState.targetUser && inBranchState.loanHistoryCount === undefined) {
+        // Count completed/active loans — not empty-status rows
+        const { data: loanData } = await supabase
+            .from('loan_applications')
+            .select('id, created_at')
+            .eq('user_id', inBranchState.targetUser.id)
+            .in('status', ['DISBURSED', 'OFFER_ACCEPTED', 'READY_TO_DISBURSE', 'ACTIVE', 'CONTRACT_SIGN', 'DEBICHECK_AUTH']);
 
-         const { data: profile } = await supabase.from('financial_profiles')
+        inBranchState.loanHistoryCount = loanData?.length || 0;
+
+        // First loan of the calendar year: no initiation fee
+        const currentYear = new Date().getFullYear();
+        inBranchState.isFirstLoanOfYear = !loanData?.some(
+            (l) => new Date(l.created_at).getFullYear() === currentYear
+        );
+
+        const { data: profile } = await supabase.from('financial_profiles')
             .select('affordability_ratio')
             .eq('user_id', inBranchState.targetUser.id).single();
-         inBranchState.affordabilityLimit = profile?.affordability_ratio || 0;
+        inBranchState.affordabilityLimit = profile?.affordability_ratio || 0;
     }
-    
+
     const history = inBranchState.loanHistoryCount || 0;
     const limit = inBranchState.affordabilityLimit || 0;
+    const isFirstLoanOfYear = inBranchState.isFirstLoanOfYear ?? true;
 
-    // Rule: New clients (< 3 loans) locked to 1 month
-    if (history < 3) inBranchState.loanConfig.maxAllowedPeriod = 1; 
-    else inBranchState.loanConfig.maxAllowedPeriod = 24; 
+    // Rules: 1st-time applicants max 1 month; >3 loans max 6 months (ROADMAP)
+    if (history === 0)      inBranchState.loanConfig.maxAllowedPeriod = 1;
+    else if (history < 3)   inBranchState.loanConfig.maxAllowedPeriod = 1;
+    else if (history >= 3)  inBranchState.loanConfig.maxAllowedPeriod = 6;
 
     const { amount, period, reason, startDate } = inBranchState.loanConfig;
-    const calc = calculateLoanDetails(amount, period, startDate, history);
+    const calc = calculateLoanDetails(amount, period, startDate, history, isFirstLoanOfYear);
 
-    // DYNAMIC MAX LOAN CALCULATION (Amortized formula)
-    const monthlyRate = (calc.totalRate) / 12;
-    let maxLoan = 10000; // Default fallback
+    // Max loan: solve for P where monthly repayment = affordability limit
+    // monthlyPayment = (P + P*r*n + one_time_fees + P*cpi*n + vat) / n
+    // Approximation: P_max = limit * n / (1 + r*n + cpi*n + initiation*(1+vat))
+    const r = 0.05, cpi = 0.0045, init = calc.waiveInitiation ? 0 : 0.15, vatR = 0.15;
+    let maxLoan = 10000;
     if (limit > 0) {
-        if (monthlyRate > 0) {
-            maxLoan = limit * ((1 - Math.pow(1 + monthlyRate, -period)) / monthlyRate);
-        } else {
-            maxLoan = limit * period;
-        }
+        const divisor = 1 + r * period + cpi * period + init * (1 + vatR) + (69 * period * (1 + vatR)) / Math.max(amount, 1);
+        maxLoan = (limit * period) / divisor;
     }
     maxLoan = Math.floor(maxLoan / 100) * 100; // Round to nearest R100
 
@@ -2083,9 +2137,10 @@ async function handleFinalSubmit() {
     try {
         const { amount, period, startDate } = inBranchState.loanConfig;
         const history = inBranchState.loanHistoryCount || 0;
-        
-        // Generate the full fee breakdown
-        const calc = calculateLoanDetails(amount, period, startDate, history);
+        const isFirstLoanOfYear = inBranchState.isFirstLoanOfYear ?? true;
+
+        // Generate the full NCA-compliant fee breakdown
+        const calc = calculateLoanDetails(amount, period, startDate, history, isFirstLoanOfYear);
         
         let bankId = document.getElementById('bank-select').value;
 
@@ -2122,19 +2177,25 @@ async function handleFinalSubmit() {
             bank_account_id: bankId,
             updated_at: new Date().toISOString(),
             offer_principal: amount,
-            offer_interest_rate: calc.totalRate,
+            offer_interest_rate: calc.interestRateMonthly,
             offer_total_interest: calc.totalInterest,
             offer_total_initiation_fees: calc.totalInitiationFees,
             offer_monthly_repayment: calc.monthlyPayment,
             offer_total_repayment: calc.totalRepayment,
-            offer_total_admin_fees: calc.totalMonthlyFees,
-            
+            offer_total_admin_fees: calc.totalServiceFees,
+            offer_credit_life_monthly: calc.monthlyCreditLife,
+            repayment_start_date: startDate,
+
             branch_id: inBranchState.targetUser?.branch_id || currentAdminProfile?.branch_id,
 
             offer_details: {
                 first_repayment_date: startDate,
-                interest_portion: calc.interestPortion,
+                interest_rate_monthly: calc.interestRateMonthly,
                 initiation_rate: calc.initiationRate,
+                credit_life_rate: 0.0045,
+                vat_amount: calc.vatAmount,
+                total_cost_of_credit: calc.totalCostOfCredit,
+                waive_initiation: calc.waiveInitiation,
                 source: "In-Branch Admin Terminal"
             },
             notes: `In-branch application for ${inBranchState.targetUser.full_name}. Verified by Admin.`

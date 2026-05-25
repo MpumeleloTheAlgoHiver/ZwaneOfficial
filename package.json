@@ -1,7 +1,7 @@
 {
-  "name": "zwane-finance",
+  "name": "algolend",
   "version": "1.0.0",
-  "description": "Zwane Finance Web Application",
+  "description": "AlgoLend — Bespoke Digital Credit & Risk Management Platform",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
