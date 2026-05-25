@@ -55,7 +55,12 @@ async function ensureLoanFromApplication(application) {
     first_payment_date: repaymentDate,
     next_payment_date: repaymentDate,
     outstanding_balance: totalRepayment, 
-    total_repayment: totalRepayment
+    total_repayment: totalRepayment,
+    has_credit_life_insurance: Boolean(
+      application.has_credit_life_insurance
+      ?? application.offer_details?.credit_life_enabled
+      ?? false
+    )
   };
 
   const { data, error } = await supabase
@@ -267,6 +272,169 @@ export async function fetchSystemSettings() {
   return { data: hydrateSystemSettings(data || {}), error: (error && error.code !== 'PGRST116') ? error.message : null };
 }
 
+export async function updateSystemSettings(settings) {
+  try {
+    const { data: userResult } = await supabase.auth.getUser();
+    const carouselSlides = normalizeCarouselSlides(settings.carousel_slides);
+    const payload = {
+      id: 'global',
+      company_name: normalizeCompanyName(settings.company_name),
+      primary_color: settings.primary_color,
+      secondary_color: settings.secondary_color,
+      tertiary_color: settings.tertiary_color,
+      theme_mode: settings.theme_mode,
+      company_logo_url: settings.company_logo_url || null,
+      auth_background_url: settings.auth_background_url || null,
+      auth_background_flip: normalizeBoolean(settings.auth_background_flip, false),
+      auth_overlay_color: normalizeHexColor(settings.auth_overlay_color, DEFAULT_SYSTEM_SETTINGS.auth_overlay_color),
+      auth_overlay_enabled: normalizeBoolean(settings.auth_overlay_enabled, DEFAULT_SYSTEM_SETTINGS.auth_overlay_enabled),
+      carousel_slides: carouselSlides,
+      updated_by: userResult?.user?.id || null
+    };
+
+    const { data, error } = await supabase
+      .from('system_settings')
+      .upsert(payload, { onConflict: 'id' })
+      .select()
+      .single();
+
+    return {
+      data: hydrateSystemSettings(data || {}),
+      error: error ? error.message : null
+    };
+  } catch (error) {
+    return {
+      data: null,
+      error: error.message
+    };
+  }
+}
+
+// =================================================================
+// == LOAN SYNCING
+// =================================================================
+export async function syncApplicationToLoans(applicationId) {
+  try {
+    const { data: app, error: appError } = await supabase
+      .from('loan_applications')
+      .select('*')
+      .eq('id', applicationId)
+      .single();
+    if (appError) throw appError;
+
+    if (app.status !== 'OFFERED' && app.status !== 'DISBURSED' && app.status !== 'READY_TO_DISBURSE') {
+        // Just log or ignore
+    }
+
+    const { data: existingLoan } = await supabase
+      .from('loans')
+      .select('id')
+      .eq('application_id', applicationId)
+      .maybeSingle();
+    if (existingLoan) {
+      return { error: 'Loan already exists' };
+    }
+
+    const offerDetails = app.offer_details || {};
+    const annualRate = offerDetails.interest_rate ? parseFloat(offerDetails.interest_rate) : 0.20;
+    const monthlyRate = annualRate / 12;
+    const principal = parseFloat(app.amount);
+    const termMonths = parseInt(app.term_months);
+    const monthlyServiceFee = 60.00;
+
+    const monthlyInterest = principal * monthlyRate;
+    const principalPart = principal / termMonths;
+    const monthlyPayment = principalPart + monthlyInterest + monthlyServiceFee;
+    const resolvedFirstPayment = resolveFirstPaymentDate(app);
+    const nextPaymentDate = resolvedFirstPayment
+      ? new Date(resolvedFirstPayment)
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    nextPaymentDate.setUTCHours(0, 0, 0, 0);
+    const firstPaymentIso = normalizeToIsoMidnight(resolvedFirstPayment);
+
+    const loanPayload = {
+      application_id: applicationId,
+      user_id: app.user_id,
+      principal_amount: principal,
+      interest_rate: annualRate,
+      term_months: termMonths,
+      monthly_payment: monthlyPayment.toFixed(2),
+      status: 'active',
+      start_date: new Date().toISOString(),
+      next_payment_date: nextPaymentDate.toISOString(),
+      outstanding_balance: principal,
+      has_credit_life_insurance: Boolean(
+        app.has_credit_life_insurance
+        ?? offerDetails.credit_life_enabled
+        ?? false
+      )
+    };
+    if (firstPaymentIso) {
+      loanPayload.first_payment_date = firstPaymentIso;
+    }
+
+    const initialInsert = await supabase
+      .from('loans')
+      .insert([loanPayload])
+      .select()
+      .single();
+
+    let newLoan = initialInsert.data;
+    let loanError = initialInsert.error;
+
+    if (loanError && firstPaymentIso && /first_payment_date/i.test(loanError.message || '')) {
+      console.warn('⚠️ loans.first_payment_date column missing. Retrying insert without it.');
+      const fallbackLoan = { ...loanPayload };
+      delete fallbackLoan.first_payment_date;
+      const retryInsert = await supabase
+        .from('loans')
+        .insert([fallbackLoan])
+        .select()
+        .single();
+      newLoan = retryInsert.data;
+      loanError = retryInsert.error;
+    }
+    if (loanError) throw loanError;
+
+    if (app.status !== 'DISBURSED') {
+      await supabase.from('loan_applications').update({ status: 'DISBURSED' }).eq('id', applicationId);
+    }
+    return { data: newLoan, error: null };
+  } catch (error) {
+    return { data: null, error: error.message };
+  }
+}
+
+export async function syncAllOfferedApplications() {
+  try {
+    const { data: offeredApps, error } = await supabase
+      .from('loan_applications')
+      .select('id')
+      .eq('status', 'OFFERED');
+    if (error) throw error;
+    const applications = offeredApps || [];
+    const summary = {
+      total: applications.length,
+      success: 0,
+      failures: []
+    };
+    for (const app of applications) {
+      const { data, error: syncError } = await syncApplicationToLoans(app.id);
+      if (syncError || !data) {
+        summary.failures.push({ id: app.id, error: syncError || 'Unknown error' });
+      } else {
+        summary.success += 1;
+      }
+    }
+    return { data: summary, error: null };
+  } catch (error) {
+    return { data: null, error: error.message };
+  }
+}
+
+// =================================================================
+// == ANALYTICS & BALANCE SHEET ENGINE
+// =================================================================
 export async function fetchAnalyticsData() {
     const { data: loans, error: loanError } = await supabase.from('loans').select('*, application:application_id(*)').order('created_at', { ascending: true });
     if (loanError) throw loanError;

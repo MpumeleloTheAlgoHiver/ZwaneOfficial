@@ -21,22 +21,26 @@ export async function enforceSession() {
       return;
     }
 
-    // 2. Verify user still exists and has borrower role
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('id, role')
-      .eq('id', session.user.id)
-      .single();
-    
-    if (profileError || !profile) {
-      console.log('🔒 Profile not found - logging out');
+    // 2. Verify user still exists and has borrower role (role lives in JWT app_metadata)
+    const role = session.user?.app_metadata?.role || session.user?.user_metadata?.role || 'borrower';
+    if (role !== 'borrower') {
+      console.log('🔒 Not a borrower - access denied. Role:', role);
       await supabase.auth.signOut();
       window.location.replace('/auth/login.html');
       return;
     }
 
-    if (profile.role !== 'borrower') {
-      console.log('🔒 Not a borrower - access denied');
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', session.user.id)
+      .maybeSingle();
+
+    if (profileError) {
+      console.warn('Profile lookup error during session guard:', profileError);
+    }
+    if (!profile) {
+      console.log('🔒 Profile not found - logging out');
       await supabase.auth.signOut();
       window.location.replace('/auth/login.html');
       return;

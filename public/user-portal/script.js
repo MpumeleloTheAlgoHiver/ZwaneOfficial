@@ -260,18 +260,28 @@ async function checkAuth() {
     return null;
   }
   
+  const role = session.user?.app_metadata?.role || session.user?.user_metadata?.role || 'borrower';
+  if (role !== 'borrower') {
+    console.log('⛔ Access denied. Not a borrower. Role:', role);
+    await supabase.auth.signOut();
+    window.location.replace('/auth/login.html');
+    return null;
+  }
+
   const { data: profile } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', session.user.id)
     .single();
-  
-  if (!profile || profile.role !== 'borrower') {
-    console.log('⛔ Access denied. Not a borrower. Role:', profile?.role);
+
+  if (!profile) {
+    console.log('⛔ No profile row found for user');
     await supabase.auth.signOut();
     window.location.replace('/auth/login.html');
     return null;
   }
+  profile.role = role;
+  profile.email = profile.email || session.user?.email;
   
   const { data: financialProfile } = await supabase
     .from('financial_profiles')
