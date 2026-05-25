@@ -4,7 +4,7 @@ import { ensureThemeLoaded, getCompanyName, DEFAULT_SYSTEM_SETTINGS } from './th
 const appShell = document.getElementById('app-shell');
 let userProfile = null;
 let userRole = 'borrower';
-const DEFAULT_BRAND_LOGO = '/shared/algolend-logo.svg';
+const DEFAULT_BRAND_LOGO = '';
 
 const escapeAttr = (value = '') => {
   if (!value) return '';
