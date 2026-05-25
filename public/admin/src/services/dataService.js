@@ -526,23 +526,40 @@ export async function fetchFinancialsData() {
     const { data, error } = await supabase
         .from('loan_applications')
         .select('offer_principal, offer_total_repayment, offer_monthly_repayment, offer_total_interest, offer_total_initiation_fees, offer_total_admin_fees, status')
-    if (error) return { data: {} };
+    if (error) return { data: null, error };
 
     const rows = data || [];
     const sum = (field) => rows.reduce((a, r) => a + (Number(r[field]) || 0), 0);
     const withStatus = (s) => rows.filter(r => r.status === s);
 
+    const interestIncome  = sum('offer_total_interest');
+    const feeIncome       = sum('offer_total_initiation_fees') + sum('offer_total_admin_fees');
+    const totalRevenue    = interestIncome + feeIncome;
+    const totalLoanBook   = sum('offer_principal');
+    const activeClients   = withStatus('DISBURSED').length;
+    const defaultCount    = withStatus('IN_DEFAULT').length;
+    const arrearsRate     = rows.length ? (defaultCount / rows.length) * 100 : 0;
+
     return {
         data: {
-            total_book_value:    sum('offer_principal'),
-            total_repayments:    sum('offer_total_repayment'),
-            total_interest:      sum('offer_total_interest'),
-            total_fees:          sum('offer_total_admin_fees'),
-            total_initiation:    sum('offer_total_initiation_fees'),
-            disbursed_count:     withStatus('DISBURSED').length,
-            repaid_count:        withStatus('REPAID').length,
-            default_count:       withStatus('IN_DEFAULT').length,
-            total_count:         rows.length,
+            incomeStatement: {
+                interestIncome,
+                nii:          interestIncome,
+                feeIncome,
+                nir:          feeIncome,
+                totalRevenue,
+            },
+            ratios: {
+                clr:            totalLoanBook ? ((sum('offer_total_interest') - interestIncome) / totalLoanBook * 100) : 0,
+                niiToRevenue:   totalRevenue ? (interestIncome / totalRevenue * 100) : 0,
+                nirToRevenue:   totalRevenue ? (feeIncome / totalRevenue * 100) : 0,
+            },
+            balanceSheet: {
+                totalLoanBook,
+                activeClients,
+                avgLoanPerClient: activeClients ? totalLoanBook / activeClients : 0,
+                arrearsPercentage: arrearsRate,
+            },
         }
     };
 }
