@@ -1,4 +1,5 @@
 import { supabase } from '../services/supabaseClient.js';
+import { ensureThemeLoaded, getCompanyName } from '../shared/theme.js';
 
 const sacrraState = {
     view: 'overview',
@@ -24,14 +25,21 @@ const sacrraState = {
 };
 
 export async function init(container) {
+    const theme = await ensureThemeLoaded();
+    const companyName = getCompanyName(theme) || 'Company';
+    const logoUrl = (theme?.company_logo_url || '').trim();
+    const logoMarkup = logoUrl
+        ? `<img src="${logoUrl}" alt="${companyName}" class="h-12 w-auto object-contain mb-2">`
+        : `<div class="text-base font-black text-slate-900 uppercase tracking-tight mb-2">${companyName}</div>`;
+
     container.innerHTML = `
         <div id="sacrra-portal" class="flex min-h-screen bg-[#f5f3ff] font-sans text-slate-800">
             <aside id="sacrra-sidebar" class="fixed left-0 top-0 h-full w-[280px] z-40 bg-white border-r border-slate-200 shadow-[20px_0_40px_rgba(0,0,0,0.02)] flex flex-col py-8">
                 <div class="px-8 mb-10">
-                    <img src="/shared/algolend-logo.svg" alt="AlgoLend" class="h-12 w-auto object-contain mb-2">
+                    ${logoMarkup}
                     <div class="flex items-center gap-2 px-1">
-                        <span class="w-2 h-2 rounded-full bg-[#7C3AED]"></span>
-                        <p class="text-[10px] font-black text-[#7C3AED] uppercase tracking-[0.2em]">Compliance Engine</p>
+                        <span class="w-2 h-2 rounded-full" style="background-color:var(--color-primary)"></span>
+                        <p class="text-[10px] font-black uppercase tracking-[0.2em]" style="color:var(--color-primary)">Compliance Engine</p>
                     </div>
                 </div>
 
@@ -256,8 +264,8 @@ function renderView() {
                     <span class="material-symbols-outlined fill-1">account_balance</span>
                 </div>
                 <div>
-                    <h1 class="text-sm font-black text-slate-900 uppercase tracking-tighter">AlgoLend</h1>
-                    <p class="text-[9px] font-bold text-orange-600 uppercase tracking-widest">Compliance Engine</p>
+                    <h1 class="text-sm font-black text-slate-900 uppercase tracking-tighter" id="sacrra-company-name"></h1>
+                    <p class="text-[9px] font-bold uppercase tracking-widest" style="color:var(--color-primary)">Compliance Engine</p>
                 </div>
             </div>
             <a href="index.html" class="w-full flex items-center gap-4 px-6 py-3 bg-slate-900 text-white rounded-xl shadow-xl shadow-slate-900/20 hover:scale-[1.02] transition-all mb-4">
@@ -269,6 +277,12 @@ function renderView() {
         ${renderNavItem('pipeline', 'account_tree', 'Submissions')}
         ${renderNavItem('parser', 'error', 'Rejections')}
     `;
+
+    // Populate company name from theme (avoids hardcoding)
+    const nameEl = document.getElementById('sacrra-company-name');
+    if (nameEl) {
+        ensureThemeLoaded().then(t => { nameEl.textContent = getCompanyName(t) || ''; });
+    }
 
     switch (sacrraState.view) {
         case 'overview': renderOverview(canvas); break;
