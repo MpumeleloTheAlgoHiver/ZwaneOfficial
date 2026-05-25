@@ -151,143 +151,145 @@ document.addEventListener('DOMContentLoaded', async () => {
   })();
 
   // Render layout (same structure as your draft but with theme colors)
+  const pendingCount = dashData?.financials?.pending_apps || 0;
+  const today = new Date().toLocaleDateString('en-ZA', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+
   mainContent.innerHTML = `
-    <div class="max-w-[1600px] mx-auto px-6 py-8 space-y-8">
-      <div class="analytics-card p-8 fade-in" style="background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);">
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <h1 class="text-3xl font-bold text-slate-900 mb-2">Welcome back, ${profile?.full_name?.split(' ')[0] || 'User'}</h1>
-            <p class="text-slate-600 text-base">
-              Your portfolio overview for <span class="font-semibold" style="color:${primaryColor};">${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
-            </p>
-            ${dashData.financials?.pending_apps ? `
-              <div class="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg">
-                <i class="fa-solid fa-clock" style="color:${secondaryColor};"></i>
-                <span class="text-sm font-semibold text-slate-700">${dashData.financials.pending_apps} applications pending review</span>
-              </div>
-            ` : ''}
+    <div class="max-w-[1600px] mx-auto p-10 space-y-10">
+
+      <!-- Welcome Header -->
+      <section class="flex flex-col md:flex-row md:items-end justify-between gap-6 fade-in">
+        <div>
+          <h2 class="font-headline text-3xl font-bold text-on-surface mb-1">Welcome back, ${profile?.full_name?.split(' ')[0] || 'Admin'}</h2>
+          <p class="text-secondary flex items-center gap-2 text-sm">
+            Your portfolio overview for <span class="font-semibold" style="color:var(--color-primary)">${today}</span>
+          </p>
+        </div>
+        <div class="flex items-center gap-3 flex-wrap">
+          <div class="flex items-center gap-2 px-4 py-2 bg-surface-container-lowest rounded-full border border-outline-variant/30 text-xs font-semibold">
+            <span class="w-2 h-2 rounded-full animate-pulse" style="background:${systemStatus.color}"></span>
+            <span style="color:${systemStatus.color}">${systemStatus.text}</span>
           </div>
-          <div class="flex flex-col items-end gap-2">
-            <div class="status-badge">
-              <span class="status-dot ${systemStatus.dot}" style="background-color:${systemStatus.color};"></span>
-              <span style="color:${systemStatus.color};">${systemStatus.text}</span>
-            </div>
-            <div class="status-badge">
-              <span class="status-dot ${sureSystemsState.dot}" style="background-color:${sureSystemsState.color};"></span>
-              <span style="color:${sureSystemsState.color};">${sureSystemsState.text}</span>
-            </div>
+          <div class="flex items-center gap-2 px-4 py-2 bg-surface-container-lowest rounded-full border border-outline-variant/30 text-xs font-semibold">
+            <span class="w-2 h-2 rounded-full" style="background:${sureSystemsState.color}"></span>
+            <span style="color:${sureSystemsState.color}">${sureSystemsState.text}</span>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div id="cards-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 fade-in delay-100"></div>
+      <!-- KPI Cards -->
+      <section id="cards-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 fade-in delay-100"></section>
 
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 fade-in delay-200">
-        <div class="lg:col-span-2 analytics-card p-6">
-          <div class="section-header">
-            <div class="flex justify-between items-start">
-              <div>
-                <h3 class="section-title">Cash Flow Velocity</h3>
-                <p class="section-subtitle">Disbursed vs. Collected</p>
-              </div>
-              <div id="tabs-velocity" class="tab-group"></div>
+      <!-- Charts Row -->
+      <section class="grid grid-cols-1 lg:grid-cols-3 gap-6 fade-in delay-200">
+        <div class="lg:col-span-2 glass-card p-8 rounded-2xl">
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <h4 class="font-headline font-bold text-on-surface">Cash Flow Velocity</h4>
+              <p class="text-[11px] font-semibold uppercase tracking-widest text-outline mt-0.5">Disbursed vs. Collected</p>
             </div>
+            <div id="tabs-velocity" class="tab-group"></div>
           </div>
           <div id="velocityChart" class="chart-wrapper"></div>
         </div>
 
-        <div class="analytics-card p-6">
-          <div class="section-header">
-            <h3 class="section-title">Portfolio Composition</h3>
-            <p class="section-subtitle">Loan Status Distribution</p>
+        <div class="glass-card p-8 rounded-2xl">
+          <div class="mb-6">
+            <h4 class="font-headline font-bold text-on-surface">Portfolio Composition</h4>
+            <p class="text-[11px] font-semibold uppercase tracking-widest text-outline mt-0.5">Loan Status Distribution</p>
           </div>
-          <div id="donutChart" class="chart-wrapper" style="min-height: 320px;"></div>
+          <div id="donutChart" class="chart-wrapper" style="min-height:320px;"></div>
         </div>
-      </div>
+      </section>
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 fade-in delay-300">
-        <div class="analytics-card p-6">
-          <div class="section-header">
-            <div class="flex justify-between items-start">
-              <div>
-                <h3 class="section-title">Vintage Analysis</h3>
-                <p class="section-subtitle">Recovery Rate by Cohort</p>
-              </div>
-              <div id="tabs-vintage" class="tab-group"></div>
+      <!-- Analytics Row -->
+      <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 fade-in delay-300">
+        <div class="glass-card p-8 rounded-2xl">
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <h4 class="font-headline font-bold text-on-surface">Vintage Analysis</h4>
+              <p class="text-[11px] font-semibold uppercase tracking-widest text-outline mt-0.5">Recovery Rate by Cohort</p>
             </div>
+            <div id="tabs-vintage" class="tab-group"></div>
           </div>
           <div id="vintageChart" class="chart-wrapper"></div>
         </div>
 
-        <div class="analytics-card p-6">
-          <div class="section-header">
-            <div class="flex justify-between items-start">
-              <div>
-                <h3 class="section-title">Risk vs. Affordability</h3>
-                <p class="section-subtitle">Credit Score vs. DTI Ratio</p>
-              </div>
-              <div class="legend-group">
-                <div class="legend-item"><span class="legend-dot bg-emerald-500"></span>Paid</div>
-                <div class="legend-item"><span class="legend-dot" style="background-color:${primaryColor};"></span>Active</div>
-                <div class="legend-item"><span class="legend-dot bg-red-500"></span>Default</div>
-              </div>
+        <div class="glass-card p-8 rounded-2xl">
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <h4 class="font-headline font-bold text-on-surface">Risk vs. Affordability</h4>
+              <p class="text-[11px] font-semibold uppercase tracking-widest text-outline mt-0.5">Credit Score vs. DTI Ratio</p>
+            </div>
+            <div class="flex items-center gap-3 text-[11px] font-semibold">
+              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500"></span>Paid</span>
+              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full" style="background:var(--color-primary)"></span>Active</span>
+              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-red-500"></span>Default</span>
             </div>
           </div>
           <div id="riskChart" class="chart-wrapper"></div>
         </div>
-      </div>
+      </section>
 
-      <div class="analytics-card p-6 fade-in delay-400">
-        <div class="section-header">
-          <div class="flex justify-between items-start">
-            <div>
-              <h3 class="section-title">Conversion Funnel</h3>
-              <p class="section-subtitle">Application Pipeline (4 Stages)</p>
-            </div>
-            <div class="text-right">
-              <div class="text-3xl font-bold text-slate-900">${analytics.funnel?.STARTED || 0}</div>
-              <div class="section-subtitle">Total Starts</div>
-            </div>
+      <!-- Funnel -->
+      <section class="glass-card p-8 rounded-2xl fade-in delay-400">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h4 class="font-headline font-bold text-on-surface">Conversion Funnel</h4>
+            <p class="text-[11px] font-semibold uppercase tracking-widest text-outline mt-0.5">Application Pipeline · 4 Stages</p>
+          </div>
+          <div class="text-right">
+            <div class="text-3xl font-bold text-on-surface font-headline">${analytics.funnel?.STARTED || 0}</div>
+            <div class="text-[11px] uppercase tracking-widest text-outline font-semibold">Total Starts</div>
           </div>
         </div>
-        <div id="funnelChart" class="chart-wrapper" style="min-height: 300px;"></div>
-      </div>
+        <div id="funnelChart" class="chart-wrapper" style="min-height:300px;"></div>
+      </section>
 
-      <div class="fade-in delay-400 pt-8">
-        <div class="flex justify-between items-center mb-6">
+      <!-- Historical Trends -->
+      <section class="fade-in delay-400">
+        <div class="flex items-center justify-between mb-6">
           <div>
-            <h2 class="text-2xl font-bold text-slate-900">Historical Trends</h2>
-            <p class="section-subtitle mt-1">Long-term Performance Metrics</p>
+            <h3 class="font-headline text-xl font-bold text-on-surface">Historical Trends</h3>
+            <p class="text-[11px] font-semibold uppercase tracking-widest text-outline mt-0.5">Long-term Performance Metrics</p>
           </div>
           <div id="tabs-trends" class="tab-group"></div>
         </div>
-
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div class="lg:col-span-2 analytics-card p-6">
-            <div class="section-header">
-              <h3 class="section-title">Portfolio Growth</h3>
-              <p class="section-subtitle">Principal vs Interest Over Time</p>
-            </div>
+          <div class="lg:col-span-2 glass-card p-8 rounded-2xl">
+            <h4 class="font-headline font-bold text-on-surface mb-1">Portfolio Growth</h4>
+            <p class="text-[11px] font-semibold uppercase tracking-widest text-outline mb-6">Principal vs Interest Over Time</p>
             <div id="comboChart" class="chart-wrapper"></div>
           </div>
-
-          <div class="analytics-card p-6">
-            <div class="section-header">
-              <h3 class="section-title">Performance Targets</h3>
-              <p class="section-subtitle">Key Health Indicators</p>
-            </div>
-            <div id="radialChart" class="chart-wrapper" style="min-height: 320px;"></div>
+          <div class="glass-card p-8 rounded-2xl">
+            <h4 class="font-headline font-bold text-on-surface mb-1">Performance Targets</h4>
+            <p class="text-[11px] font-semibold uppercase tracking-widest text-outline mb-6">Key Health Indicators</p>
+            <div id="radialChart" class="chart-wrapper" style="min-height:320px;"></div>
           </div>
-
-          <div class="analytics-card p-6">
-            <div class="section-header">
-              <h3 class="section-title">Revenue Trajectory</h3>
-              <p class="section-subtitle">Total Exposure Growth</p>
-            </div>
-            <div id="growthChart" class="chart-wrapper" style="min-height: 320px;"></div>
+          <div class="glass-card p-8 rounded-2xl">
+            <h4 class="font-headline font-bold text-on-surface mb-1">Revenue Trajectory</h4>
+            <p class="text-[11px] font-semibold uppercase tracking-widest text-outline mb-6">Total Exposure Growth</p>
+            <div id="growthChart" class="chart-wrapper" style="min-height:320px;"></div>
           </div>
         </div>
-      </div>
+      </section>
+
+      <!-- Bottom Banner -->
+      ${pendingCount > 0 ? `
+      <section class="glass-card p-6 rounded-2xl border-l-4 flex items-center justify-between fade-in" style="border-color:var(--color-primary)">
+        <div class="flex items-center gap-4">
+          <div class="p-3 rounded-full" style="background:color-mix(in srgb, var(--color-primary) 10%, transparent)">
+            <span class="material-symbols-outlined" style="color:var(--color-primary)">notification_important</span>
+          </div>
+          <div>
+            <h5 class="font-bold text-on-surface">${pendingCount} application${pendingCount > 1 ? 's' : ''} pending review</h5>
+            <p class="text-secondary text-sm">${sureSystemsState.text}. Complete setup to automate disbursements.</p>
+          </div>
+        </div>
+        <a href="/admin/applications" class="px-6 py-2 border-2 rounded-xl font-bold text-sm transition-all hover:text-white" style="border-color:var(--color-primary);color:var(--color-primary);" onmouseover="this.style.background='var(--color-primary)'" onmouseout="this.style.background='transparent'">
+          Review Now
+        </a>
+      </section>` : ''}
     </div>
   `;
 
@@ -550,27 +552,25 @@ function renderTrendCharts(data) {
 // ---------- Cards ----------
 function renderKpiCards(fin) {
   const container = document.getElementById('cards-container');
-  const { primary, secondary } = getThemeColors();
   const cards = [
-    { title: 'Total Revenue', amount: fin.total_collected, sub: 'Lifetime Collections', icon: 'fa-coins', gradient: `linear-gradient(135deg, ${primary} 0%, ${secondary} 100%)` },
-    { title: 'Total Disbursed', amount: fin.total_disbursed, sub: 'Principal Lent', icon: 'fa-arrow-trend-up', gradient: `linear-gradient(135deg, ${secondary} 0%, ${primary} 100%)` },
-    { title: 'Cash Flow', amount: fin.realized_cash_flow, sub: 'Net Collections', icon: 'fa-chart-line', gradient: `linear-gradient(135deg, ${primary} 0%, #10b981 100%)` },
-    { title: 'Active Loans', amount: fin.active_loans_count, sub: 'Current Portfolio', icon: 'fa-file-contract', gradient: `linear-gradient(135deg, ${primary} 0%, ${secondary} 100%)`, isCount: true }
+    { title: 'Total Revenue',   value: formatCompactNumber(fin.total_collected),   sub: 'Lifetime Collections', icon: 'payments' },
+    { title: 'Total Disbursed', value: formatCompactNumber(fin.total_disbursed),   sub: 'Principal Lent',       icon: 'send_money' },
+    { title: 'Cash Flow',       value: formatCompactNumber(fin.realized_cash_flow), sub: 'Net Collections',      icon: 'account_balance' },
+    { title: 'Active Loans',    value: fin.active_loans_count ?? 0,                sub: 'Current Portfolio',    icon: 'assignment_turned_in' }
   ];
 
-  container.innerHTML = cards
-    .map(
-      (c) => `
-      <div class="kpi-card" style="background:${c.gradient};">
-        <div style="position: relative; z-index: 10;">
-          <div class="kpi-icon"><i class="fa-solid ${c.icon}"></i></div>
-          <div class="kpi-label">${c.title}</div>
-          <div class="kpi-value">${c.isCount ? c.amount : formatCompactNumber(c.amount)}</div>
-          <div style="font-size: 0.75rem; opacity: 0.85; font-weight: 600;">${c.sub}</div>
-        </div>
-      </div>`
-    )
-    .join('');
+  container.innerHTML = cards.map((c) => `
+    <div class="glass-card p-8 rounded-2xl flex flex-col justify-between h-[200px] relative overflow-hidden">
+      <div class="absolute top-0 right-0 w-32 h-32 rounded-bl-full -mr-8 -mt-8" style="background:color-mix(in srgb, var(--color-primary) 6%, transparent)"></div>
+      <div class="flex items-center justify-between">
+        <span class="material-symbols-outlined text-[32px]" style="color:var(--color-primary)">${c.icon}</span>
+      </div>
+      <div>
+        <p class="text-[11px] font-semibold uppercase tracking-widest text-outline mb-1">${c.title}</p>
+        <h3 class="font-headline text-4xl font-bold text-on-surface leading-none">${c.value}</h3>
+        <p class="text-[11px] text-outline mt-1">${c.sub}</p>
+      </div>
+    </div>`).join('');
 }
 
 function initStatusDonut(statusData) {
