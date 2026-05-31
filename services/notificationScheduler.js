@@ -5,6 +5,8 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
+import { createRequire } from 'module';
+const _require = createRequire(import.meta.url);
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY; // Use service role key for server-side operations
@@ -254,7 +256,7 @@ async function flagDefaultedLoans() {
     const { data: loans, error } = await supabase
       .from('loan_applications')
       .select('id, repayment_start_date, status, offer_monthly_repayment')
-      .in('status', ['DISBURSED', 'ACTIVE', 'IN_ARREARS'])
+      .in('status', ['DISBURSED', 'IN_ARREARS'])
       .not('repayment_start_date', 'is', null);
 
     if (error) throw error;
@@ -284,7 +286,8 @@ async function flagDefaultedLoans() {
 
         // Fire messaging notification
         try {
-          const messaging = require('./messagingService');
+          const messaging = _require('./messagingService');
+          const { notifyDefault, notifyArrears } = messaging;
           const { data: settings } = await supabase.from('system_settings').select('company_name').maybeSingle();
           const company = settings?.company_name || 'Zwane Financial';
           const profile = updatedLoan?.profiles;
