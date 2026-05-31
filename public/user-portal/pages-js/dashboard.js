@@ -909,31 +909,57 @@ window.createNewApplication = () => {
     }
 };
 
-window.makePayment = () => {
+window.makePayment = async () => {
+    // Fetch active loan details for banking reference
+    const { supabase } = await import('/Services/supabaseClient.js');
+    const { data: { session } } = await supabase.auth.getSession();
+    const companyName = window.__systemTheme?.company_name || 'Zwane Financial Services';
+    const companyBank = window.__systemTheme?.company_bank_name || 'Standard Bank';
+    const companyAcc  = window.__systemTheme?.company_bank_account || '';
+    const companyBranch = window.__systemTheme?.company_branch_code || '';
+    const companyRef  = session ? session.user.email : 'Your reference number';
+
     const html = `
-        <div style="text-align: center; padding: 8px 0 4px;">
-            <div style="width: 56px; height: 56px; border-radius: 50%; background: #FFF3E0; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect>
-                    <line x1="1" y1="10" x2="23" y2="10"></line>
-                </svg>
-            </div>
-            <p style="color: var(--text-main); font-size: 15px; line-height: 1.6; margin: 0 0 8px;">
-                Online payments are <strong>coming soon</strong>.
-            </p>
-            <p style="color: var(--text-sub); font-size: 13px; line-height: 1.6; margin: 0 0 20px;">
-                Please contact your loan officer or visit a branch to make a payment at this time.
-            </p>
-            <div style="display: flex; justify-content: center; width: 100%;">
-                <button onclick="closeUniversalModal()" class="action-btn primary" style="width: 200px !important; max-width: 200px !important; margin: 0 auto !important; padding: 12px 24px;">
-                    Got it
-                </button>
-            </div>
+        <div style="padding: 8px 0;">
+          <div style="background: linear-gradient(135deg, var(--color-primary), #f08840); border-radius: 16px; padding: 20px; color: white; margin-bottom: 20px; text-align: center;">
+            <div style="font-size: 13px; font-weight: 600; opacity: 0.85; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .05em;">Make a Manual Payment</div>
+            <div style="font-size: 28px; font-weight: 800; letter-spacing: -1px;">${companyName}</div>
+          </div>
+
+          <div style="background: #f8f8f8; border-radius: 14px; padding: 16px; margin-bottom: 16px;">
+            <div style="font-size: 11px; font-weight: 700; color: #8E8E93; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 12px;">Banking Details</div>
+            ${[
+              ['Bank', companyBank],
+              ['Account Number', companyAcc || 'Contact branch for details'],
+              ['Branch Code', companyBranch || '—'],
+              ['Account Type', 'Cheque / Current'],
+              ['Reference', companyRef],
+            ].map(([l,v]) => `
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #eee;">
+                <span style="font-size:13px;color:#8E8E93;font-weight:600;">${l}</span>
+                <span style="font-size:13px;font-weight:700;color:#0F172A;">${v}</span>
+              </div>`).join('')}
+          </div>
+
+          <div style="background: #fff8ed; border: 1px solid #f59e0b33; border-radius: 14px; padding: 14px; margin-bottom: 16px; font-size: 13px; color: #92400e; font-weight: 600;">
+            <i class="fas fa-circle-info" style="margin-right: 8px;"></i>
+            Use your <strong>email address or loan reference number</strong> as the payment reference so your payment is correctly allocated.
+          </div>
+
+          <div style="display:flex;gap:10px;">
+            <button onclick="closeUniversalModal()" class="action-btn" style="flex:1;height:44px;">
+              Close
+            </button>
+            <button onclick="window.open('tel:${window.__systemTheme?.company_phone || ''}')" class="action-btn primary" style="flex:1;height:44px;">
+              <i class="fas fa-phone" style="margin-right:6px;"></i> Call Us
+            </button>
+          </div>
         </div>`;
+
     if (typeof openUniversalModal === 'function') {
-        openUniversalModal('Payment Gateway', html, false);
+        openUniversalModal('Make a Payment', html, false);
     } else {
-        alert('Payment functionality coming soon.');
+        alert(`Please EFT to ${companyName}. Use your email as reference.`);
     }
 };
 
