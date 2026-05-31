@@ -39,7 +39,8 @@ export default {
 
         // Configuration
         creditRules: resolve(__dirname, 'credit-rules.html'),
-        cashLedger:  resolve(__dirname, 'cash-ledger.html')
+        cashLedger:  resolve(__dirname, 'cash-ledger.html'),
+        loanBook:    resolve(__dirname, 'loan-book.html')
       },
     },
   },

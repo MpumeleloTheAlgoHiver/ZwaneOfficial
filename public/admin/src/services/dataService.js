@@ -515,6 +515,77 @@ export async function syncAllOfferedApplications() {
 // =================================================================
 // == ANALYTICS & BALANCE SHEET ENGINE
 // =================================================================
+export async function fetchLoanBook(branchId = null) {
+    let query = supabase
+        .from('loan_applications')
+        .select(`
+            id, loan_number, loan_purpose, amount, term_months, status,
+            credit_decision, credit_band_label, credit_rate_pa,
+            repayment_start_date, created_at, updated_at,
+            is_first_loan, routed_to_head_office,
+            offer_principal, offer_monthly_repayment, offer_total_repayment,
+            profiles:user_id ( full_name, identity_number, client_number, branch_id ),
+            bank_accounts:bank_account_id ( bank_name, account_number )
+        `)
+        .in('status', ['DISBURSED', 'IN_ARREARS', 'IN_DEFAULT', 'OFFER_ACCEPTED', 'READY_TO_DISBURSE'])
+        .order('created_at', { ascending: false });
+
+    if (branchId && branchId !== 'all') {
+        // Filter by branch via profiles join
+        query = query.eq('profiles.branch_id', branchId);
+    }
+
+    const { data, error } = await query;
+    if (error) return { data: [], error };
+
+    const now = new Date();
+    const rows = (data || []).map(app => {
+        const disbursedDate   = app.repayment_start_date ? new Date(app.repayment_start_date) : null;
+        const createdDate     = new Date(app.created_at);
+        const maturityDate    = disbursedDate && app.term_months
+            ? new Date(new Date(disbursedDate).setMonth(disbursedDate.getMonth() + Number(app.term_months)))
+            : null;
+
+        const daysActive   = disbursedDate ? Math.floor((now - disbursedDate) / 86400000) : null;
+        const daysOverdue  = (app.status === 'IN_ARREARS' || app.status === 'IN_DEFAULT') && disbursedDate
+            ? Math.max(0, Math.floor((now - disbursedDate) / 86400000))
+            : 0;
+        const daysToMaturity = maturityDate
+            ? Math.ceil((maturityDate - now) / 86400000)
+            : null;
+
+        const clientNum = app.profiles?.client_number || '';
+        const loanSeq   = app.loan_number ? `L${String(app.loan_number).padStart(4,'0')}` : '';
+        const reference = clientNum && loanSeq ? `${clientNum}-${loanSeq}` : (loanSeq || app.id.slice(0,8));
+
+        return {
+            id: app.id,
+            reference,
+            client_name:      app.profiles?.full_name   || 'N/A',
+            identity_number:  app.profiles?.identity_number || '',
+            amount:           Number(app.offer_principal || app.amount || 0),
+            monthly_payment:  Number(app.offer_monthly_repayment || 0),
+            total_repayable:  Number(app.offer_total_repayment   || 0),
+            term_months:      app.term_months,
+            interest_rate:    app.credit_rate_pa,
+            band:             app.credit_band_label,
+            status:           app.status,
+            purpose:          app.loan_purpose || '—',
+            bank:             app.bank_accounts?.bank_name || '—',
+            account:          app.bank_accounts?.account_number || '—',
+            disbursed_date:   app.repayment_start_date?.slice(0,10) || '—',
+            maturity_date:    maturityDate ? maturityDate.toISOString().slice(0,10) : '—',
+            days_active:      daysActive,
+            days_overdue:     daysOverdue,
+            days_to_maturity: daysToMaturity,
+            is_first_loan:    app.is_first_loan,
+            created_at:       app.created_at,
+        };
+    });
+
+    return { data: rows, error: null };
+}
+
 export async function fetchAnalyticsData() {
     const { data: loans, error: loanError } = await supabase
         .from('loans')
