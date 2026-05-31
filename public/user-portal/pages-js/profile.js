@@ -297,6 +297,66 @@ function renderProfileTab() {
   setupAvatarPlaceholderHover(avatarAsset);
 }
 
+async function loadAffordabilityStatus() {
+  try {
+    const response = await fetch(`/api/experian/affordability-status/${currentUserProfile.id}`);
+    const { success, status } = await response.json();
+
+    if (!success || !status) return;
+
+    const container = document.getElementById('affordability-status-container');
+    if (!container) return;
+
+    if (!status.eligible && status.can_view_reason) {
+      // Fetch detailed decline reason information
+      const declineResponse = await fetch(`/api/experian/decline-reason/${currentUserProfile.id}`);
+      const declineData = await declineResponse.json();
+
+      let detailedMessage = declineData.message || status.decline_reason;
+      let recommendation = declineData.recommendation || 'Please update your financial information and reapply.';
+
+      container.innerHTML = `
+        <div class="inner-card" style="border-left: 4px solid #ef4444;">
+          <div style="display: flex; align-items: flex-start; gap: 1rem;">
+            <i class="fa-solid fa-circle-exclamation" style="font-size: 2rem; color: #ef4444; flex-shrink: 0; margin-top: 0.25rem;"></i>
+            <div style="flex: 1;">
+              <h4 style="color: #ef4444; margin-bottom: 0.5rem;">Application Not Approved</h4>
+              <p style="margin-bottom: 0.75rem; color: #7f1d1d; font-weight: 500;">
+                ${detailedMessage}
+              </p>
+              <div style="background-color: #fef2f2; border-left: 3px solid #fca5a5; padding: 0.75rem; border-radius: 0.25rem; margin-bottom: 0.75rem;">
+                <p style="margin: 0; color: #7f1d1d; font-size: 0.95rem;">
+                  <i class="fa-solid fa-lightbulb" style="margin-right: 0.5rem;"></i>
+                  <strong>What you can do:</strong> ${recommendation}
+                </p>
+              </div>
+              <p style="color: #9ca3af; font-size: 0.9rem; margin: 0;">
+                <i class="fa-solid fa-circle-info"></i>
+                Contact our support team for assistance
+              </p>
+            </div>
+          </div>
+        </div>
+      `;
+    } else if (status.eligible && status.source === 'experian') {
+      container.innerHTML = `
+        <div class="inner-card" style="border-left: 4px solid #10b981;">
+          <div style="display: flex; align-items: center; gap: 1rem;">
+            <i class="fa-solid fa-circle-check" style="font-size: 2rem; color: #10b981;"></i>
+            <div>
+              <h4 style="color: #10b981; margin-bottom: 0.5rem;">Affordability Verified</h4>
+              <p style="margin-bottom: 0.25rem; color: #047857;">✓ Your financial profile meets lending requirements</p>
+              <p style="color: #9ca3af; font-size: 0.9rem;">Reference: ${status.reference || 'N/A'}</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+  } catch (error) {
+    console.error('Error loading affordability status:', error);
+  }
+}
+
 function renderFinancialTab() {
   console.log('💰 Rendering Financial Tab');
   
@@ -385,7 +445,9 @@ function renderFinancialTab() {
       <h3><i class="fa-solid fa-chart-line" style="color: var(--color-primary);"></i> Financial Overview</h3>
       <p>Complete your financial profile to help us assess your loan eligibility</p>
     </div>
-    
+
+    <div id="affordability-status-container"></div>
+
     <div class="inner-card financial-card">
       <form id="financial-form">
         
@@ -603,6 +665,36 @@ function renderFinancialTab() {
           </div>
         </div>
         
+        <!-- ADDITIONAL INCOME SOURCES (Optional) -->
+        <div class="financial-section-header" style="margin-top: 2rem;">
+          <div class="section-icon" style="background: #d4af37;">
+            <i class="fa-solid fa-wallet" style="color: #1f2937;"></i>
+          </div>
+          <div>
+            <h4>Additional Income Sources</h4>
+            <p>Add any other regular income (optional - helps us calculate better loan options)</p>
+          </div>
+        </div>
+        <div id="additional-income-container" class="financial-input-grid"></div>
+        <button type="button" id="add-income-source-btn" class="btn-secondary" style="margin-top: 1rem;">
+          <i class="fa-solid fa-plus"></i> Add Income Source
+        </button>
+
+        <!-- OTHER BANK ACCOUNTS (Optional) -->
+        <div class="financial-section-header" style="margin-top: 2rem;">
+          <div class="section-icon" style="background: #60a5fa;">
+            <i class="fa-solid fa-building-columns" style="color: #1f2937;"></i>
+          </div>
+          <div>
+            <h4>Other Bank Accounts</h4>
+            <p>Add details of other bank accounts for better credit assessment (optional)</p>
+          </div>
+        </div>
+        <div id="other-banks-container" class="financial-input-grid"></div>
+        <button type="button" id="add-bank-account-btn" class="btn-secondary" style="margin-top: 1rem;">
+          <i class="fa-solid fa-plus"></i> Add Bank Account
+        </button>
+
         <!-- Total Expenses Display -->
         <div class="financial-summary-card expense-summary">
           <div class="summary-icon">
@@ -1276,6 +1368,7 @@ function attachTabListeners() {
       } else if (tabName === 'financial') {
         console.log('💰 Rendering Financial Tab');
         renderFinancialTab();
+        loadAffordabilityStatus();
       } else if (tabName === 'security') {
         console.log('🔒 Rendering Security Tab');
         renderSecurityTab();

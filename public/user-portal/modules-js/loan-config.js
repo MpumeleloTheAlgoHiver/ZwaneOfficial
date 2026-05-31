@@ -39,7 +39,8 @@ let loanConfig = {
   completedOneMonthLoans: 0,
   isFirstLoanOfYear: true,
   maxLoanAmount: 10000, // Will be calculated dynamically based on affordability
-  affordabilityRatio: null // Max monthly payment from financial profile
+  affordabilityRatio: null, // Max monthly payment from financial profile
+  loanCountAllTime: 0 // Total loan count to determine 5% or regular rate
 };
 
 function parseDateInputValue(value) {
@@ -79,12 +80,12 @@ function getConfiguredStartDate() {
   return parseDateInputValue(value);
 }
 
-// Check user's loan history to determine max allowed period
+// Check user's loan history to determine max allowed period and interest rate
 async function checkLoanHistory() {
   try {
     const { supabase } = await import('/Services/supabaseClient.js');
     const { data: { session } } = await supabase.auth.getSession();
-    
+
     if (!session) return;
 
     // Count completed/active loan applications for this user
@@ -94,8 +95,8 @@ async function checkLoanHistory() {
       .eq('user_id', session.user.id)
       .in('status', ['DISBURSED', 'OFFER_ACCEPTED', 'READY_TO_DISBURSE', 'ACTIVE', 'CONTRACT_SIGN', 'DEBICHECK_AUTH']);
 
-    if (error) {
-      console.error('Error checking loan history:', error);
+    if (allLoansError) {
+      console.error('Error checking loan history:', allLoansError);
       return;
     }
 
@@ -118,7 +119,7 @@ async function checkLoanHistory() {
     if (count > 3) {
       loanConfig.maxAllowedPeriod = 6;
     } else {
-      loanConfig.maxAllowedPeriod = 1;
+      loanConfig.maxAllowedPeriod = 6; // 1-2 loans: 6 months max (online limit)
     }
 
     // Update slider max

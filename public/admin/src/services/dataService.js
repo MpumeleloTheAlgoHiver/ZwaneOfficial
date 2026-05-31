@@ -402,7 +402,7 @@ export async function syncApplicationToLoans(applicationId) {
       .single();
     if (appError) throw appError;
 
-    if (app.status !== 'OFFERED' && app.status !== 'DISBURSED' && app.status !== 'READY_TO_DISBURSE') {
+    if (app.status !== 'OFFERED' && app.status !== 'DISBURSED' && app.status !== 'APPROVED') {
         // Just log or ignore
     }
 

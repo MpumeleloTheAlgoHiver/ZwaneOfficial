@@ -515,7 +515,7 @@ function updateDashboardStats(data) {
     const totalDisbursedVal = disbursedItems.reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
     // 2. Calculate Pending Value & Queue
-    const pendingItems = data.filter(p => p.status === 'pending_disbursement' || p.application?.status === 'READY_TO_DISBURSE');
+    const pendingItems = data.filter(p => p.status === 'pending_disbursement' || p.application?.status === 'APPROVED');
     const pendingVal = pendingItems.reduce((sum, p) => sum + Number(p.amount || 0), 0);
     const pendingCount = pendingItems.length;
 

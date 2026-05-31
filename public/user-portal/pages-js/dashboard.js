@@ -337,11 +337,11 @@ function populateApplications() {
         const hoursSinceCreation = (now - createdAt) / (1000 * 60 * 60);
         const withinTimeWindow = hoursSinceCreation < 2;
         
-        const canEdit = withinTimeWindow && app.status !== 'AFFORD_OK' && app.status !== 'READY_TO_DISBURSE';
-        const canDelete = withinTimeWindow && app.status !== 'READY_TO_DISBURSE';
+        const canEdit = withinTimeWindow && app.status !== 'AFFORD_OK' && app.status !== 'APPROVED';
+        const canDelete = withinTimeWindow && app.status !== 'APPROVED';
         
-        const editLockReason = app.status === 'AFFORD_OK' ? 'Edit locked' : app.status === 'READY_TO_DISBURSE' ? 'Edit locked' : 'Edit locked after 2 hours';
-        const deleteLockReason = app.status === 'READY_TO_DISBURSE' ? 'Delete locked' : 'Delete locked after 2 hours';
+        const editLockReason = app.status === 'AFFORD_OK' ? 'Edit locked' : app.status === 'APPROVED' ? 'Edit locked' : 'Edit locked after 2 hours';
+        const deleteLockReason = app.status === 'APPROVED' ? 'Delete locked' : 'Delete locked after 2 hours';
 
         return `
         <div class="application-item">
