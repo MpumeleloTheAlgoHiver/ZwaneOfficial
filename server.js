@@ -2463,6 +2463,53 @@ app.put('/api/eligibility-rules/:id', async (req, res) => {
     }
 });
 
+// ── Cashsend fee schedule (Standard Bank CashSend, updated 2024) ──────────────
+// https://www.standardbank.co.za/southafrica/personal/products-and-services/ways-to-bank/cashsend
+const CASHSEND_FEE_SCHEDULE = [
+    { maxAmount: 500,   fee: 10.00 },
+    { maxAmount: 1000,  fee: 13.50 },
+    { maxAmount: 2000,  fee: 17.00 },
+    { maxAmount: 3000,  fee: 20.50 },
+    { maxAmount: 5000,  fee: 25.00 },
+    { maxAmount: 10000, fee: 35.00 },
+];
+const CASHSEND_MAX = 10000;
+
+function getCashsendFee(amount) {
+    const amt = Number(amount || 0);
+    if (amt <= 0 || amt > CASHSEND_MAX) return null; // Not eligible
+    const tier = CASHSEND_FEE_SCHEDULE.find(t => amt <= t.maxAmount);
+    return tier ? tier.fee : CASHSEND_FEE_SCHEDULE[CASHSEND_FEE_SCHEDULE.length - 1].fee;
+}
+
+// GET /api/cashsend/fee?amount=X — return fee for a given amount
+app.get('/api/cashsend/fee', (req, res) => {
+    const amount = parseFloat(req.query.amount || 0);
+    const fee    = getCashsendFee(amount);
+    if (fee === null) {
+        return res.json({
+            eligible: false,
+            reason:   amount > CASHSEND_MAX
+                ? `CashSend maximum is R${CASHSEND_MAX.toLocaleString('en-ZA')}. Use bank transfer for larger amounts.`
+                : 'Invalid amount',
+            schedule: CASHSEND_FEE_SCHEDULE
+        });
+    }
+    return res.json({
+        eligible:   true,
+        amount,
+        fee,
+        net_payout: amount - fee,
+        method:     'CashSend (Standard Bank)',
+        schedule:   CASHSEND_FEE_SCHEDULE
+    });
+});
+
+// GET /api/cashsend/schedule — return full fee schedule
+app.get('/api/cashsend/schedule', (req, res) => {
+    res.json({ schedule: CASHSEND_FEE_SCHEDULE, max: CASHSEND_MAX });
+});
+
 // GET /api/my-eligibility — returns borrower's current credit band + eligibility for dashboard widget
 app.get('/api/my-eligibility', async (req, res) => {
     try {

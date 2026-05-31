@@ -102,6 +102,7 @@ function renderPageContent() {
                     <th class="px-6 py-4 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Transaction ID</th>
                     <th class="px-6 py-4 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Recipient</th>
                     <th class="px-6 py-4 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Amount</th>
+                    <th class="px-6 py-4 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Method</th>
                     <th class="px-6 py-4 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Status</th>
                     <th class="px-6 py-4 text-right text-[10px] font-semibold uppercase tracking-widest text-outline">Action</th>
                 </tr>
@@ -124,7 +125,177 @@ function renderPageContent() {
   `;
   
   attachEventListeners();
+
+  // Inject payout editor modal once
+  if (!document.getElementById('payout-editor-modal')) {
+    const modal = document.createElement('div');
+    modal.id = 'payout-editor-modal';
+    modal.className = 'hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4';
+    modal.innerHTML = `
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6" onclick="event.stopPropagation()">
+        <div class="flex items-center justify-between mb-5">
+          <h3 class="text-lg font-bold text-gray-900">Edit Payout Method</h3>
+          <button onclick="window.closePayoutEditor()" class="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500">
+            <i class="fa-solid fa-times text-xs"></i>
+          </button>
+        </div>
+        <input type="hidden" id="pe-payout-id">
+        <input type="hidden" id="pe-amount">
+
+        <!-- Payment Method -->
+        <div class="mb-4">
+          <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Payment Method</label>
+          <div class="grid grid-cols-2 gap-2">
+            ${[
+              { v: 'bank_transfer', l: 'Bank Transfer',  i: 'fa-building-columns', c: 'blue' },
+              { v: 'cashsend',      l: 'CashSend',       i: 'fa-mobile-screen',    c: 'purple' },
+              { v: 'third_party',   l: 'Third Party',    i: 'fa-arrow-right-arrow-left', c: 'orange' },
+              { v: 'cash',          l: 'Cash',           i: 'fa-money-bill',       c: 'green' },
+            ].map(m => `
+              <button type="button" data-method="${m.v}" onclick="window.selectPayoutMethod('${m.v}')"
+                class="pe-method-btn flex items-center gap-2 p-3 rounded-xl border-2 border-gray-200 hover:border-${m.c}-400 text-left text-sm font-semibold text-gray-700 transition-all">
+                <i class="fa-solid ${m.i} text-${m.c}-500 w-4"></i> ${m.l}
+              </button>`).join('')}
+          </div>
+        </div>
+
+        <!-- Cashsend info -->
+        <div id="pe-cashsend-info" class="hidden mb-4 p-3 bg-purple-50 border border-purple-100 rounded-xl text-xs text-purple-700 font-medium"></div>
+
+        <!-- Third party fields -->
+        <div id="pe-third-party-fields" class="hidden space-y-3 mb-4 p-4 bg-orange-50 border border-orange-100 rounded-xl">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Recipient Name</label>
+              <input id="pe-third-party-name" type="text" placeholder="Full name"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400 outline-none">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Bank Name</label>
+              <input id="pe-third-party-bank" type="text" placeholder="e.g. Capitec"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400 outline-none">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Account Number</label>
+              <input id="pe-third-party-account" type="text" placeholder="Account number"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400 outline-none font-mono">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Reference</label>
+              <input id="pe-third-party-ref" type="text" placeholder="Payment reference"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400 outline-none">
+            </div>
+          </div>
+        </div>
+
+        <!-- Notes -->
+        <div class="mb-5">
+          <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Payout Notes</label>
+          <input id="pe-notes" type="text" placeholder="Optional internal note..."
+            class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400 outline-none">
+        </div>
+
+        <div class="flex gap-3">
+          <button type="button" onclick="window.closePayoutEditor()"
+            class="flex-1 border border-gray-200 text-gray-600 font-semibold py-2.5 rounded-xl hover:bg-gray-50 text-sm">Cancel</button>
+          <button type="button" id="pe-save-btn" onclick="window.savePayoutMethod()"
+            class="flex-1 text-white font-semibold py-2.5 rounded-xl text-sm transition-colors"
+            style="background:var(--color-primary)">Save</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  }
 }
+
+// ── Payout method editor ──────────────────────────────────────────
+let _currentEditMethod = 'bank_transfer';
+
+window.openPayoutEditor = async function(payoutId) {
+    const p = allPayouts.find(x => x.id === payoutId);
+    if (!p) return;
+    _currentEditMethod = p.payment_method || 'bank_transfer';
+    document.getElementById('pe-payout-id').value = payoutId;
+    document.getElementById('pe-amount').value     = p.amount || 0;
+    document.getElementById('pe-notes').value      = p.payout_notes || '';
+    document.getElementById('pe-third-party-name').value    = p.third_party_name    || '';
+    document.getElementById('pe-third-party-bank').value    = p.third_party_bank    || '';
+    document.getElementById('pe-third-party-account').value = p.third_party_account || '';
+    document.getElementById('pe-third-party-ref').value     = p.third_party_ref     || '';
+    window.selectPayoutMethod(_currentEditMethod);
+    document.getElementById('payout-editor-modal').classList.remove('hidden');
+};
+
+window.closePayoutEditor = function() {
+    document.getElementById('payout-editor-modal').classList.add('hidden');
+};
+
+window.selectPayoutMethod = async function(method) {
+    _currentEditMethod = method;
+    document.querySelectorAll('.pe-method-btn').forEach(btn => {
+        const active = btn.dataset.method === method;
+        btn.classList.toggle('border-orange-400', active);
+        btn.classList.toggle('bg-orange-50', active);
+        btn.classList.toggle('border-gray-200', !active);
+    });
+
+    // Show/hide fields
+    document.getElementById('pe-third-party-fields').classList.toggle('hidden', method !== 'third_party');
+
+    // CashSend — fetch fee
+    const csInfo = document.getElementById('pe-cashsend-info');
+    if (method === 'cashsend') {
+        const amount = parseFloat(document.getElementById('pe-amount').value || 0);
+        if (amount > 0) {
+            try {
+                const res  = await fetch(`/api/cashsend/fee?amount=${amount}`);
+                const data = await res.json();
+                csInfo.classList.remove('hidden');
+                csInfo.innerHTML = data.eligible
+                    ? `CashSend Fee: <strong>R${data.fee.toFixed(2)}</strong> | Net to client: <strong>R${data.net_payout.toFixed(2)}</strong>`
+                    : `<span class="text-red-600">${data.reason}</span>`;
+            } catch { csInfo.classList.add('hidden'); }
+        }
+    } else {
+        csInfo.classList.add('hidden');
+    }
+};
+
+window.savePayoutMethod = async function() {
+    const payoutId = document.getElementById('pe-payout-id').value;
+    const amount   = parseFloat(document.getElementById('pe-amount').value || 0);
+    const method   = _currentEditMethod;
+    const btn      = document.getElementById('pe-save-btn');
+
+    let cashsendFee = 0;
+    if (method === 'cashsend') {
+        const res  = await fetch(`/api/cashsend/fee?amount=${amount}`);
+        const data = await res.json();
+        if (!data.eligible) { alert(data.reason); return; }
+        cashsendFee = data.fee;
+    }
+
+    const payload = {
+        payment_method:      method,
+        cashsend_fee:        cashsendFee,
+        third_party_name:    document.getElementById('pe-third-party-name').value.trim()    || null,
+        third_party_bank:    document.getElementById('pe-third-party-bank').value.trim()    || null,
+        third_party_account: document.getElementById('pe-third-party-account').value.trim() || null,
+        third_party_ref:     document.getElementById('pe-third-party-ref').value.trim()     || null,
+        payout_notes:        document.getElementById('pe-notes').value.trim()               || null,
+    };
+
+    btn.textContent = 'Saving…'; btn.disabled = true;
+    try {
+        const { supabase } = await import('../services/supabaseClient.js');
+        const { error } = await supabase.from('payouts').update(payload).eq('id', payoutId);
+        if (error) throw error;
+        window.closePayoutEditor();
+        await loadData();
+    } catch (e) { alert('Save failed: ' + e.message); }
+    finally { btn.textContent = 'Save'; btn.disabled = false; }
+};
 
 const filterAndSearch = (resetPage = true) => { 
     if (resetPage) currentPagePayouts = 1;
@@ -175,37 +346,52 @@ function renderPayoutTable(payouts) {
     }
 
     tb.innerHTML = payouts.map(p => {
-        const isSelected = selectedPayoutIds.has(p.id);
-        const dateStr = formatDate(p.created_at);
-        
+        const isSelected  = selectedPayoutIds.has(p.id);
+        const dateStr     = formatDate(p.created_at);
+        const method      = p.payment_method || 'bank_transfer';
+        const isCashsend  = method === 'cashsend';
+        const isThirdParty= method === 'third_party';
+        const fee         = Number(p.cashsend_fee || 0);
+
+        const methodBadge = {
+            bank_transfer: { label: 'Bank Transfer', bg: 'bg-blue-50 text-blue-700 border-blue-100' },
+            cashsend:      { label: 'CashSend',      bg: 'bg-purple-50 text-purple-700 border-purple-100' },
+            third_party:   { label: 'Third Party',   bg: 'bg-orange-50 text-orange-700 border-orange-100' },
+            cash:          { label: 'Cash',           bg: 'bg-gray-50 text-gray-700 border-gray-100' },
+        }[method] || { label: method, bg: 'bg-gray-50 text-gray-700 border-gray-100' };
+
         return `
         <tr class="hover:bg-gray-50 transition-colors group border-b border-gray-50 last:border-0">
             <td class="px-6 py-4">
                 <input type="checkbox" class="payout-checkbox rounded border-gray-300 text-orange-600 focus:ring-orange-500 cursor-pointer" data-id="${p.id}" ${isSelected ? 'checked' : ''}>
             </td>
-            <td class="px-6 py-4 text-xs text-gray-600 font-medium whitespace-nowrap">
-                ${dateStr}
+            <td class="px-6 py-4 text-xs text-gray-600 font-medium whitespace-nowrap">${dateStr}</td>
+            <td class="px-6 py-4">
+                <div class="text-xs font-mono text-gray-500 bg-gray-50 px-2 py-1 rounded inline-block border border-gray-100">#${p.id.slice(0,8)}</div>
             </td>
             <td class="px-6 py-4">
-                <div class="text-xs font-mono text-gray-500 bg-gray-50 px-2 py-1 rounded inline-block border border-gray-100">
-                    #${p.id}
-                </div>
+                <div class="text-xs font-bold text-gray-900">${isThirdParty ? (p.third_party_name || 'Third Party') : (p.profile?.full_name || 'N/A')}</div>
+                ${isThirdParty ? `<div class="text-[10px] text-orange-600 font-semibold">→ ${p.third_party_bank || ''} ${p.third_party_account || ''}</div>` : ''}
+                ${!isThirdParty ? `<div class="text-[10px] text-gray-400">${p.profile?.full_name || ''}</div>` : ''}
             </td>
             <td class="px-6 py-4">
-                <div class="text-xs font-bold text-gray-900">${p.profile?.full_name || 'N/A'}</div>
-                <div class="text-[10px] text-gray-400">App ID: ${p.application_id}</div>
+                <div class="text-xs font-black text-gray-900">${formatCurrency(p.amount)}</div>
+                ${isCashsend && fee ? `<div class="text-[10px] text-purple-600">Fee: ${formatCurrency(fee)} | Net: ${formatCurrency(Number(p.amount) - fee)}</div>` : ''}
             </td>
-            <td class="px-6 py-4 text-xs font-black text-gray-900">
-                ${formatCurrency(p.amount)}
+            <td class="px-6 py-4">
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${methodBadge.bg}">${methodBadge.label}</span>
             </td>
             <td class="px-6 py-4">
                 <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${activeTab === 'pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-green-50 text-green-600 border-green-100'}">
                     ${activeTab === 'pending' ? 'Pending' : 'Paid'}
                 </span>
             </td>
-            <td class="px-6 py-4 text-right">
+            <td class="px-6 py-4 text-right flex items-center justify-end gap-2">
+                <button onclick="window.openPayoutEditor('${p.id}')" class="text-gray-400 hover:text-orange-600 transition-colors p-2 rounded-full hover:bg-orange-50" title="Edit payout method">
+                    <i class="fa-solid fa-pen text-xs"></i>
+                </button>
                 <a href="/admin/application-detail?id=${p.application_id}" class="text-gray-400 hover:text-orange-600 transition-colors p-2 rounded-full hover:bg-orange-50 inline-block">
-                    <i class="fa-solid fa-eye"></i>
+                    <i class="fa-solid fa-eye text-xs"></i>
                 </a>
             </td>
         </tr>
