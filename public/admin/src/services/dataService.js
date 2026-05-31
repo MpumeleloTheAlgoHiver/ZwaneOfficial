@@ -151,7 +151,7 @@ export async function fetchPipelineApplications() {
 export async function fetchLoanApplications() {
   return supabase
     .from('loan_applications')
-    .select('*, profiles:user_id(full_name)') // Read from View
+    .select('*, profiles:user_id(full_name, client_number, identity_number, nok_name, nok_phone, nok_relationship)')
     .order('created_at', { ascending: false });
 }
 
@@ -229,6 +229,27 @@ export async function updateApplicationStatus(applicationId, newStatus) {
     const { data: updatedApp, error: updateError } = await supabase.from('loan_applications').update(updatePayload).eq('id', applicationId).select().single();
     if (updateError) throw updateError;
     if (newStatus === 'DISBURSED' || newStatus === 'ACTIVE') await ensureLoanFromApplication(updatedApp);
+
+    // ── Audit trail ────────────────────────────────────────────────
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const userId = session?.user?.id;
+        const { data: adminProfile } = userId
+            ? await supabase.from('profiles').select('full_name').eq('id', userId).maybeSingle()
+            : { data: null };
+        await supabase.from('audit_log').insert([{
+            entity_type:       'loan_application',
+            entity_id:         String(applicationId),
+            action:            'status_change',
+            old_value:         { status: app.status },
+            new_value:         { status: newStatus },
+            description:       `Status changed from ${app.status} → ${newStatus}`,
+            performed_by:      userId || null,
+            performed_by_name: adminProfile?.full_name || session?.user?.email || 'System'
+        }]);
+    } catch (_) { /* audit is non-blocking */ }
+    // ──────────────────────────────────────────────────────────────
+
     return { data: updatedApp, error: null };
   } catch (error) {
     return { data: null, error };
@@ -236,7 +257,10 @@ export async function updateApplicationStatus(applicationId, newStatus) {
 }
 
 export const fetchUsers = async () => {
-    const { data, error } = await supabase.from('profiles').select('*, branches(id, name)').order('created_at', { ascending: false });
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('*, branches(id, name)')
+        .order('created_at', { ascending: false });
     return error ? [] : data;
 };
 
@@ -492,13 +516,24 @@ export async function syncAllOfferedApplications() {
 // == ANALYTICS & BALANCE SHEET ENGINE
 // =================================================================
 export async function fetchAnalyticsData() {
-    const { data: loans, error: loanError } = await supabase.from('loans').select('*, application:application_id(*)').order('created_at', { ascending: true });
-    if (loanError) throw loanError;
-    const { data: payments, error: payError } = await supabase.from('payments').select('*').order('payment_date', { ascending: true });
-    if (payError) throw payError;
+    const { data: loans, error: loanError } = await supabase
+        .from('loans')
+        .select('id, application_id, user_id, principal_amount, outstanding_balance, monthly_payment, interest_rate, status, created_at, profiles:user_id(full_name)')
+        .order('created_at', { ascending: false });
+    if (loanError) return { data: [], error: loanError };
 
-    // ... Waterfall logic remains same but using friendly field names from the view ...
-    return { data: loans, error: null }; // Simplified for now to ensure stability
+    const rows = (loans || []).map(loan => ({
+        loan_id: loan.id,
+        customer: loan.profiles?.full_name || 'Unknown',
+        month: (loan.created_at || '').slice(0, 7),
+        principal_outstanding: Number(loan.outstanding_balance || loan.principal_amount || 0),
+        interest_receivable: Number(loan.monthly_payment || 0) * 0.2, // estimated interest portion
+        fee_receivable: Number(loan.monthly_payment || 0) * 0.05,     // estimated fee portion
+        arrears_amount: loan.status === 'arrears' || loan.status === 'default'
+            ? Number(loan.outstanding_balance || 0) : 0,
+    }));
+
+    return { data: rows, error: null };
 }
 
 export async function fetchMonthlyLoanPerformance() {
@@ -522,10 +557,12 @@ export async function fetchMonthlyLoanPerformance() {
     return { data: Object.values(byMonth) };
 }
 
-export async function fetchFinancialsData() {
-    const { data, error } = await supabase
+export async function fetchFinancialsData(branchId = null) {
+    let query = supabase
         .from('loan_applications')
-        .select('offer_principal, offer_total_repayment, offer_monthly_repayment, offer_total_interest, offer_total_initiation_fees, offer_total_admin_fees, status')
+        .select('offer_principal, offer_total_repayment, offer_monthly_repayment, offer_total_interest, offer_total_initiation_fees, offer_total_admin_fees, status, branch_id');
+    if (branchId && branchId !== 'all') query = query.eq('branch_id', branchId);
+    const { data, error } = await query;
     if (error) return { data: null, error };
 
     const rows = data || [];

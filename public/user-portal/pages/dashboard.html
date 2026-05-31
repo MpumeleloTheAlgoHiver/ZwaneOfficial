@@ -5,6 +5,7 @@
 
         <div id="mobile-view">
             <section class="welcome-section">
+                <p class="greeting-line" id="greetingMobile"></p>
                 <h1 class="main-title">Portfolio Overview</h1>
                 <p class="date-label" id="currentDateMobile"></p>
             </section>
@@ -56,6 +57,7 @@
         <div id="desktop-view">
             <div class="dashboard-header">
               <div class="header-left">
+                <p class="greeting-line" id="greetingDesktop"></p>
                 <h1>Portfolio Overview</h1>
                 <p id="currentDate">Tuesday, November 11, 2025</p>
               </div>
@@ -63,34 +65,67 @@
 
             <div class="top-section">
               <div class="metrics-grid">
-                <div class="card">
-                  <div class="card-label">Outstanding Balance</div>
+                <div class="card ds-metric-card">
+                  <div class="ds-card-header">
+                    <span class="card-label">Outstanding Balance</span>
+                    <div class="card-icon-badge" style="--badge-color:#E7762E;--badge-bg:rgba(231,118,46,0.10)"><i class="fas fa-wallet"></i></div>
+                  </div>
                   <div class="card-value" id="currentBalance">R 0.00</div>
                   <div class="card-subtitle">Total principal remaining</div>
                 </div>
-                <div class="card">
-                  <div class="card-label">Next Payment Due</div>
+                <div class="card ds-metric-card">
+                  <div class="ds-card-header">
+                    <span class="card-label">Next Payment Due</span>
+                    <div class="card-icon-badge" style="--badge-color:#3b82f6;--badge-bg:rgba(59,130,246,0.10)"><i class="fas fa-calendar-alt"></i></div>
+                  </div>
                   <div class="card-value" id="nextPaymentAmount">R 0.00</div>
                   <div class="card-subtitle" id="nextPaymentDate">Due date pending</div>
                 </div>
-                <div class="card">
-                  <div class="card-label">Total Borrowed</div>
+                <div class="card ds-metric-card">
+                  <div class="ds-card-header">
+                    <span class="card-label">Total Borrowed</span>
+                    <div class="card-icon-badge" style="--badge-color:#10b981;--badge-bg:rgba(16,185,129,0.10)"><i class="fas fa-arrow-trend-up"></i></div>
+                  </div>
                   <div class="card-value" id="totalBorrowed">R 0.00</div>
                   <div class="card-subtitle">Lifetime capacity</div>
                 </div>
-                <div class="card">
-                  <div class="card-label">Total Repaid</div>
+                <div class="card ds-metric-card">
+                  <div class="ds-card-header">
+                    <span class="card-label">Total Repaid</span>
+                    <div class="card-icon-badge" style="--badge-color:#8b5cf6;--badge-bg:rgba(139,92,246,0.10)"><i class="fas fa-circle-check"></i></div>
+                  </div>
                   <div class="card-value" id="totalRepaid">R 0.00</div>
                   <div class="card-subtitle">Successfully settled</div>
                 </div>
               </div>
-              <div class="credit-score-card card">
-                <div class="card-label">Credit Score</div>
+              <div class="credit-score-card card ds-metric-card">
+                <div class="ds-card-header">
+                  <span class="card-label">Credit Score</span>
+                  <div class="card-icon-badge" style="--badge-color:#E7762E;--badge-bg:rgba(231,118,46,0.10)"><i class="fas fa-chart-line"></i></div>
+                </div>
                 <div class="card-value" id="creditScore">0</div>
                 <div class="card-subtitle">Experian Financial Standing</div>
                 <div class="score-meter">
                   <div class="score-fill"></div>
                 </div>
+              </div>
+
+              <!-- Eligibility Widget -->
+              <div class="card ds-metric-card" id="eligibilityCard" style="display:none;">
+                <div class="ds-card-header">
+                  <span class="card-label">My Eligibility</span>
+                  <div class="card-icon-badge" id="eligibilityBadgeIcon" style="--badge-color:#10b981;--badge-bg:rgba(16,185,129,0.10)"><i class="fas fa-shield-check"></i></div>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                  <span id="eligibilityBandDot" style="width:10px;height:10px;border-radius:50%;background:#10b981;flex-shrink:0;"></span>
+                  <span class="card-value" style="font-size:22px !important;" id="eligibilityBandLabel">—</span>
+                </div>
+                <div id="eligibilityDetails" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;"></div>
+                <div id="eligibilityFirstLoan" style="display:none;background:#fff8ed;border-radius:10px;padding:8px 12px;font-size:12px;color:#d97706;font-weight:600;"></div>
+                <button onclick="window.location.href='/user-portal/?page=apply-loan'"
+                  style="margin-top:10px;width:100%;padding:10px;border:none;border-radius:12px;background:linear-gradient(135deg,#E7762E,#f08840);color:white;font-weight:700;font-size:13px;cursor:pointer;">
+                  Apply Now <i class="fas fa-arrow-right"></i>
+                </button>
               </div>
             </div>
 

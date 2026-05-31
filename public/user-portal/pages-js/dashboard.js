@@ -46,6 +46,37 @@ const getThemePalette = () => {
 // ==========================================
 // 2. UTILITY FUNCTIONS
 // ==========================================
+// ── Status label + colour formatter (single source of truth) ──────
+const STATUS_DISPLAY = {
+  'STARTED':           { label: 'In Progress',   color: '#f59e0b', bg: 'rgba(245,158,11,0.10)' },
+  'BUREAU_CHECKING':   { label: 'Credit Check',  color: '#3b82f6', bg: 'rgba(59,130,246,0.10)' },
+  'BUREAU_OK':         { label: 'Credit Passed', color: '#3b82f6', bg: 'rgba(59,130,246,0.10)' },
+  'BUREAU_DECLINE':    { label: 'Declined',      color: '#ef4444', bg: 'rgba(239,68,68,0.10)'  },
+  'BUREAU_REFER':      { label: 'Under Review',  color: '#f59e0b', bg: 'rgba(245,158,11,0.10)' },
+  'AFFORD_OK':         { label: 'Approved',      color: '#10b981', bg: 'rgba(16,185,129,0.10)' },
+  'AFFORD_REFER':      { label: 'Under Review',  color: '#f59e0b', bg: 'rgba(245,158,11,0.10)' },
+  'OFFERED':           { label: 'Offer Sent',    color: '#8b5cf6', bg: 'rgba(139,92,246,0.10)' },
+  'OFFER_ACCEPTED':    { label: 'Accepted',      color: '#10b981', bg: 'rgba(16,185,129,0.10)' },
+  'CONTRACT_SIGN':     { label: 'Signing',       color: '#f59e0b', bg: 'rgba(245,158,11,0.10)' },
+  'DEBICHECK_AUTH':    { label: 'DebiCheck',     color: '#3b82f6', bg: 'rgba(59,130,246,0.10)' },
+  'READY_TO_DISBURSE': { label: 'Approved',      color: '#10b981', bg: 'rgba(16,185,129,0.10)' },
+  'DISBURSED':         { label: 'Disbursed',     color: '#10b981', bg: 'rgba(16,185,129,0.10)' },
+  'ACTIVE':            { label: 'Active',        color: '#10b981', bg: 'rgba(16,185,129,0.10)' },
+  'SETTLED':           { label: 'Settled',       color: '#6b7280', bg: 'rgba(107,114,128,0.10)' },
+  'IN_ARREARS':        { label: 'In Arrears',    color: '#ef4444', bg: 'rgba(239,68,68,0.10)'  },
+  'IN_DEFAULT':        { label: 'In Default',    color: '#dc2626', bg: 'rgba(220,38,38,0.10)'  },
+  'CANCELLED':         { label: 'Cancelled',     color: '#6b7280', bg: 'rgba(107,114,128,0.10)' },
+};
+
+window.getStatusDisplay = function(status) {
+  return STATUS_DISPLAY[status] || { label: status, color: '#6b7280', bg: 'rgba(107,114,128,0.10)' };
+};
+
+window.renderStatusBadge = function(status) {
+  const s = window.getStatusDisplay(status);
+  return `<span style="background:${s.bg};color:${s.color};padding:4px 10px;border-radius:100px;font-size:11px;font-weight:700;white-space:nowrap;">${s.label}</span>`;
+};
+
 function formatCurrency(value = 0) {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return 'R 0.00';
@@ -147,12 +178,33 @@ function applyCreditScoreToDashboard(creditData) {
     const clampedScore = Math.max(0, Math.min(rawScore, CREDIT_SCORE_MAX));
     const percentage = Math.round((clampedScore / CREDIT_SCORE_MAX) * 100);
     
-    scoreElement.textContent = clampedScore.toString();
     const riskLabel = (creditData.score_band || 'Medium Risk').toLowerCase();
     const colorMeta = SCORE_RISK_COLORS[riskLabel] || SCORE_RISK_COLORS['medium risk'];
-    
-    scoreFill.style.width = `${percentage}%`;
+
+    // Animated score count-up
+    const duration = 1600;
+    const startTime = performance.now();
+    const startVal = parseInt(scoreElement.textContent) || 0;
+    (function tick(now) {
+        const elapsed  = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        // ease-out-cubic
+        const eased = 1 - Math.pow(1 - progress, 3);
+        scoreElement.textContent = Math.round(startVal + (clampedScore - startVal) * eased).toString();
+        if (progress < 1) requestAnimationFrame(tick);
+    })(performance.now());
+
+    // Animated bar fill — start from 0 then transition
+    scoreFill.style.transition = 'none';
+    scoreFill.style.width = '0%';
     scoreFill.style.background = colorMeta.gradient;
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            scoreFill.style.transition = 'width 1.6s cubic-bezier(0.22, 1, 0.36, 1)';
+            scoreFill.style.width = `${percentage}%`;
+        });
+    });
+
     dashboardData.creditScore = clampedScore;
 }
 
@@ -296,7 +348,7 @@ function populateApplications() {
             <div class="application-icon ${app.status.toLowerCase()}"><i class="fas fa-${app.status === 'Approved' ? 'check' : app.status === 'Pending' ? 'clock' : 'times'}"></i></div>
             <div class="item-details"><div class="item-title">${app.type}</div><div class="item-date">${app.date}</div></div>
             <div style="display: flex; align-items: center; gap: 8px;">
-                <span class="status-badge ${app.status.toLowerCase()}">${app.status}</span>
+                ${window.renderStatusBadge(app.status)}
                 <button class="app-action-btn ${!canEdit ? 'locked' : ''}" onclick="editApplication('${app.rawId}')" ${!canEdit ? 'disabled' : ''} title="${!canEdit ? editLockReason : 'Edit'}">
                     <i class="fas fa-${!canEdit ? 'lock' : 'edit'}"></i>
                 </button>
@@ -371,15 +423,50 @@ function initializeCharts() {
                     borderColor: palette.primary,
                     backgroundColor: lineGradient,
                     borderWidth: 3, fill: true, tension: 0.45,
-                    pointRadius: 5, pointHoverRadius: 7, pointBackgroundColor: palette.surfaceCard,
-                    pointBorderColor: palette.primary, pointBorderWidth: 3, pointHoverBorderWidth: 3,
-                    segment: { borderColor: ctx => ctx.p0.skip || ctx.p1.skip ? 'rgba(255,255,255,0.15)' : palette.primary }
+                    pointRadius: 5, pointHoverRadius: 8,
+                    pointBackgroundColor: '#ffffff',
+                    pointBorderColor: palette.primary, pointBorderWidth: 3,
+                    pointHoverBackgroundColor: palette.primary,
+                    pointHoverBorderColor: '#ffffff', pointHoverBorderWidth: 2,
                 }]
             },
             options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1a1a1a', titleColor: '#fff', bodyColor: '#ffead6', borderColor: '#2a2a2a', borderWidth: 1, padding: 12, displayColors: false, callbacks: { label: function(context) { return 'R ' + context.parsed.y.toLocaleString(); } } } },
-                scales: { y: { beginAtZero: true, suggestedMax: computeRepaymentSuggestedMax(dashboardData.repaymentSeries?.data || [0, 0, 0, 0, 0, 0]), grid: { color: 'rgba(255, 255, 255, 0.05)', drawBorder: false }, ticks: { color: '#8c8c8c', font: { size: 10 }, callback: function(value) { return 'R' + (value/1000) + 'k'; } } }, x: { grid: { color: 'rgba(255, 255, 255, 0.02)' }, ticks: { color: '#9a9a9a', font: { size: 10 } } } }
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 1400,
+                    easing: 'easeInOutQuart',
+                    x: { type: 'number', easing: 'easeInOutQuart', duration: 1400, from: NaN, delay(ctx) { return ctx.index * 80; } },
+                    y: { type: 'number', easing: 'easeOutBounce', duration: 1400, from(ctx) { return ctx.index === 0 ? ctx.chart.scales.y.getPixelForValue(100) : ctx.chart.getDatasetMeta(ctx.datasetIndex).data[ctx.index - 1].getProps(['y'], true).y; } }
+                },
+                transitions: { active: { animation: { duration: 300 } } },
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: '#0F172A',
+                        titleColor: '#fff',
+                        bodyColor: '#ffead6',
+                        borderColor: 'rgba(231,118,46,0.3)',
+                        borderWidth: 1,
+                        padding: 14,
+                        displayColors: false,
+                        cornerRadius: 12,
+                        callbacks: { label: ctx => '  R ' + ctx.parsed.y.toLocaleString() }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        suggestedMax: computeRepaymentSuggestedMax(dashboardData.repaymentSeries?.data || [0,0,0,0,0,0]),
+                        grid: { color: 'rgba(0,0,0,0.04)', drawBorder: false },
+                        ticks: { color: '#8E8E93', font: { size: 10, family: 'IBM Plex Sans' }, callback: v => 'R' + (v >= 1000 ? (v/1000)+'k' : v) }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: '#8E8E93', font: { size: 10, family: 'IBM Plex Sans' } }
+                    }
+                }
             }
         });
         if (dashboardData.repaymentSeries) applyRepaymentChart(dashboardData.repaymentSeries.labels, dashboardData.repaymentSeries.data);
@@ -397,17 +484,56 @@ function initializeCharts() {
             data: {
                 labels: ['Repaid', 'Outstanding'],
                 datasets: [{
-                    data: [1, 1], // Placeholder
-                    backgroundColor: [brightOrange, palette.primaryAlpha(0.2)],
-                    borderColor: [palette.primary, palette.primaryAlpha(0.3)],
-                    hoverBorderColor: [palette.primary, palette.primary],
-                    borderWidth: 2, hoverOffset: 8, offset: 4
+                    data: [1, 1],
+                    backgroundColor: [brightOrange, 'rgba(0,0,0,0.06)'],
+                    borderColor: [palette.primary, 'rgba(0,0,0,0.0)'],
+                    hoverBorderColor: [palette.primary, palette.primaryAlpha(0.4)],
+                    borderWidth: 2,
+                    hoverOffset: 10,
+                    offset: 4,
+                    borderRadius: 6,
                 }]
             },
             options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { position: 'bottom', labels: { color: '#e2e8f0', padding: 15, font: { size: 11 }, usePointStyle: true, pointStyle: 'circle' } }, tooltip: { backgroundColor: '#1a1a1a', titleColor: '#fff', bodyColor: '#e2e8f0', borderColor: '#2a2a2a', borderWidth: 1, padding: 10, callbacks: { label: function(context) { const value = context.parsed; const total = context.dataset.data.reduce((a, b) => a + b, 0); const percentage = ((value / total) * 100).toFixed(1); return context.label + ': R ' + value.toLocaleString() + ' (' + percentage + '%)'; } } } },
-                cutout: '68%', rotation: -90
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    animateRotate: true,
+                    animateScale: true,
+                    duration: 1200,
+                    easing: 'easeInOutQuart',
+                },
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            color: '#0F172A',
+                            padding: 16,
+                            font: { size: 11, family: 'IBM Plex Sans', weight: '600' },
+                            usePointStyle: true,
+                            pointStyle: 'circle',
+                            boxWidth: 8,
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: '#0F172A',
+                        titleColor: '#fff',
+                        bodyColor: '#ffead6',
+                        borderColor: 'rgba(231,118,46,0.3)',
+                        borderWidth: 1,
+                        padding: 14,
+                        cornerRadius: 12,
+                        callbacks: {
+                            label: ctx => {
+                                const total = ctx.dataset.data.reduce((a,b) => a+b, 0);
+                                const pct = total > 0 ? ((ctx.parsed / total) * 100).toFixed(1) : 0;
+                                return `  ${ctx.label}: R ${ctx.parsed.toLocaleString()} (${pct}%)`;
+                            }
+                        }
+                    }
+                },
+                cutout: '70%',
+                rotation: -90
             }
         });
         updateLoanBreakdownChart(dashboardData.totalRepaid, dashboardData.currentBalance);
@@ -459,7 +585,7 @@ async function ensureChartJs() {
         });
     }
 
-    const cdnCandidates = ['https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js', 'https://unpkg.com/chart.js@3.9.1/dist/chart.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js'];
+    const cdnCandidates = ['/lib/chart.min.js', 'https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js', 'https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js'];
     for (const url of cdnCandidates) {
         const loaded = await new Promise((resolve) => {
             const script = document.createElement('script'); script.src = url;
@@ -821,7 +947,7 @@ window.editApplication = async function(applicationId) {
             
         if (fetchError || !app) { alert('Application not found'); return; }
         if (app.status === 'AFFORD_OK') { alert('This application cannot be edited. Affordability check has been completed.'); return; }
-        if (app.status === 'READY_TO_DISBURSE') { alert('This application cannot be edited. Application is ready to disburse.'); return; }
+        if (app.status === 'READY_TO_DISBURSE') { alert('This application cannot be edited. Application is approved and awaiting disbursement.'); return; }
         
         const hoursSinceCreation = (new Date() - new Date(app.created_at)) / (1000 * 60 * 60);
         if (hoursSinceCreation >= 2) { alert('This application can no longer be edited. Edit window expired after 2 hours.'); return; }
@@ -888,7 +1014,7 @@ window.deleteApplication = async function(applicationId) {
         
         const { data: app, error: fetchError } = await supabase.from('loan_applications').select('created_at, status').eq('id', applicationId).eq('user_id', session.user.id).single();
         if (fetchError || !app) { alert('Application not found'); return; }
-        if (app.status === 'READY_TO_DISBURSE') { alert('This application cannot be deleted. Application is ready to disburse.'); return; }
+        if (app.status === 'READY_TO_DISBURSE') { alert('This application cannot be deleted. Application is approved and awaiting disbursement.'); return; }
         
         const hoursSinceCreation = (new Date() - new Date(app.created_at)) / (1000 * 60 * 60);
         if (hoursSinceCreation >= 2) { alert('This application can no longer be deleted. Delete window expired after 2 hours.'); return; }
@@ -912,7 +1038,85 @@ const todayDateString = new Date().toLocaleDateString('en-US', dateOpts);
 if(document.getElementById('currentDate')) document.getElementById('currentDate').textContent = todayDateString;
 if(document.getElementById('currentDateMobile')) document.getElementById('currentDateMobile').textContent = todayDateString;
 
+// Time-based greeting
+(function initGreeting() {
+    const hour = new Date().getHours();
+    let salutation;
+    if (hour >= 5  && hour < 12) salutation = 'Good morning';
+    else if (hour >= 12 && hour < 17) salutation = 'Good afternoon';
+    else if (hour >= 17 && hour < 21) salutation = 'Good evening';
+    else                               salutation = 'Good evening';
+
+    const profile = window.globalUserProfile;
+    const firstName = profile?.full_name
+        ? profile.full_name.trim().split(/\s+/)[0]
+        : '';
+
+    const text = firstName ? `${salutation}, ${firstName} 👋` : `${salutation} 👋`;
+
+    const elDesktop = document.getElementById('greetingDesktop');
+    const elMobile  = document.getElementById('greetingMobile');
+    if (elDesktop) elDesktop.textContent = text;
+    if (elMobile)  elMobile.textContent  = text;
+})();
+
 populateActiveLoans();
 populateTransactions();
 populateApplications();
 loadDashboardData();
+loadEligibilityWidget();
+
+// ── Eligibility Widget ─────────────────────────────────────────
+async function loadEligibilityWidget() {
+    try {
+        const { supabase } = await import('/Services/supabaseClient.js');
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        const res = await fetch('/api/my-eligibility', {
+            headers: { 'Authorization': `Bearer ${session.access_token}` }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+
+        const card = document.getElementById('eligibilityCard');
+        if (!card) return;
+
+        if (!data.eligible) return; // hide card if no credit check yet
+
+        card.style.display = '';
+
+        const bandLabel  = document.getElementById('eligibilityBandLabel');
+        const bandDot    = document.getElementById('eligibilityBandDot');
+        const badgeIcon  = document.getElementById('eligibilityBadgeIcon');
+        const details    = document.getElementById('eligibilityDetails');
+        const firstLoan  = document.getElementById('eligibilityFirstLoan');
+
+        if (bandLabel) bandLabel.textContent = data.band?.label || '—';
+        if (bandDot && data.band?.color) bandDot.style.background = data.band.color;
+        if (badgeIcon && data.band?.color) {
+            badgeIcon.style.setProperty('--badge-color', data.band.color);
+            badgeIcon.style.setProperty('--badge-bg', data.band.color + '1a');
+        }
+
+        if (details) {
+            details.innerHTML = [
+                { label: 'Max Loan',  value: `R ${Number(data.band?.max_loan_amount || 0).toLocaleString()}` },
+                { label: 'Rate p.a.', value: `${data.band?.interest_rate_pa || 0}%` },
+                { label: 'Max Term',  value: `${data.band?.max_term_months || 0} mo` },
+                { label: 'Score',     value: data.credit_score || '—' }
+            ].map(i => `
+                <div style="background:#f8f8f8;border-radius:8px;padding:8px 10px;">
+                    <div style="font-size:10px;color:#8E8E93;text-transform:uppercase;letter-spacing:.05em;">${i.label}</div>
+                    <div style="font-size:14px;font-weight:700;color:#0F172A;">${i.value}</div>
+                </div>`).join('');
+        }
+
+        if (firstLoan && data.first_loan_restriction) {
+            firstLoan.style.display = '';
+            firstLoan.innerHTML = `<i class="fas fa-star"></i> ${data.first_loan_restriction}`;
+        }
+    } catch (e) {
+        console.warn('[eligibility-widget]', e.message);
+    }
+}

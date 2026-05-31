@@ -269,7 +269,22 @@ function renderProfileTab() {
           </div>
           <div class="form-group">
             <label for="cell_tel_no">Cell Phone Number</label>
-            <input type="text" id="cell_tel_no" value="${currentUserProfile.cell_tel_no || currentUserProfile.contact_number || ''}" placeholder="e.g. 0821234567" maxlength="10">
+            <div style="display:flex;gap:8px;align-items:flex-end;">
+              <input type="text" id="cell_tel_no" value="${currentUserProfile.cell_tel_no || currentUserProfile.contact_number || ''}" placeholder="e.g. 0821234567" maxlength="10" style="flex:1">
+              <button type="button" onclick="window.sendPhoneOTP()" id="btn-send-otp"
+                style="white-space:nowrap;padding:10px 14px;border:none;border-radius:10px;background:var(--color-primary);color:white;font-size:12px;font-weight:700;cursor:pointer;">
+                Verify SMS
+              </button>
+            </div>
+            <div id="otp-verify-row" style="display:none;margin-top:8px;display:none;gap:8px;align-items:center;">
+              <input type="text" id="otp-input" placeholder="Enter 6-digit code" maxlength="6"
+                style="flex:1;padding:10px;border:1.5px solid var(--color-primary);border-radius:10px;font-size:14px;letter-spacing:4px;text-align:center;">
+              <button type="button" onclick="window.verifyPhoneOTP()"
+                style="padding:10px 14px;border:none;border-radius:10px;background:#10b981;color:white;font-size:12px;font-weight:700;cursor:pointer;">
+                Confirm
+              </button>
+            </div>
+            <div id="otp-status" style="font-size:12px;margin-top:4px;"></div>
           </div>
           <div class="form-group">
             <label for="user_id">User ID</label>
@@ -1800,3 +1815,55 @@ window.addEventListener('pageLoaded', (e) => {
     initProfilePage();
   }
 });
+
+// ── Phone OTP Verification ─────────────────────────────────────
+window.sendPhoneOTP = async function() {
+    const phone  = document.getElementById('cell_tel_no')?.value.trim();
+    const status = document.getElementById('otp-status');
+    const row    = document.getElementById('otp-verify-row');
+    const btn    = document.getElementById('btn-send-otp');
+    if (!phone || phone.length < 10) { if (status) { status.textContent = 'Enter a valid 10-digit number first.'; status.style.color = '#ef4444'; } return; }
+    btn.textContent = 'Sending…'; btn.disabled = true;
+    try {
+        const res  = await fetch('/api/messaging/otp', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone })
+        });
+        const json = await res.json();
+        if (json.success || json.message) {
+            if (row)    { row.style.display = 'flex'; }
+            if (status) { status.textContent = 'Code sent! Check your SMS.'; status.style.color = '#10b981'; }
+        } else {
+            if (status) { status.textContent = json.error || 'Failed to send OTP.'; status.style.color = '#ef4444'; }
+        }
+    } catch (e) {
+        if (status) { status.textContent = 'Network error. Try again.'; status.style.color = '#ef4444'; }
+    } finally {
+        btn.textContent = 'Resend'; btn.disabled = false;
+    }
+};
+
+window.verifyPhoneOTP = async function() {
+    const phone  = document.getElementById('cell_tel_no')?.value.trim();
+    const otp    = document.getElementById('otp-input')?.value.trim();
+    const status = document.getElementById('otp-status');
+    if (!otp || otp.length !== 6) { if (status) { status.textContent = 'Enter the 6-digit code.'; status.style.color = '#ef4444'; } return; }
+    try {
+        const res  = await fetch('/api/messaging/verify-otp', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone, otp })
+        });
+        const json = await res.json();
+        if (json.valid) {
+            if (status) { status.textContent = '✓ Phone number verified!'; status.style.color = '#10b981'; }
+            const row = document.getElementById('otp-verify-row');
+            if (row) row.style.display = 'none';
+            const btn = document.getElementById('btn-send-otp');
+            if (btn) { btn.textContent = '✓ Verified'; btn.style.background = '#10b981'; btn.disabled = true; }
+        } else {
+            if (status) { status.textContent = json.reason || 'Incorrect code. Try again.'; status.style.color = '#ef4444'; }
+        }
+    } catch (e) {
+        if (status) { status.textContent = 'Verification failed. Try again.'; status.style.color = '#ef4444'; }
+    }
+};

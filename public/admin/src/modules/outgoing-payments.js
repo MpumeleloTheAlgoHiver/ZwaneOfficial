@@ -28,50 +28,53 @@ function renderPageContent() {
     <div id="payout-list-view" class="flex flex-col h-full animate-fade-in space-y-6">
       
       <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
-        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 flex items-center justify-between">
+
+        <div class="glass-card p-8 rounded-2xl flex items-center justify-between">
             <div>
-                <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Total Disbursed</p>
-                <h2 id="stat-total-disbursed" class="text-3xl font-black text-gray-900 mt-2">R 0.00</h2>
+                <p class="text-[11px] font-semibold uppercase tracking-widest text-outline">Total Disbursed</p>
+                <h2 id="stat-total-disbursed" class="text-3xl font-black text-on-surface mt-2">R 0.00</h2>
             </div>
-            <div class="w-12 h-12 rounded-xl bg-green-50 text-green-600 flex items-center justify-center text-xl shadow-sm">
-                <i class="fa-solid fa-money-bill-wave"></i>
+            <div class="w-12 h-12 rounded-xl bg-green-50 text-green-600 flex items-center justify-center shadow-sm">
+                <span class="material-symbols-outlined">payments</span>
             </div>
         </div>
 
-        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 flex items-center justify-between">
+        <div class="glass-card p-8 rounded-2xl flex items-center justify-between">
             <div>
-                <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Pending Value</p>
+                <p class="text-[11px] font-semibold uppercase tracking-widest text-outline">Pending Value</p>
                 <h2 id="stat-pending-value" class="text-3xl font-black text-yellow-600 mt-2">R 0.00</h2>
             </div>
-            <div class="w-12 h-12 rounded-xl bg-yellow-50 text-yellow-600 flex items-center justify-center text-xl shadow-sm">
-                <i class="fa-solid fa-clock"></i>
+            <div class="w-12 h-12 rounded-xl bg-yellow-50 text-yellow-600 flex items-center justify-center shadow-sm">
+                <span class="material-symbols-outlined">schedule</span>
             </div>
         </div>
 
-        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 flex items-center justify-between">
+        <div class="glass-card p-8 rounded-2xl flex items-center justify-between">
             <div>
-                <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Pending Queue</p>
-                <h2 id="stat-pending-queue" class="text-3xl font-black text-gray-900 mt-2">0</h2>
+                <p class="text-[11px] font-semibold uppercase tracking-widest text-outline">Pending Queue</p>
+                <h2 id="stat-pending-queue" class="text-3xl font-black text-on-surface mt-2">0</h2>
             </div>
-            <div class="w-12 h-12 rounded-xl bg-gray-50 text-gray-600 flex items-center justify-center text-xl shadow-sm">
-                <i class="fa-solid fa-list-check"></i>
+            <div class="w-12 h-12 rounded-xl bg-surface-container text-outline flex items-center justify-center shadow-sm">
+                <span class="material-symbols-outlined">checklist</span>
             </div>
         </div>
 
       </div>
 
-      <div class="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden flex-1 min-h-0">
-        
-        <div class="p-6 border-b border-gray-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+      <div class="glass-card rounded-2xl flex flex-col overflow-hidden flex-1 min-h-0">
+
+        <div class="p-6 border-b border-outline-variant/10 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>
-                <h3 class="text-lg font-bold text-gray-900 uppercase tracking-tight">Transaction View</h3>
+                <h3 class="text-lg font-headline font-bold text-on-surface uppercase tracking-tight">Transaction View</h3>
                 <div class="flex gap-6 mt-2">
-                    <button id="tab-pending" class="text-xs font-bold uppercase transition-colors pb-1 border-b-2 ${activeTab === 'pending' ? 'text-orange-600 border-orange-600' : 'text-gray-400 border-transparent hover:text-gray-600'}">
+                    <button id="tab-pending" class="text-xs font-bold uppercase transition-colors pb-1 border-b-2 ${activeTab === 'pending' ? 'border-[var(--color-primary)]' : 'text-outline border-transparent hover:text-on-surface'}" style="${activeTab === 'pending' ? 'color:var(--color-primary)' : ''}">
                         Ready to Pay
                     </button>
-                    <button id="tab-history" class="text-xs font-bold uppercase transition-colors pb-1 border-b-2 ${activeTab === 'history' ? 'text-orange-600 border-orange-600' : 'text-gray-400 border-transparent hover:text-gray-600'}">
+                    <button id="tab-history" class="text-xs font-bold uppercase transition-colors pb-1 border-b-2 ${activeTab === 'history' ? 'border-[var(--color-primary)]' : 'text-outline border-transparent hover:text-on-surface'}" style="${activeTab === 'history' ? 'color:var(--color-primary)' : ''}">
                         Paid History
+                    </button>
+                    <button id="tab-comparison" class="text-xs font-bold uppercase transition-colors pb-1 border-b-2 ${activeTab === 'comparison' ? 'border-[var(--color-primary)]' : 'text-outline border-transparent hover:text-on-surface'}" style="${activeTab === 'comparison' ? 'color:var(--color-primary)' : ''}">
+                        Monthly Comparison
                     </button>
                 </div>
             </div>
@@ -82,28 +85,28 @@ function renderPageContent() {
                            class="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-orange-500 text-sm focus:bg-white transition-colors">
                     <i class="fa-solid fa-search absolute left-3 top-2.5 text-gray-400"></i>
                 </div>
-                <button id="btn-bulk-disburse" class="px-4 py-2 bg-gray-900 text-white text-xs font-bold rounded-xl hover:bg-black disabled:opacity-30 transition-all flex items-center gap-2 shadow-sm" disabled>
-                    <i class="fa-solid fa-file-csv"></i> <span>Export Data</span>
+                <button id="btn-bulk-disburse" class="px-6 py-2.5 rounded-xl font-semibold text-sm text-white disabled:opacity-30 transition-all flex items-center gap-2 shadow-sm" style="background:var(--color-primary)" disabled>
+                    <span class="material-symbols-outlined text-[16px]">file_download</span> <span>Export Data</span>
                 </button>
             </div>
         </div>
 
         <div class="overflow-auto custom-scrollbar flex-1">
-          <table class="min-w-full divide-y divide-gray-100">
-            <thead class="bg-gray-50/80 sticky top-0 z-10 backdrop-blur-md">
+          <table class="min-w-full divide-y divide-outline-variant/10">
+            <thead class="bg-surface-container sticky top-0 z-10 backdrop-blur-md">
                 <tr>
                     <th class="px-6 py-4 text-left w-10">
-                        <input type="checkbox" id="select-all-checkbox" class="rounded border-gray-300 text-orange-600 focus:ring-orange-500 cursor-pointer">
+                        <input type="checkbox" id="select-all-checkbox" class="rounded border-outline-variant/30 cursor-pointer" style="accent-color:var(--color-primary)">
                     </th>
-                    <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Date</th>
-                    <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Transaction ID</th>
-                    <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Recipient</th>
-                    <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Amount</th>
-                    <th class="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Status</th>
-                    <th class="px-6 py-4 text-right text-[10px] font-bold text-gray-400 uppercase tracking-widest">Action</th>
+                    <th class="px-6 py-4 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Date</th>
+                    <th class="px-6 py-4 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Transaction ID</th>
+                    <th class="px-6 py-4 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Recipient</th>
+                    <th class="px-6 py-4 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Amount</th>
+                    <th class="px-6 py-4 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Status</th>
+                    <th class="px-6 py-4 text-right text-[10px] font-semibold uppercase tracking-widest text-outline">Action</th>
                 </tr>
             </thead>
-            <tbody id="payouts-table-body" class="bg-white divide-y divide-gray-50">
+            <tbody id="payouts-table-body" class="bg-white divide-y divide-outline-variant/10">
                 <tr><td colspan="7" class="p-10 text-center text-gray-400 italic">
                     <i class="fa-solid fa-circle-notch fa-spin mr-2"></i> Loading transaction queue...
                 </td></tr>
@@ -262,7 +265,8 @@ function renderPayoutPaginationControls(totalPages, totalRecords) {
 // Global page changer attached to window
 window.changePagePayouts = (page) => {
     currentPagePayouts = page;
-    filterAndSearch(false); 
+    filterAndSearch(false);
+    if (activeTab === 'comparison') renderComparisonView();
 };
 
 // --- Event Listeners ---
@@ -280,7 +284,13 @@ function attachEventListeners() {
         filterAndSearch(true);
     });
     
-    document.getElementById('tab-history')?.addEventListener('click', () => { 
+    document.getElementById('tab-comparison')?.addEventListener('click', () => {
+        activeTab = 'comparison';
+        renderPageContent();
+        loadData().then(() => renderComparisonView());
+    });
+
+    document.getElementById('tab-history')?.addEventListener('click', () => {
         activeTab = 'history'; 
         selectedPayoutIds.clear();
         updateBulkUI();
@@ -338,7 +348,15 @@ function updateDashboardStats(data) {
 async function handleBulkDisburse() {
     if (selectedPayoutIds.size === 0) return;
 
-    if (!confirm(`Are you sure you want to mark ${selectedPayoutIds.size} items as DISBURSED and download the Capitec CSV?`)) return;
+    // PIN confirmation before generating locked CSV
+    const pin = window.prompt(
+        `🔒 Enter the CSV download PIN to generate the Capitec payout file.\n\nThis will mark ${selectedPayoutIds.size} payout(s) as DISBURSED.`,
+        ''
+    );
+    if (pin === null) return; // cancelled
+    if (!pin.trim()) { alert('PIN is required to download the CSV.'); return; }
+
+    if (!confirm(`Mark ${selectedPayoutIds.size} payout(s) as DISBURSED and download Capitec CSV?`)) return;
 
     const selectedItems = allPayouts.filter(p => selectedPayoutIds.has(p.id));
     const applicationIds = selectedItems.map(p => p.application_id).filter(Boolean);
@@ -352,7 +370,10 @@ async function handleBulkDisburse() {
         // Single server call — generates Capitec CSV + marks DISBURSED atomically
         const res = await fetch('/api/payouts/capitec-csv', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'x-csv-pin': pin.trim()
+            },
             body: JSON.stringify({ applicationIds, markDisbursed: true })
         });
 
@@ -384,6 +405,138 @@ async function handleBulkDisburse() {
         btn.disabled = false;
     }
 }
+
+// ── Monthly Comparison Report ─────────────────────────────────────
+function renderComparisonView() {
+    const tableWrapper = document.querySelector('.overflow-auto.custom-scrollbar');
+    if (!tableWrapper) return;
+
+    // Group disbursed payouts by month
+    const disbursed = allPayouts.filter(p => p.status === 'DISBURSED' || p.status === 'APPROVED');
+    const byMonth = {};
+
+    disbursed.forEach(p => {
+        const d    = new Date(p.created_at || p.approved_at);
+        const key  = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+        const label= d.toLocaleDateString('en-ZA', { year:'numeric', month:'long' });
+        if (!byMonth[key]) byMonth[key] = { label, count: 0, total: 0, items: [] };
+        byMonth[key].count++;
+        byMonth[key].total += Number(p.amount || 0);
+        byMonth[key].items.push(p);
+    });
+
+    const months  = Object.keys(byMonth).sort().reverse();
+    const grandTotal = disbursed.reduce((s,p) => s + Number(p.amount||0), 0);
+
+    if (!months.length) {
+        tableWrapper.innerHTML = `<div class="p-16 text-center text-sm text-gray-400">No disbursement history yet.</div>`;
+        return;
+    }
+
+    tableWrapper.innerHTML = `
+      <div class="p-6 space-y-4">
+        <div class="flex items-center justify-between mb-2">
+          <h4 class="text-sm font-bold text-gray-700">Month-over-Month Disbursement Comparison</h4>
+          <button onclick="window.exportComparisonCSV()" class="text-xs font-bold text-orange-600 border border-orange-200 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+            <span class="material-symbols-outlined text-[14px]">download</span> Export Report
+          </button>
+        </div>
+
+        <table class="w-full text-sm border-collapse">
+          <thead>
+            <tr class="bg-gray-50 text-xs font-bold text-gray-500 uppercase tracking-wider">
+              <th class="px-4 py-3 text-left rounded-tl-xl">Month</th>
+              <th class="px-4 py-3 text-right"># Payouts</th>
+              <th class="px-4 py-3 text-right">Total Disbursed</th>
+              <th class="px-4 py-3 text-right">Avg per Payout</th>
+              <th class="px-4 py-3 text-right rounded-tr-xl">MoM Change</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            ${months.map((key, i) => {
+                const m     = byMonth[key];
+                const prev  = months[i+1] ? byMonth[months[i+1]] : null;
+                const change= prev ? ((m.total - prev.total) / prev.total * 100) : null;
+                const avg   = m.count ? m.total / m.count : 0;
+                const isUp  = change > 0;
+                return `
+                <tr class="hover:bg-orange-50/30 transition-colors">
+                  <td class="px-4 py-3 font-semibold text-gray-800">${m.label}</td>
+                  <td class="px-4 py-3 text-right text-gray-600">${m.count}</td>
+                  <td class="px-4 py-3 text-right font-bold text-gray-900">${formatCurrency(m.total)}</td>
+                  <td class="px-4 py-3 text-right text-gray-500">${formatCurrency(avg)}</td>
+                  <td class="px-4 py-3 text-right">
+                    ${change !== null
+                        ? `<span class="font-bold ${isUp ? 'text-green-600' : 'text-red-500'}">${isUp?'▲':'▼'} ${Math.abs(change).toFixed(1)}%</span>`
+                        : '<span class="text-gray-300">—</span>'}
+                  </td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+          <tfoot>
+            <tr class="bg-gray-900 text-white font-bold text-sm">
+              <td class="px-4 py-3 rounded-bl-xl">ALL TIME</td>
+              <td class="px-4 py-3 text-right">${disbursed.length}</td>
+              <td class="px-4 py-3 text-right">${formatCurrency(grandTotal)}</td>
+              <td class="px-4 py-3 text-right">${formatCurrency(disbursed.length ? grandTotal/disbursed.length : 0)}</td>
+              <td class="px-4 py-3 rounded-br-xl"></td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <!-- Per-month detail breakdown -->
+        <div class="mt-6 space-y-3">
+          ${months.slice(0,3).map(key => {
+              const m = byMonth[key];
+              return `
+              <details class="border border-gray-100 rounded-xl overflow-hidden">
+                <summary class="px-4 py-3 text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-50 flex justify-between">
+                  <span>${m.label} — ${m.count} payouts</span>
+                  <span class="font-bold" style="color:var(--color-primary)">${formatCurrency(m.total)}</span>
+                </summary>
+                <table class="w-full text-xs">
+                  <thead><tr class="bg-gray-50 text-gray-400 font-bold uppercase">
+                    <th class="px-4 py-2 text-left">Client</th>
+                    <th class="px-4 py-2 text-right">Amount</th>
+                    <th class="px-4 py-2 text-right">Date</th>
+                  </tr></thead>
+                  <tbody class="divide-y divide-gray-50">
+                    ${m.items.map(p => `
+                    <tr class="hover:bg-gray-50">
+                      <td class="px-4 py-2 text-gray-700">${p.profile?.full_name || '—'}</td>
+                      <td class="px-4 py-2 text-right font-semibold text-gray-900">${formatCurrency(p.amount)}</td>
+                      <td class="px-4 py-2 text-right text-gray-400">${formatDate(p.created_at)}</td>
+                    </tr>`).join('')}
+                  </tbody>
+                </table>
+              </details>`;
+          }).join('')}
+        </div>
+      </div>`;
+}
+
+window.exportComparisonCSV = function() {
+    const disbursed = allPayouts.filter(p => p.status === 'DISBURSED' || p.status === 'APPROVED');
+    const headers = ['Month','Client Name','Amount','Date','Reference','Bank','Account Number'];
+    const rows = disbursed.map(p => {
+        const d = new Date(p.created_at);
+        return [
+            `"${d.toLocaleDateString('en-ZA',{year:'numeric',month:'long'})}"`,
+            `"${(p.profile?.full_name||'').replace(/"/g,'""')}"`,
+            p.amount || 0,
+            formatDate(p.created_at),
+            `"${p.id}"`,
+            `"${p.application?.bank_account?.bank_name||''}"`,
+            `"${p.application?.bank_account?.account_number||''}"`
+        ].join(',');
+    });
+    const csv  = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `payout_comparison_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+};
 
 function handleBulkExport() {
     if (selectedPayoutIds.size === 0) return;

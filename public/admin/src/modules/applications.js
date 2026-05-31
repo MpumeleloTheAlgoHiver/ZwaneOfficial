@@ -1,14 +1,15 @@
 // src/modules/applications.js
 import { initLayout, getRole } from '../shared/layout.js';
 import { supabase } from '../services/supabaseClient.js';
-import { 
-  fetchLoanApplications, 
-  syncAllOfferedApplications, 
+import {
+  fetchLoanApplications,
+  syncAllOfferedApplications,
   createWalkInClient,
   fetchBranches,
   getCurrentAdminProfile
 } from '../services/dataService.js';
-import { formatCurrency, formatDate } from '../shared/utils.js';
+import { formatCurrency, formatDate, STATUS_DISPLAY } from '../shared/utils.js';
+const getStatusDisplay = (s) => STATUS_DISPLAY[s] || { label: s, color: '#6b7280', bg: '#f3f4f6' };
 
 // --- CONFIGURATION ---
 const USER_PORTAL_URL = 'https://zw-express-6ulf9yybu-mps-projects-81dea2b0.vercel.app';
@@ -34,7 +35,8 @@ const ALL_STATUSES = [
 ];
 
 // --- State ---
-let allApplications = []; 
+let allApplications = [];
+let filteredApplications = [];
 let userRole = 'borrower';
 let currentAdminProfile = null;
 let branches = [];
@@ -486,43 +488,46 @@ function renderPageContent() {
       
       <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4 shrink-0">
         <div>
-          <h1 class="text-2xl font-bold text-gray-900">Loan Applications</h1>
-          <p class="mt-1 text-sm text-gray-500">Manage reviews and create in-branch applications.</p>
+          <h1 class="text-2xl font-headline font-bold text-on-surface">Loan Applications</h1>
+          <p class="mt-1 text-[11px] font-semibold uppercase tracking-widest text-outline">Manage reviews and create in-branch applications.</p>
         </div>
         
         <div class="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-            <button id="create-app-btn" class="w-full sm:w-auto bg-gray-900 text-white px-4 py-2 rounded-lg font-bold hover:bg-black transition flex items-center justify-center gap-2 shadow-sm text-sm">
-                <i class="fa-solid fa-desktop"></i> In-Branch App
+            <button id="create-app-btn" class="w-full sm:w-auto px-6 py-2.5 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2" style="background:var(--color-primary)">
+                <span class="material-symbols-outlined text-[18px]">computer</span> In-Branch App
+            </button>
+            <button id="btn-export-applications" class="w-full sm:w-auto px-4 py-2.5 rounded-xl font-semibold text-sm border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center gap-2 text-gray-700 transition-colors">
+                <span class="material-symbols-outlined text-[18px]">download</span> Export
             </button>
 
-            <select id="status-filter" class="bg-white border border-gray-300 text-gray-700 py-2 pl-4 pr-8 rounded-lg text-sm font-medium focus:ring-orange-500 focus:border-orange-500 cursor-pointer">
+            <select id="status-filter" class="bg-white border border-outline-variant/30 text-on-surface-variant py-2 pl-4 pr-8 rounded-xl text-sm font-medium cursor-pointer">
                 <option value="all">All Statuses</option>
                 ${ALL_STATUSES.map(s => `<option value="${s}">${s}</option>`).join('')}
             </select>
 
             <div class="relative w-full sm:w-64">
-                <input type="text" id="search-input" placeholder="Search applications..." 
-                       class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-orange-500 focus:border-orange-500 text-sm">
-                <i class="fa-solid fa-search absolute left-3 top-2.5 text-gray-400"></i>
-                <div id="search-suggestions" class="absolute z-20 w-full bg-white border border-gray-300 rounded-lg mt-1 hidden max-h-72 overflow-y-auto shadow-xl"></div>
+                <input type="text" id="search-input" placeholder="Search applications..."
+                       class="w-full pl-10 pr-4 py-2 border border-outline-variant/30 rounded-xl text-sm">
+                <span class="material-symbols-outlined absolute left-3 top-2 text-outline text-[18px]">search</span>
+                <div id="search-suggestions" class="absolute z-20 w-full bg-white border border-outline-variant/20 rounded-xl mt-1 hidden max-h-72 overflow-y-auto shadow-xl"></div>
             </div>
         </div>
       </div>
 
-      <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden flex-1 min-h-0">
+      <div class="glass-card rounded-2xl flex flex-col overflow-hidden flex-1 min-h-0">
         <div class="overflow-auto custom-scrollbar">
-          <table class="min-w-full divide-y divide-gray-200 relative">
-            <thead class="bg-gray-50 sticky top-0 z-10 shadow-sm">
+          <table class="min-w-full divide-y divide-outline-variant/10 relative">
+            <thead class="bg-surface-container sticky top-0 z-10 shadow-sm">
                 <tr>
-                    <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50">Applicant</th>
-                    <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50">Amount</th>
-                    <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50">Status</th>
-                    <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50">Date</th>
-                    <th class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50">Action</th>
+                    <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline bg-surface-container">Applicant</th>
+                    <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline bg-surface-container">Amount</th>
+                    <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline bg-surface-container">Status</th>
+                    <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline bg-surface-container">Date</th>
+                    <th class="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-widest text-outline bg-surface-container">Action</th>
                 </tr>
             </thead>
-            <tbody id="applications-table-body" class="bg-white divide-y divide-gray-200">
-                <tr><td colspan="5" class="p-10 text-center text-gray-400">Loading...</td></tr>
+            <tbody id="applications-table-body" class="bg-white divide-y divide-outline-variant/10">
+                <tr><td colspan="5" class="p-10 text-center text-outline">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -530,17 +535,17 @@ function renderPageContent() {
       <div class="mt-2 text-xs text-gray-400 text-right">Showing <span id="visible-count">0</span> records</div>
     </div>
 
-    <div id="in-branch-view" class="hidden bg-white rounded-xl shadow-lg h-full flex flex-col border border-gray-200">
-       <div class="flex justify-between items-center px-6 py-4 border-b border-gray-200 bg-gray-50 rounded-t-xl">
+    <div id="in-branch-view" class="hidden glass-card rounded-2xl h-full flex flex-col">
+       <div class="flex justify-between items-center px-6 py-4 border-b border-outline-variant/10 bg-surface-container rounded-t-2xl">
             <div class="flex items-center gap-3">
-                <button id="back-to-list-btn" class="flex items-center gap-2 text-gray-600 hover:text-orange-600 font-medium transition-colors">
-                    <i class="fa-solid fa-arrow-left"></i> Cancel
+                <button id="back-to-list-btn" class="flex items-center gap-2 text-on-surface-variant hover:text-on-surface font-medium transition-colors">
+                    <span class="material-symbols-outlined text-[18px]">arrow_back</span> Cancel
                 </button>
-                <span class="h-6 w-px bg-gray-300"></span>
-                <span class="text-sm font-bold text-gray-800">In-Branch Application Mode</span>
+                <span class="h-6 w-px bg-outline-variant/30"></span>
+                <span class="text-sm font-bold text-on-surface">In-Branch Application Mode</span>
             </div>
-            <div class="text-xs text-orange-600 font-bold flex items-center gap-2 bg-orange-50 px-3 py-1.5 rounded-full border border-orange-100">
-                <i class="fa-solid fa-store"></i> Branch Terminal
+            <div class="text-xs font-bold flex items-center gap-2 px-3 py-1.5 rounded-full border" style="color:var(--color-primary);border-color:var(--color-primary);opacity:0.7;background:rgba(var(--color-primary-rgb,160,65,0),0.06)">
+                <span class="material-symbols-outlined text-[16px]">store</span> Branch Terminal
             </div>
         </div>
         
@@ -550,11 +555,11 @@ function renderPageContent() {
             </div>
         </div>
         
-        <div id="wizard-content" class="flex-1 overflow-y-auto px-6 pb-6 bg-gray-50"></div>
-        
-        <div class="px-6 py-4 border-t border-gray-200 bg-white rounded-b-xl flex justify-end gap-3">
-            <button id="wizard-prev-btn" class="hidden px-4 py-2 border border-gray-300 text-gray-700 font-bold rounded-lg hover:bg-gray-50 text-sm">Back</button>
-            <button id="wizard-next-btn" class="px-6 py-2 bg-gray-900 text-white font-bold rounded-lg hover:bg-black shadow-sm text-sm">Next Step</button>
+        <div id="wizard-content" class="flex-1 overflow-y-auto px-6 pb-6 bg-surface-container-lowest"></div>
+
+        <div class="px-6 py-4 border-t border-outline-variant/10 bg-white rounded-b-2xl flex justify-end gap-3">
+            <button id="wizard-prev-btn" class="hidden px-4 py-2 rounded-xl border border-outline-variant/30 text-on-surface-variant text-sm font-medium">Back</button>
+            <button id="wizard-next-btn" class="px-6 py-2.5 rounded-xl font-semibold text-sm text-white" style="background:var(--color-primary)">Next Step</button>
         </div>
     </div>
   `;
@@ -1972,38 +1977,50 @@ const renderApplications = (apps) => {
         return;
     }
     
-    tb.innerHTML = apps.map(app => `
-        <tr class="hover:bg-gray-50 transition-colors group">
+    tb.innerHTML = apps.map(app => {
+        const profile    = app.profiles || {};
+        const clientNum  = profile.client_number ? String(profile.client_number) : '';
+        const loanSeq    = app.loan_number ? `L${String(app.loan_number).padStart(4,'0')}` : '';
+        const reference  = clientNum && loanSeq ? `${clientNum}-${loanSeq}` : (loanSeq || app.id.slice(0,8));
+        const statusInfo = getStatusDisplay(app.status);
+        const isDefault  = ['IN_ARREARS','IN_DEFAULT'].includes(app.status);
+        const purpose    = app.loan_purpose || app.purpose || '';
+
+        return `
+        <tr class="hover:bg-surface-container-low transition-colors group border-b border-outline-variant/10 ${isDefault ? 'bg-red-50' : ''}">
             <td class="px-6 py-4">
-                <div class="flex items-center">
-                    <div class="h-9 w-9 rounded-full flex items-center justify-center text-xs font-bold mr-3 border border-gray-200 bg-gray-100 text-gray-500">
-                        ${(app.profiles?.full_name || 'A').charAt(0)}
+                <div class="flex items-center gap-3">
+                    <div class="h-9 w-9 rounded-full flex items-center justify-center text-xs font-bold border border-outline-variant/20 bg-surface-container text-outline flex-shrink-0">
+                        ${(profile.full_name || 'A').charAt(0)}
                     </div>
                     <div>
-                        <div class="text-sm font-bold text-gray-900">${app.profiles?.full_name || 'N/A'}</div>
-                        <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wide">ID: ${app.id}</div>
+                        <div class="text-sm font-bold text-on-surface">${profile.full_name || 'N/A'}</div>
+                        <div class="text-[10px] font-mono text-outline tracking-wide">${reference}</div>
+                        ${purpose ? `<div class="text-[10px] text-gray-400 mt-0.5">${purpose}</div>` : ''}
                     </div>
                 </div>
             </td>
             <td class="px-6 py-4">
-                <div class="text-sm font-mono font-medium text-gray-900">${formatCurrency(app.amount)}</div>
+                <div class="text-sm font-mono font-semibold text-on-surface">${formatCurrency(app.amount)}</div>
+                <div class="text-[10px] text-outline">${app.term_months ? app.term_months + ' mo' : ''}</div>
             </td>
             <td class="px-6 py-4">
-                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border border-transparent ${getBadgeColor(app.status)}">
-                    ${app.status}
+                <span class="px-2.5 py-1 rounded-full text-[11px] font-bold" style="background:${statusInfo.bg};color:${statusInfo.color};">
+                    ${statusInfo.label}
                 </span>
+                ${isDefault ? '<div class="text-[10px] text-red-600 font-bold mt-1">⚠ 3% default applies</div>' : ''}
             </td>
             <td class="px-6 py-4">
-                <div class="text-xs text-gray-500 font-medium">${formatDate(app.created_at)}</div>
+                <div class="text-xs text-outline font-medium">${formatDate(app.created_at)}</div>
             </td>
             <td class="px-6 py-4 text-right">
-                <a href="/admin/application-detail?id=${app.id}" 
-                   class="text-gray-400 hover:text-orange-600 transition-colors p-2 rounded-full hover:bg-orange-50 inline-block">
-                    <i class="fa-solid fa-eye"></i>
+                <a href="/admin/application-detail?id=${app.id}"
+                   class="text-outline hover:text-on-surface transition-colors p-2 rounded-full hover:bg-surface-container-low inline-block">
+                    <span class="material-symbols-outlined text-[18px]">visibility</span>
                 </a>
             </td>
-        </tr>
-    `).join('');
+        </tr>`;
+    }).join('');
 };
 
 const renderSearchSuggestions = (apps) => {
@@ -2038,7 +2055,7 @@ const filterAndSearch = (resetPage = true) => {
     const term = document.getElementById('search-input')?.value.toLowerCase().trim() || ''; 
     const status = document.getElementById('status-filter')?.value || 'all'; 
     
-    const filtered = allApplications.filter(app => {
+    filteredApplications = allApplications.filter(app => {
         // 1. Status Match
         const statusMatch = (status === 'all' || app.status === status);
 
@@ -2062,17 +2079,17 @@ const filterAndSearch = (resetPage = true) => {
     }); 
     
     // Pagination Slicing
-    const totalPages = Math.ceil(filtered.length / itemsPerPageApps) || 1;
+    const totalPages = Math.ceil(filteredApplications.length / itemsPerPageApps) || 1;
     const start = (currentPageApps - 1) * itemsPerPageApps;
-    const paginatedData = filtered.slice(start, start + itemsPerPageApps);
+    const paginatedData = filteredApplications.slice(start, start + itemsPerPageApps);
 
-    renderApplications(paginatedData); 
-    renderAppPaginationControls(totalPages, filtered.length);
+    renderApplications(paginatedData);
+    renderAppPaginationControls(totalPages, filteredApplications.length);
     
     // Handle Search Suggestions (Dropdown)
     const searchInput = document.getElementById('search-input');
     if (document.activeElement === searchInput && term.length > 1) {
-        renderSearchSuggestions(filtered.slice(0, 5));
+        renderSearchSuggestions(filteredApplications.slice(0, 5));
     } else {
         document.getElementById('search-suggestions')?.classList.add('hidden');
     }
@@ -2089,10 +2106,50 @@ async function loadApplications() {
 }
 
 // --- Init ---
+function exportApplicationsCSV() {
+    const data = filteredApplications.length ? filteredApplications : allApplications;
+    if (!data.length) { alert('No data to export.'); return; }
+
+    const headers = [
+        'Reference', 'Client Name', 'ID Number', 'Loan Amount', 'Term (months)',
+        'Status', 'Purpose', 'Date Applied', 'Next of Kin', 'NOK Phone'
+    ];
+
+    const rows = data.map(app => {
+        const p = app.profiles || {};
+        const clientNum = p.client_number || '';
+        const loanSeq   = app.loan_number ? `L${String(app.loan_number).padStart(4,'0')}` : app.id.slice(0,8);
+        const ref = clientNum ? `${clientNum}-${loanSeq}` : loanSeq;
+        const status = getStatusDisplay(app.status).label;
+        return [
+            `"${ref}"`,
+            `"${(p.full_name||'').replace(/"/g,'""')}"`,
+            p.identity_number || '',
+            app.amount || 0,
+            app.term_months || '',
+            `"${status}"`,
+            `"${(app.loan_purpose||app.purpose||'').replace(/"/g,'""')}"`,
+            app.created_at?.slice(0,10) || '',
+            `"${(p.nok_name||'').replace(/"/g,'""')}"`,
+            p.nok_phone || ''
+        ].join(',');
+    });
+
+    const csv  = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `applications_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
 function attachEventListeners() {
     document.getElementById('search-input')?.addEventListener('input', () => filterAndSearch(true));
-    document.getElementById('status-filter')?.addEventListener('change', () => filterAndSearch(true));  
+    document.getElementById('status-filter')?.addEventListener('change', () => filterAndSearch(true));
     document.getElementById('create-app-btn')?.addEventListener('click', startInBranchFlow);
+    document.getElementById('btn-export-applications')?.addEventListener('click', exportApplicationsCSV);
     document.getElementById('sync-offered-btn')?.addEventListener('click', handleBulkSync);
     document.addEventListener('click', (e) => { 
         
@@ -2113,13 +2170,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         userRole = auth.role; 
         
 
-        const [profile, branchesList] = await Promise.all([
+        const [profile, branchesResult] = await Promise.all([
             getCurrentAdminProfile(),
             fetchBranches()
         ]);
         
         currentAdminProfile = profile;
-        branches = branchesList || [];
+        branches = branchesResult.data || [];
 
         renderPageContent(); 
         

@@ -32,6 +32,36 @@ export const formatDate = (isoString) => {
         day: 'numeric'
     });
 };
+// ── Status label formatter — single source of truth for admin ──────
+export const STATUS_DISPLAY = {
+  'STARTED':           { label: 'In Progress',   color: '#f59e0b', bg: '#fef3c7' },
+  'BUREAU_CHECKING':   { label: 'Credit Check',  color: '#3b82f6', bg: '#dbeafe' },
+  'BUREAU_OK':         { label: 'Credit Passed', color: '#3b82f6', bg: '#dbeafe' },
+  'BUREAU_DECLINE':    { label: 'Declined',      color: '#ef4444', bg: '#fee2e2' },
+  'BUREAU_REFER':      { label: 'Under Review',  color: '#f59e0b', bg: '#fef3c7' },
+  'AFFORD_OK':         { label: 'Approved',      color: '#10b981', bg: '#d1fae5' },
+  'AFFORD_REFER':      { label: 'Under Review',  color: '#f59e0b', bg: '#fef3c7' },
+  'OFFERED':           { label: 'Offer Sent',    color: '#8b5cf6', bg: '#ede9fe' },
+  'OFFER_ACCEPTED':    { label: 'Accepted',      color: '#10b981', bg: '#d1fae5' },
+  'CONTRACT_SIGN':     { label: 'Signing',       color: '#f59e0b', bg: '#fef3c7' },
+  'DEBICHECK_AUTH':    { label: 'DebiCheck',     color: '#3b82f6', bg: '#dbeafe' },
+  'READY_TO_DISBURSE': { label: 'Approved',      color: '#10b981', bg: '#d1fae5' },
+  'DISBURSED':         { label: 'Disbursed',     color: '#10b981', bg: '#d1fae5' },
+  'ACTIVE':            { label: 'Active',        color: '#10b981', bg: '#d1fae5' },
+  'SETTLED':           { label: 'Settled',       color: '#6b7280', bg: '#f3f4f6' },
+  'IN_ARREARS':        { label: 'In Arrears',    color: '#ef4444', bg: '#fee2e2' },
+  'IN_DEFAULT':        { label: 'In Default',    color: '#dc2626', bg: '#fee2e2' },
+  'CANCELLED':         { label: 'Cancelled',     color: '#6b7280', bg: '#f3f4f6' },
+};
+
+export const getStatusLabel = (status) =>
+  STATUS_DISPLAY[status]?.label || status;
+
+export const renderStatusBadge = (status) => {
+  const s = STATUS_DISPLAY[status] || { label: status, color: '#6b7280', bg: '#f3f4f6' };
+  return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold" style="background:${s.bg};color:${s.color};">${s.label}</span>`;
+};
+
 export const validateSAID = (id) => {
     if (!id) return false;
     const str = id.toString().trim();

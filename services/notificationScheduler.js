@@ -4,6 +4,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { Resend } from 'resend';
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY; // Use service role key for server-side operations
@@ -13,6 +14,31 @@ if (!supabaseUrl || !supabaseKey) {
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+
+async function getUserEmail(userId) {
+  const { data } = await supabase
+    .from('profiles')
+    .select('email, full_name')
+    .eq('id', userId)
+    .maybeSingle();
+  return data || null;
+}
+
+async function sendEmail(to, subject, html) {
+  if (!resend) {
+    console.warn('[notifications] RESEND_API_KEY not set — email not sent:', subject);
+    return;
+  }
+  try {
+    await resend.emails.send({ from: FROM_EMAIL, to, subject, html });
+    console.log(`📧 Email sent to ${to}: ${subject}`);
+  } catch (err) {
+    console.error(`❌ Failed to send email to ${to}:`, err.message || err);
+  }
+}
 
 // Statuses that still allow the user to edit/delete their application
 const EDIT_WINDOW_STATUSES = ['STARTED'];
@@ -55,7 +81,6 @@ async function checkPaymentDueNotifications() {
           .maybeSingle();
         
         if (!existingNotif) {
-          // Create notification
           const title = daysUntilDue <= 3 ? '⚠️ Payment Due Soon' : 'Upcoming Payment';
           const message = `Payment of R${loan.monthly_payment.toLocaleString()} is due on ${dueDate.toLocaleDateString()}${daysUntilDue <= 3 ? ` (in ${daysUntilDue} day${daysUntilDue > 1 ? 's' : ''})` : ''}`;
           
@@ -74,7 +99,16 @@ async function checkPaymentDueNotifications() {
               },
               is_read: false
             }]);
-          
+
+          const user = await getUserEmail(loan.user_id);
+          if (user?.email) {
+            await sendEmail(
+              user.email,
+              title,
+              `<p>Hi ${user.full_name || 'there'},</p><p>${message}</p><p>Please ensure your account has sufficient funds.</p>`
+            );
+          }
+
           console.log(`✅ Created payment due notification for loan ${loan.id} (${daysUntilDue} days)`);
         }
       }
@@ -131,7 +165,16 @@ async function checkEditWindowNotifications() {
             },
             is_read: false
           }]);
-        
+
+        const user = await getUserEmail(app.user_id);
+        if (user?.email) {
+          await sendEmail(
+            user.email,
+            '⏰ Edit Window Closing Soon',
+            `<p>Hi ${user.full_name || 'there'},</p><p>You have <strong>10 minutes</strong> left to edit or delete your loan application (ID: ${app.id}).</p><p>After this window closes, changes will no longer be possible.</p>`
+          );
+        }
+
         console.log(`✅ Created edit window notification for application ${app.id}`);
       }
     }
@@ -199,6 +242,72 @@ async function updateLoanPaymentDates() {
 }
 
 /**
+ * Flag loan_applications as IN_ARREARS or IN_DEFAULT based on missed payments.
+ * - IN_ARREARS:  1–30 days past due
+ * - IN_DEFAULT:  >30 days past due (triggers 3% default interest)
+ */
+async function flagDefaultedLoans() {
+  try {
+    const now = new Date();
+
+    // Fetch active disbursed applications with a repayment start date in the past
+    const { data: loans, error } = await supabase
+      .from('loan_applications')
+      .select('id, repayment_start_date, status, offer_monthly_repayment')
+      .in('status', ['DISBURSED', 'ACTIVE', 'IN_ARREARS'])
+      .not('repayment_start_date', 'is', null);
+
+    if (error) throw error;
+    if (!loans || loans.length === 0) return;
+
+    for (const loan of loans) {
+      const dueDate = new Date(loan.repayment_start_date);
+      const daysOverdue = Math.floor((now - dueDate) / (1000 * 60 * 60 * 24));
+
+      if (daysOverdue <= 0) continue; // Not yet due
+
+      let newStatus = null;
+      if (daysOverdue > 30 && loan.status !== 'IN_DEFAULT') {
+        newStatus = 'IN_DEFAULT';
+      } else if (daysOverdue > 0 && daysOverdue <= 30 && loan.status === 'DISBURSED') {
+        newStatus = 'IN_ARREARS';
+      }
+
+      if (newStatus) {
+        const { data: updatedLoan } = await supabase
+          .from('loan_applications')
+          .update({ status: newStatus, updated_at: now.toISOString() })
+          .eq('id', loan.id)
+          .select('profiles:user_id(full_name, cell_tel_no, contact_number)')
+          .maybeSingle();
+        console.log(`⚠️ Loan ${loan.id} → ${newStatus} (${daysOverdue} days overdue)`);
+
+        // Fire messaging notification
+        try {
+          const messaging = require('./messagingService');
+          const { data: settings } = await supabase.from('system_settings').select('company_name').maybeSingle();
+          const company = settings?.company_name || 'Zwane Financial';
+          const profile = updatedLoan?.profiles;
+          const phone   = profile?.cell_tel_no || profile?.contact_number;
+          const name    = profile?.full_name || 'Client';
+          if (phone) {
+            if (newStatus === 'IN_DEFAULT') {
+              const balance  = Number(loan.offer_monthly_repayment || 0) * Number(loan.term_months || 1);
+              await messaging.notifyDefault({ to: phone, clientName: name, balance, defaultInterest: balance * 0.03, company });
+            } else if (newStatus === 'IN_ARREARS') {
+              await messaging.notifyArrears({ to: phone, clientName: name, daysOverdue, amount: loan.offer_monthly_repayment || 0, company });
+            }
+          }
+        } catch (mErr) { console.warn('[messaging] arrears notify failed:', mErr.message); }
+      }
+    }
+    console.log('✅ Default/arrears check complete');
+  } catch (err) {
+    console.error('❌ flagDefaultedLoans error:', err.message);
+  }
+}
+
+/**
  * Start the notification scheduler
  */
 export function startNotificationScheduler() {
@@ -208,6 +317,7 @@ export function startNotificationScheduler() {
   checkPaymentDueNotifications();
   checkEditWindowNotifications();
   updateLoanPaymentDates();
+  flagDefaultedLoans();
   
   // Run payment due check every 6 hours
   setInterval(checkPaymentDueNotifications, 6 * 60 * 60 * 1000);
@@ -217,6 +327,9 @@ export function startNotificationScheduler() {
   
   // Run payment date update daily at 2 AM (checks every hour, only updates once per day)
   setInterval(updateLoanPaymentDates, 60 * 60 * 1000); // Every hour
+
+  // Check for defaults/arrears every 6 hours
+  setInterval(flagDefaultedLoans, 6 * 60 * 60 * 1000);
   
   console.log('✅ Notification scheduler started');
 }

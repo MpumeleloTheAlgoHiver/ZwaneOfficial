@@ -25,50 +25,61 @@ function renderPageContent() {
     <div id="recovery-dashboard" class="flex flex-col h-full animate-fade-in space-y-6">
       
       <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 flex items-center justify-between relative overflow-hidden group">
+        <div class="glass-card p-8 rounded-2xl flex items-center justify-between relative overflow-hidden group">
             <div class="z-10">
-                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Recoveries (MTD)</p>
-                <h2 id="stat-mtd-recoveries" class="text-3xl font-black text-gray-900 mt-2">R 0.00</h2>
+                <p class="text-[11px] font-semibold uppercase tracking-widest text-outline">Total Recoveries (MTD)</p>
+                <h2 id="stat-mtd-recoveries" class="text-3xl font-black text-on-surface mt-2">R 0.00</h2>
                 <p id="stat-mtd-count" class="text-xs text-green-600 font-bold mt-1 flex items-center gap-1"></p>
             </div>
-            <div class="w-12 h-12 rounded-xl bg-green-50 text-green-600 flex items-center justify-center text-xl shadow-sm z-10">
-                <i class="fa-solid fa-hand-holding-dollar"></i>
+            <div class="w-12 h-12 rounded-xl bg-green-50 text-green-600 flex items-center justify-center shadow-sm z-10">
+                <span class="material-symbols-outlined">payments</span>
             </div>
         </div>
 
-        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 flex items-center justify-between relative overflow-hidden">
+        <div class="glass-card p-8 rounded-2xl flex items-center justify-between relative overflow-hidden">
             <div class="z-10">
-                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Realized Profit (MTD)</p>
+                <p class="text-[11px] font-semibold uppercase tracking-widest text-outline">Realized Profit (MTD)</p>
                 <h2 id="stat-revenue-yield" class="text-3xl font-black text-indigo-900 mt-2">R 0.00</h2>
                 <p class="text-xs text-indigo-400 font-bold mt-1 tracking-tight">Contractual Fees & Interest</p>
             </div>
-            <div class="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-xl shadow-sm z-10">
-                <i class="fa-solid fa-chart-pie"></i>
+            <div class="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shadow-sm z-10">
+                <span class="material-symbols-outlined">donut_large</span>
             </div>
         </div>
 
-        <div class="bg-white rounded-xl p-6 shadow-sm border border-gray-100 flex items-center justify-between relative overflow-hidden">
+        <div class="glass-card p-8 rounded-2xl flex items-center justify-between relative overflow-hidden">
             <div class="z-10">
-                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Active Payers</p>
-                <h2 id="stat-active-payers" class="text-3xl font-black text-gray-900 mt-2">0</h2>
-                <p class="text-xs text-gray-400 font-bold mt-1">Unique clients this period</p>
+                <p class="text-[11px] font-semibold uppercase tracking-widest text-outline">Active Payers</p>
+                <h2 id="stat-active-payers" class="text-3xl font-black text-on-surface mt-2">0</h2>
+                <p class="text-xs text-outline font-bold mt-1">Unique clients this period</p>
             </div>
-            <div class="w-12 h-12 rounded-xl bg-gray-50 text-gray-600 flex items-center justify-center text-xl shadow-sm z-10">
-                <i class="fa-solid fa-users-viewfinder"></i>
+            <div class="w-12 h-12 rounded-xl bg-surface-container text-outline flex items-center justify-center shadow-sm z-10">
+                <span class="material-symbols-outlined">group</span>
             </div>
         </div>
       </div>
 
       <div class="flex flex-col lg:flex-row gap-6 flex-1 min-h-0">
         
-        <div class="lg:w-3/4 bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
-            
-            <div class="p-5 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div class="lg:w-3/4 glass-card rounded-2xl flex flex-col overflow-hidden">
+
+            <div class="p-5 border-b border-outline-variant/10 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
-                    <h3 class="text-lg font-bold text-gray-900 uppercase tracking-tight">Recovery Detail</h3>
+                    <h3 class="text-lg font-headline font-bold text-on-surface uppercase tracking-tight">Recovery Detail</h3>
                     <div class="flex gap-6 mt-2">
-                        <button id="tab-30days" class="text-xs font-bold uppercase transition-colors pb-1 border-b-2 ${activeTab === '30days' ? 'text-orange-600 border-orange-600' : 'text-gray-400 border-transparent hover:text-gray-600'}">Last 30 Days</button>
-                        <button id="tab-all" class="text-xs font-bold uppercase transition-colors pb-1 border-b-2 ${activeTab === 'all' ? 'text-orange-600 border-orange-600' : 'text-gray-400 border-transparent hover:text-gray-600'}">All History</button>
+                        <button id="tab-today"   class="text-xs font-bold uppercase transition-colors pb-1 border-b-2 ${activeTab === 'today'   ? 'border-[var(--color-primary)] text-on-surface' : 'text-outline border-transparent hover:text-on-surface'}">Today</button>
+                        <button id="tab-7days"   class="text-xs font-bold uppercase transition-colors pb-1 border-b-2 ${activeTab === '7days'   ? 'border-[var(--color-primary)] text-on-surface' : 'text-outline border-transparent hover:text-on-surface'}">7 Days</button>
+                        <button id="tab-30days"  class="text-xs font-bold uppercase transition-colors pb-1 border-b-2 ${activeTab === '30days'  ? 'border-[var(--color-primary)] text-on-surface' : 'text-outline border-transparent hover:text-on-surface'}">30 Days</button>
+                        <button id="tab-all"     class="text-xs font-bold uppercase transition-colors pb-1 border-b-2 ${activeTab === 'all'     ? 'border-[var(--color-primary)] text-on-surface' : 'text-outline border-transparent hover:text-on-surface'}">All</button>
+                        <span class="text-outline text-xs">|</span>
+                        <input type="date" id="filter-date-from" class="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:ring-orange-400 focus:outline-none" title="From date">
+                        <span class="text-xs text-outline">→</span>
+                        <input type="date" id="filter-date-to" class="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:ring-orange-400 focus:outline-none" title="To date">
+                    </div>
+                    <div style="margin-top:6px;">
+                      <button id="btn-export-payments" class="text-xs font-bold text-orange-600 border border-orange-200 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5">
+                        <i class="fa-solid fa-download text-xs"></i> Export CSV
+                      </button>
                     </div>
                 </div>
                 <div class="relative flex-1 sm:w-64">
@@ -79,18 +90,18 @@ function renderPageContent() {
             </div>
 
             <div class="flex-1 overflow-auto custom-scrollbar relative">
-                <table class="min-w-full divide-y divide-gray-100">
-                    <thead class="bg-gray-50/80 sticky top-0 z-10 backdrop-blur-md">
+                <table class="min-w-full divide-y divide-outline-variant/10">
+                    <thead class="bg-surface-container sticky top-0 z-10 backdrop-blur-md">
                         <tr>
-                            <th class="px-6 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Date</th>
-                            <th class="px-6 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Client & ID</th>
-                            <th class="px-6 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Loan Ref</th>
-                            <th class="px-6 py-3 text-center text-[10px] font-bold text-gray-400 uppercase tracking-widest">Status</th>
-                            <th class="px-6 py-3 text-right text-[10px] font-bold text-gray-400 uppercase tracking-widest">Paid In</th>
-                            <th class="px-6 py-3 text-right text-[10px] font-bold text-gray-400 uppercase tracking-widest">Balance</th>
+                            <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Date</th>
+                            <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Client & ID</th>
+                            <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Loan Ref</th>
+                            <th class="px-6 py-3 text-center text-[10px] font-semibold uppercase tracking-widest text-outline">Status</th>
+                            <th class="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-widest text-outline">Paid In</th>
+                            <th class="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-widest text-outline">Balance</th>
                         </tr>
                     </thead>
-                    <tbody id="payments-table-body" class="bg-white divide-y divide-gray-50">
+                    <tbody id="payments-table-body" class="bg-white divide-y divide-outline-variant/10">
                         <tr><td colspan="6" class="p-10 text-center text-xs text-gray-400 italic">Initializing transaction view...</td></tr>
                     </tbody>
                 </table>
@@ -101,8 +112,8 @@ function renderPageContent() {
 
         <div class="lg:w-1/4 flex flex-col gap-6">
             
-            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-                <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wide mb-4">Allocation (MTD)</h4>
+            <div class="glass-card p-8 rounded-2xl">
+                <h4 class="text-[11px] font-semibold uppercase tracking-widest text-outline mb-4">Allocation (MTD)</h4>
                 
                 <div class="relative w-40 h-40 mx-auto mb-6">
                     <svg viewBox="0 0 36 36" class="w-full h-full transform -rotate-90">
@@ -131,8 +142,8 @@ function renderPageContent() {
                 </div>
             </div>
 
-            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 flex-1">
-                <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wide mb-4">Top Period Recoveries</h4>
+            <div class="glass-card p-8 rounded-2xl flex-1">
+                <h4 class="text-[11px] font-semibold uppercase tracking-widest text-outline mb-4">Top Period Recoveries</h4>
                 <div id="top-payments-list" class="space-y-3 overflow-y-auto max-h-[300px] pr-1 custom-scrollbar"></div>
             </div>
 
@@ -253,14 +264,50 @@ function renderTopRecentWidget(payments) {
  * Filter & Table Logic
  * Handles Balance States: Overpaid, Complete, Partial
  */
+function getFilteredPayments() {
+    let filtered = allPayments;
+    if (activeTab === 'today') {
+        const today = new Date().toISOString().slice(0,10);
+        filtered = filtered.filter(p => p.payment_date?.slice(0,10) === today);
+    } else if (activeTab === '7days') {
+        const d = new Date(); d.setDate(d.getDate() - 7);
+        filtered = filtered.filter(p => new Date(p.payment_date) >= d);
+    } else if (activeTab === '30days') {
+        const d = new Date(); d.setDate(d.getDate() - 30);
+        filtered = filtered.filter(p => new Date(p.payment_date) >= d);
+    } else if (activeTab === 'custom') {
+        const from = document.getElementById('filter-date-from')?.value;
+        const to   = document.getElementById('filter-date-to')?.value;
+        if (from) filtered = filtered.filter(p => p.payment_date?.slice(0,10) >= from);
+        if (to)   filtered = filtered.filter(p => p.payment_date?.slice(0,10) <= to);
+    }
+    const s = (document.getElementById('search-input')?.value || '').toLowerCase();
+    if (s) filtered = filtered.filter(p =>
+        (p.profiles?.full_name || '').toLowerCase().includes(s) ||
+        (p.reference || '').toLowerCase().includes(s)
+    );
+    return filtered;
+}
+
 function filterAndRender(resetPage = true) {
     if (resetPage) currentPage = 1;
     
     let filtered = allPayments;
     
-    if (activeTab === '30days') {
+    if (activeTab === 'today') {
+        const today = new Date().toISOString().slice(0,10);
+        filtered = filtered.filter(p => p.payment_date?.slice(0,10) === today);
+    } else if (activeTab === '7days') {
+        const d = new Date(); d.setDate(d.getDate() - 7);
+        filtered = filtered.filter(p => new Date(p.payment_date) >= d);
+    } else if (activeTab === '30days') {
         const d = new Date(); d.setDate(d.getDate() - 30);
         filtered = filtered.filter(p => new Date(p.payment_date) >= d);
+    } else if (activeTab === 'custom') {
+        const from = document.getElementById('filter-date-from')?.value;
+        const to   = document.getElementById('filter-date-to')?.value;
+        if (from) filtered = filtered.filter(p => p.payment_date?.slice(0,10) >= from);
+        if (to)   filtered = filtered.filter(p => p.payment_date?.slice(0,10) <= to);
     }
 
     const term = searchTerm.toLowerCase();
@@ -352,17 +399,41 @@ function attachEventListeners() {
         filterAndRender(true);
     });
 
-    document.getElementById('tab-30days')?.addEventListener('click', () => {
-        activeTab = '30days';
-        renderPageContent(); 
-        loadData();
-    });
+    const setTab = (tab) => { activeTab = tab; filterAndRender(true); };
+    document.getElementById('tab-today')?.addEventListener('click',  () => setTab('today'));
+    document.getElementById('tab-7days')?.addEventListener('click',  () => setTab('7days'));
+    document.getElementById('tab-30days')?.addEventListener('click', () => setTab('30days'));
+    document.getElementById('tab-all')?.addEventListener('click',    () => setTab('all'));
 
-    document.getElementById('tab-all')?.addEventListener('click', () => {
-        activeTab = 'all';
-        renderPageContent();
-        loadData();
-    });
+    // Custom date range
+    document.getElementById('filter-date-from')?.addEventListener('change', () => { activeTab = 'custom'; filterAndRender(true); });
+    document.getElementById('filter-date-to')?.addEventListener('change',   () => { activeTab = 'custom'; filterAndRender(true); });
+
+    // Export filtered payments as CSV
+    document.getElementById('btn-export-payments')?.addEventListener('click', exportPaymentsCSV);
+}
+
+function exportPaymentsCSV() {
+    const visible = getFilteredPayments();
+    if (!visible.length) { alert('No payments to export for this period.'); return; }
+    const headers = ['Date', 'Client', 'ID Number', 'Reference', 'Amount Paid', 'Status', 'Payment Method'];
+    const rows = visible.map(p => [
+        p.payment_date?.slice(0,10) || '',
+        `"${(p.profiles?.full_name || '').replace(/"/g,'""')}"`,
+        p.profiles?.identity_number || '',
+        p.reference || p.id || '',
+        p.amount_paid || p.amount || 0,
+        p.status || '',
+        p.payment_method || ''
+    ].join(','));
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `incoming_payments_${activeTab}_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 
 window.changePageRecovery = (p) => {

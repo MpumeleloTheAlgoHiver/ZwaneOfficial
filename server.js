@@ -54,6 +54,8 @@ const kyc = require(path.join(__dirname, 'public', 'user-portal', 'Services', 'k
 const truid = require('./services/truidService');
 const creditCheckService = require('./services/creditCheckService');
 const sureSystemsService = require('./services/sureSystemsService');
+const messaging          = require('./services/messagingService');
+const moveItService = require('./services/moveItService');
 const { supabase, supabaseService } = require('./config/supabaseServer');
 const { startNotificationScheduler } = require('./services/notificationScheduler');
 const { logApiCall, tracked } = require('./services/apiUsageLogger');
@@ -393,7 +395,8 @@ function buildDocuSealSubmission(applicationData = {}, profileData = {}, branchD
                     provider_vat_no: settings.company_vat_number || process.env.COMPANY_VAT_NUMBER || "",
                     provider_tel: branchData.phone || settings.company_phone || process.env.COMPANY_PHONE || "",
                     provider_physical_address: branchData.address || settings.company_physical_address || "",
-                    provider_postal_address: branchData.address || settings.company_postal_address || ""
+                    provider_postal_address: branchData.address || settings.company_postal_address || "",
+                    provider_logo_url: settings.company_logo_url || process.env.COMPANY_LOGO_URL || ""
                 }
             },
             {
@@ -465,7 +468,7 @@ function toSureSystemsDate(value) {
 async function loadSureSystemsMandateContext(applicationId) {
     const { data: application, error: appError } = await supabaseService
         .from('loan_applications')
-        .select('id, user_id, amount, repayment_start_date, bank_account_id, term_months, profiles:user_id(full_name, email, identity_number, id_number, idNumber)')
+        .select('id, user_id, amount, repayment_start_date, bank_account_id, term_months, profiles:user_id(full_name, email, identity_number)')
         .eq('id', applicationId)
         .maybeSingle();
 
@@ -508,12 +511,17 @@ function buildSureSystemsMandateRequestFromContext({ application, bankAccount, p
 
     const collectionDate = overrides.collectionDate || toSureSystemsDate(application.repayment_start_date) || sureSystemsService.getToday();
     const debtorIdentificationNo = overrides.debtorIdentificationNo || profile?.identity_number || profile?.id_number || profile?.idNumber || application.user_id;
-    const debtorAccountType = Number(overrides.debtorAccountType || bankAccount.account_type || 1);
+    const accountTypeRaw = overrides.debtorAccountType || bankAccount.account_type || 1;
+    const accountTypeMap = { cheque: 1, current: 1, savings: 2, transmission: 3, bond: 4, subscription_share: 6 };
+    const debtorAccountType = Number.isFinite(Number(accountTypeRaw))
+        ? Number(accountTypeRaw)
+        : (accountTypeMap[String(accountTypeRaw).toLowerCase()] || 1);
     const installmentCount = Number(overrides.noOfInstallments || application.term_months || 1);
 
     return {
-        clientNo: String(overrides.clientNo || application.user_id || application.id).slice(0, 20),
-        frontEndUserName: overrides.frontEndUserName || profile?.email || 'webuser',
+        clientNo: String(overrides.clientNo || application.user_id || application.id).replace(/[^a-zA-Z0-9 ]/g, '').slice(0, 15),
+        frontEndUserName: overrides.frontEndUserName
+            || (profile?.email ? profile.email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').slice(0, 30) || 'webuser' : 'webuser'),
         debtorAccountName: overrides.debtorAccountName || bankAccount.account_holder || profile?.full_name || '',
         debtorIdentificationNo: String(debtorIdentificationNo || ''),
         debtorAccountNumber: String(overrides.debtorAccountNumber || bankAccount.account_number || ''),
@@ -524,7 +532,7 @@ function buildSureSystemsMandateRequestFromContext({ application, bankAccount, p
         collectionDate,
         dateList: collectionDate,
         noOfInstallments: installmentCount,
-        userReference: overrides.userReference || `APP-${application.id}`
+        userReference: overrides.userReference || `APP${String(application.id).slice(0, 7)}`
     };
 }
 
@@ -1093,7 +1101,7 @@ app.post('/api/suresystems/payments/download', async (req, res) => {
     try {
         const payload = req.body || {};
         const result = await sureSystemsService.downloadPayments(payload);
-        return res.json({ success: true, ...result.response });
+        return res.json({ success: true, ...result });
     } catch (error) {
         console.error('SureSystems payments download error:', error.message || error);
         return res.status(error.status || 500).json({
@@ -2002,6 +2010,14 @@ app.get('/admin/users', (req, res) => {
     sendAdminPage('users.html', res);
 });
 
+app.get('/admin/credit-rules', (req, res) => {
+    sendAdminPage('credit-rules.html', res);
+});
+
+app.get('/admin/cash-ledger', (req, res) => {
+    sendAdminPage('cash-ledger.html', res);
+});
+
 app.get('/admin/settings', (req, res) => {
     sendAdminPage('settings.html', res);
 });
@@ -2010,6 +2026,73 @@ app.get('/admin/sacrra', (req, res) => {
     sendAdminPage('sacrra.html', res);
 });
 
+// ─── MOVEit / SACRRA transmission routes ─────────────────────────────────────
+
+// Step 1: Initiate auth — returns access_token or triggers MFA email
+app.post('/api/moveit/auth', async (req, res) => {
+    try {
+        const result = await moveItService.authenticate();
+        if (result.requiresMfa) {
+            return res.json({ requiresMfa: true, mfaToken: result.mfaToken, mfaMethods: result.mfaMethods });
+        }
+        return res.json({ success: true, accessToken: result.accessToken, expiresIn: result.expiresIn });
+    } catch (err) {
+        console.error('[MOVEit] Auth error:', err.message);
+        return res.status(err.status || 500).json({ success: false, error: err.message, details: err.details });
+    }
+});
+
+// Step 2 (MFA only): Complete OTP challenge
+app.post('/api/moveit/auth/mfa', async (req, res) => {
+    try {
+        const { mfaToken, otpCode } = req.body;
+        if (!mfaToken || !otpCode) return res.status(400).json({ error: 'mfaToken and otpCode are required' });
+        const result = await moveItService.completeMfa(mfaToken, otpCode);
+        return res.json({ success: true, accessToken: result.accessToken, expiresIn: result.expiresIn });
+    } catch (err) {
+        console.error('[MOVEit] MFA error:', err.message);
+        return res.status(err.status || 500).json({ success: false, error: err.message, details: err.details });
+    }
+});
+
+// Step 3: Upload a SACRRA file — body: { accessToken, fileName, fileContent (base64), folderId? }
+app.post('/api/moveit/upload', async (req, res) => {
+    try {
+        const { accessToken, fileName, fileContent, folderId } = req.body;
+        if (!accessToken || !fileName || !fileContent) {
+            return res.status(400).json({ error: 'accessToken, fileName, and fileContent are required' });
+        }
+        const content = Buffer.from(fileContent, 'base64');
+        const result  = await moveItService.uploadFile(accessToken, fileName, content, folderId);
+
+        // Mark the latest sacrra_submission as TRANSMITTED
+        const { supabaseStorage } = require('./config/supabaseServer');
+        await supabaseStorage
+            .from('sacrra_submissions')
+            .update({ status: 'TRANSMITTED', notes: `Uploaded to MOVEit: ${result.fileId || fileName}`, updated_at: new Date().toISOString() })
+            .eq('file_name', fileName);
+
+        return res.json({ success: true, ...result });
+    } catch (err) {
+        console.error('[MOVEit] Upload error:', err.message);
+        return res.status(err.status || 500).json({ success: false, error: err.message, details: err.details });
+    }
+});
+
+// List files in the configured folder (for verification)
+app.get('/api/moveit/files', async (req, res) => {
+    try {
+        const auth = await moveItService.authenticate();
+        if (auth.requiresMfa) {
+            return res.status(401).json({ error: 'MFA required — use service account for automated access' });
+        }
+        const files = await moveItService.listFolder(auth.accessToken, req.query.folderId);
+        return res.json({ success: true, files });
+    } catch (err) {
+        console.error('[MOVEit] List error:', err.message);
+        return res.status(err.status || 500).json({ success: false, error: err.message });
+    }
+});
 
 // ─── Capitec payout CSV export ────────────────────────────────────────────────
 // POST /api/payouts/capitec-csv
@@ -2043,39 +2126,61 @@ app.post('/api/payouts/capitec-csv', async (req, res) => {
             return res.status(404).json({ error: 'No eligible applications found for the given IDs.' });
         }
 
+        // PIN lock — require a download PIN in the request header or body
+        const CSV_DOWNLOAD_PIN = process.env.CSV_DOWNLOAD_PIN || '1234';
+        const providedPin = req.headers['x-csv-pin'] || req.body?.pin || '';
+        if (providedPin !== CSV_DOWNLOAD_PIN) {
+            return res.status(403).json({
+                error: 'Invalid or missing CSV download PIN.',
+                hint: 'Include the PIN as x-csv-pin header or pin in request body.'
+            });
+        }
+
         // Build Capitec batch-payment CSV rows
-        // Reference format: ClientNumber–LoanNumber (ROADMAP)
+        // Reference format: C{clientNumber}-L{loan_number}
         const csvHeaders = [
             'Reference',
+            'Client Name',
+            'ID Number',
+            'Phone',
             'Account Holder',
             'Bank Name',
             'Account Number',
             'Branch Code',
             'Account Type',
-            'Amount',
-            'ID Number',
-            'Application ID'
+            'Disbursal Amount',
+            'Loan Term (months)',
+            'Purpose',
+            'Application ID',
+            'Date'
         ].join(',');
 
         const rows = apps.map((app) => {
-            const bank = app.bank_accounts || {};
+            const bank    = app.bank_accounts || {};
             const profile = app.profiles || {};
-            const loanNumber = String(app.id).padStart(6, '0');
-            const clientNumber = profile.client_number || String(app.id);
-            const reference = `${clientNumber}-${loanNumber}`;
-            const disbursalAmount = (app.offer_principal || app.amount || 0).toFixed(2);
+            // Reference: C{clientNum}-L{loanSeq}
+            const clientNum  = profile.client_number ? String(profile.client_number) : `C${String(app.id).slice(-4).toUpperCase()}`;
+            const loanSeq    = app.loan_number ? `L${String(app.loan_number).padStart(4, '0')}` : `L${String(app.id).slice(-4)}`;
+            const reference  = `${clientNum}-${loanSeq}`;
+            const disbursalAmount = Number(app.offer_principal || app.amount || 0).toFixed(2);
             const accountType = (bank.account_type || 'current').toLowerCase() === 'savings' ? 'Savings' : 'Current';
+            const date = new Date().toISOString().slice(0, 10);
 
             return [
                 `"${reference}"`,
+                `"${(profile.full_name || '').replace(/"/g, '""')}"`,
+                `"${profile.identity_number || ''}"`,
+                `"${profile.cell_tel_no || profile.contact_number || ''}"`,
                 `"${(bank.account_holder || profile.full_name || '').replace(/"/g, '""')}"`,
                 `"${(bank.bank_name || '').replace(/"/g, '""')}"`,
                 `"${bank.account_number || ''}"`,
                 `"${bank.branch_code || ''}"`,
                 `"${accountType}"`,
                 disbursalAmount,
-                `"${profile.identity_number || ''}"`,
-                app.id
+                app.term_months || 1,
+                `"${(app.purpose || app.loan_purpose || 'Personal Loan').replace(/"/g, '""')}"`,
+                `"${app.id}"`,
+                date
             ].join(',');
         });
 
@@ -2098,6 +2203,23 @@ app.post('/api/payouts/capitec-csv', async (req, res) => {
                 status: 'success',
             }));
             await supabaseService.from('api_usage_log').insert(usageRows).catch(() => {});
+
+            // Fire disbursement notifications (non-blocking)
+            const settings = await getSystemTheme();
+            const company  = settings?.company_name || process.env.COMPANY_NAME || 'Zwane Financial';
+            apps.forEach(app => {
+                const phone = app.profiles?.cell_tel_no || app.profiles?.contact_number;
+                const name  = app.profiles?.full_name || 'Client';
+                const clientNum = app.profiles?.client_number || '';
+                const loanSeq   = app.loan_number ? `L${String(app.loan_number).padStart(4,'0')}` : app.id.slice(0,8);
+                const reference = clientNum ? `${clientNum}-${loanSeq}` : loanSeq;
+                if (phone) {
+                    messaging.notifyLoanDisbursed({
+                        to: phone, clientName: name, reference,
+                        amount: app.offer_principal || app.amount || 0, company
+                    }).catch(e => console.warn('[messaging] disbursement notify failed:', e.message));
+                }
+            });
         }
 
         const date = new Date().toISOString().slice(0, 10);
@@ -2226,6 +2348,1171 @@ app.post('/api/loans/default-interest', async (req, res) => {
     } catch (err) {
         console.error('[default-interest] error:', err.message);
         return res.status(500).json({ error: err.message });
+    }
+});
+
+// ================================================================
+// 7b. Credit Rules API — Per-Client Configuration
+// ================================================================
+
+// --- Helper: require admin role ---
+function requireAdmin(req, res, next) {
+    const role = req.user?.app_metadata?.role || req.user?.user_metadata?.role;
+    if (!['admin','super_admin','base_admin'].includes(role)) {
+        return res.status(403).json({ error: 'Admin access required' });
+    }
+    next();
+}
+
+// GET /api/organizations — list all lender organizations
+app.get('/api/organizations', async (req, res) => {
+    try {
+        const { data, error } = await supabaseService
+            .from('organizations')
+            .select('*')
+            .order('name');
+        if (error) throw error;
+        res.json({ data });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/credit-rules/:orgId — get all rules + bands for an org
+app.get('/api/credit-rules/:orgId', async (req, res) => {
+    try {
+        const { orgId } = req.params;
+        const [bandsResult, rulesResult] = await Promise.all([
+            supabaseService
+                .from('credit_score_bands')
+                .select('*')
+                .eq('organization_id', orgId)
+                .order('sort_order'),
+            supabaseService
+                .from('credit_eligibility_rules')
+                .select('*')
+                .eq('organization_id', orgId)
+                .order('sort_order')
+        ]);
+        if (bandsResult.error) throw bandsResult.error;
+        if (rulesResult.error) throw rulesResult.error;
+        res.json({ bands: bandsResult.data, rules: rulesResult.data });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/credit-bands — create a score band
+app.post('/api/credit-bands', async (req, res) => {
+    try {
+        const { data, error } = await supabaseService
+            .from('credit_score_bands')
+            .insert([req.body])
+            .select()
+            .single();
+        if (error) throw error;
+        res.status(201).json({ data });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT /api/credit-bands/:id — update a score band
+app.put('/api/credit-bands/:id', async (req, res) => {
+    try {
+        const { data, error } = await supabaseService
+            .from('credit_score_bands')
+            .update(req.body)
+            .eq('id', req.params.id)
+            .select()
+            .single();
+        if (error) throw error;
+        res.json({ data });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE /api/credit-bands/:id — remove a score band
+app.delete('/api/credit-bands/:id', async (req, res) => {
+    try {
+        const { error } = await supabaseService
+            .from('credit_score_bands')
+            .delete()
+            .eq('id', req.params.id);
+        if (error) throw error;
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT /api/eligibility-rules/:id — update a rule
+app.put('/api/eligibility-rules/:id', async (req, res) => {
+    try {
+        const { data, error } = await supabaseService
+            .from('credit_eligibility_rules')
+            .update(req.body)
+            .eq('id', req.params.id)
+            .select()
+            .single();
+        if (error) throw error;
+        res.json({ data });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/my-eligibility — returns borrower's current credit band + eligibility for dashboard widget
+app.get('/api/my-eligibility', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization || '';
+        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        if (!token) return res.status(401).json({ error: 'Unauthorised' });
+
+        const { data: { user }, error: authErr } = await supabaseService.auth.getUser(token);
+        if (authErr || !user) return res.status(401).json({ error: 'Unauthorised' });
+
+        // Latest completed credit check
+        const { data: cc } = await supabaseService
+            .from('credit_checks')
+            .select('credit_score, checked_at')
+            .eq('user_id', user.id)
+            .eq('status', 'completed')
+            .order('checked_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (!cc?.credit_score) return res.json({ eligible: false, reason: 'no_credit_check' });
+
+        // Is first loan?
+        const { count: prevLoans } = await supabaseService
+            .from('loan_applications')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', user.id)
+            .in('status', ['APPROVED', 'ACTIVE', 'SETTLED', 'COMPLETED']);
+        const isFirstLoan = (prevLoans || 0) === 0;
+
+        // Match band
+        const { data: orgs } = await supabaseService.from('organizations').select('id').eq('is_active', true).limit(1);
+        const orgId = orgs?.[0]?.id;
+        if (!orgId) return res.json({ eligible: false, reason: 'no_org' });
+
+        const { data: band } = await supabaseService
+            .from('credit_score_bands')
+            .select('*')
+            .eq('organization_id', orgId)
+            .eq('is_active', true)
+            .lte('min_score', cc.credit_score)
+            .gte('max_score', cc.credit_score)
+            .maybeSingle();
+
+        if (!band || band.risk_level === 'declined') {
+            return res.json({ eligible: false, reason: 'score_declined', credit_score: cc.credit_score });
+        }
+
+        const effectiveTerm = (isFirstLoan && band.first_loan_max_term_months)
+            ? band.first_loan_max_term_months
+            : band.max_term_months;
+
+        res.json({
+            eligible:            true,
+            credit_score:        cc.credit_score,
+            checked_at:          cc.checked_at,
+            is_first_loan:       isFirstLoan,
+            band: {
+                label:           band.label,
+                color:           band.color,
+                risk_level:      band.risk_level,
+                max_loan_amount: band.max_loan_amount,
+                interest_rate_pa: band.interest_rate_pa,
+                max_term_months: effectiveTerm
+            },
+            first_loan_restriction: (isFirstLoan && band.first_loan_max_term_months)
+                ? `First loan: max ${band.first_loan_max_term_months} month term`
+                : null
+        });
+    } catch (err) {
+        console.error('[my-eligibility]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/applications/:id/evaluate — run rules engine against a saved application
+// Fetches credit score + financial profile from DB, runs evaluate-credit, stores result
+app.post('/api/applications/:id/evaluate', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // 1. Load the application + profile + financial data
+        const { data: app, error: appErr } = await supabaseService
+            .from('loan_applications')
+            .select(`
+                id, user_id, amount, term_months, bureau_score,
+                profiles:user_id (
+                    id, full_name, date_of_birth
+                ),
+                financial_profiles:user_id (
+                    monthly_income, monthly_expenses, monthly_debt_repayments
+                )
+            `)
+            .eq('id', id)
+            .maybeSingle();
+
+        if (appErr || !app) return res.status(404).json({ error: 'Application not found' });
+
+        const profile   = Array.isArray(app.profiles)   ? app.profiles[0]   : app.profiles;
+        const financial = Array.isArray(app.financial_profiles) ? app.financial_profiles[0] : app.financial_profiles;
+
+        // 2. Determine credit score (from application or latest credit check)
+        let creditScore = app.bureau_score;
+        if (!creditScore) {
+            const { data: cc } = await supabaseService
+                .from('credit_checks')
+                .select('credit_score')
+                .eq('user_id', app.user_id)
+                .eq('status', 'completed')
+                .order('checked_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            creditScore = cc?.credit_score ?? 0;
+        }
+
+        // 3. Check if this is the borrower's first loan
+        const { count: prevLoans } = await supabaseService
+            .from('loan_applications')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', app.user_id)
+            .in('status', ['APPROVED', 'ACTIVE', 'SETTLED', 'COMPLETED'])
+            .neq('id', id);
+
+        const isFirstLoan = (prevLoans || 0) === 0;
+
+        // 4. Calculate age from date of birth
+        const dob = profile?.date_of_birth;
+        const age = dob
+            ? Math.floor((Date.now() - new Date(dob)) / (365.25 * 24 * 60 * 60 * 1000))
+            : null;
+
+        const monthlyIncome = Number(financial?.monthly_income || 0);
+        const monthlyDebt   = Number(financial?.monthly_debt_repayments || financial?.monthly_expenses || 0);
+
+        // 5. Get org id (default to first org)
+        const { data: orgs } = await supabaseService
+            .from('organizations')
+            .select('id')
+            .eq('is_active', true)
+            .limit(1);
+        const orgId = orgs?.[0]?.id;
+        if (!orgId) return res.status(400).json({ error: 'No active organization found' });
+
+        // 6. Run rules engine (internal call reusing same logic)
+        const [bandsRes, rulesRes] = await Promise.all([
+            supabaseService.from('credit_score_bands').select('*').eq('organization_id', orgId).eq('is_active', true).order('sort_order'),
+            supabaseService.from('credit_eligibility_rules').select('*').eq('organization_id', orgId).eq('is_active', true).order('sort_order')
+        ]);
+
+        const dti = monthlyIncome > 0 ? (monthlyDebt / monthlyIncome) * 100 : 999;
+        const factors = {
+            min_credit_score:          creditScore,
+            min_monthly_income:        monthlyIncome,
+            max_debt_to_income_pct:    dti,
+            min_age:                   age,
+            max_age:                   age,
+            no_active_judgments:       true,   // would come from Experian report
+            no_sequestration:          true,
+            employed_or_self_employed: monthlyIncome > 0
+        };
+
+        const failures = [];
+        for (const rule of (rulesRes.data || [])) {
+            const val = factors[rule.rule_key];
+            if (val === undefined || val === null) continue;
+            let passed = true;
+            const threshold = parseFloat(rule.threshold_value);
+            if (rule.operator === 'gte')       passed = val >= threshold;
+            else if (rule.operator === 'lte')  passed = val <= threshold;
+            else if (rule.operator === 'is_true')  passed = val === true;
+            else if (rule.operator === 'is_false') passed = val === false;
+            if (!passed) failures.push({ rule_key: rule.rule_key, label: rule.rule_label, action: rule.fail_action, reason: rule.decline_reason });
+        }
+
+        const hasDecline = failures.some(f => f.action === 'decline');
+        const hasReview  = failures.some(f => f.action === 'review');
+        const band = (bandsRes.data || []).find(b => creditScore >= b.min_score && creditScore <= b.max_score);
+
+        let decision = 'review';
+        if (hasDecline || !band || band.risk_level === 'declined') {
+            decision = 'declined';
+        } else if (!hasReview && band.auto_decision === 'approve') {
+            decision = 'approved';
+        }
+
+        const effectiveTerm = (isFirstLoan && band?.first_loan_max_term_months)
+            ? band.first_loan_max_term_months
+            : band?.max_term_months;
+
+        const firstLoanMsg = (isFirstLoan && band?.first_loan_max_term_months)
+            ? `First loan limited to ${band.first_loan_max_term_months} month(s). Longer terms unlock after successful repayment.`
+            : null;
+
+        // 6b. Apply individual client credit cap if set
+        const { data: profileCap } = await supabaseService
+            .from('profiles')
+            .select('credit_limit_override, credit_limit_note')
+            .eq('id', app.user_id)
+            .maybeSingle();
+
+        if (profileCap?.credit_limit_override && band) {
+            const capAmt = Number(profileCap.credit_limit_override);
+            if (capAmt < band.max_loan_amount) {
+                band = { ...band, max_loan_amount: capAmt };
+                if (!failures.some(f => f.rule_key === 'client_cap')) {
+                    failures.push({
+                        rule_key: 'client_cap',
+                        label:    'Individual Client Cap Applied',
+                        action:   'review',
+                        reason:   `This client has a personal credit limit of R${capAmt.toLocaleString('en-ZA')}. ${profileCap.credit_limit_note || ''}`
+                    });
+                }
+            }
+        }
+
+        // 7. Store result on the application
+        await supabaseService.from('loan_applications').update({
+            credit_decision:        decision,
+            credit_band_label:      band?.label || null,
+            credit_band_color:      band?.color || null,
+            credit_max_loan:        band?.max_loan_amount || 0,
+            credit_rate_pa:         band?.interest_rate_pa || 0,
+            credit_max_term:        effectiveTerm || null,
+            credit_decline_reasons: failures.length ? failures : null,
+            first_loan_restriction: firstLoanMsg,
+            is_first_loan:          isFirstLoan
+        }).eq('id', id);
+
+        res.json({
+            decision,
+            band: band ? { ...band, effective_max_term_months: effectiveTerm } : null,
+            failures,
+            is_first_loan: isFirstLoan,
+            first_loan_restriction: firstLoanMsg,
+            credit_score: creditScore
+        });
+
+    } catch (err) {
+        console.error('[evaluate-application]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/evaluate-credit — run rules engine against a borrower profile
+// Body: { organization_id, credit_score, monthly_income, monthly_debt, age, is_employed, has_judgments, under_debt_review }
+app.post('/api/evaluate-credit', async (req, res) => {
+    try {
+        const { organization_id, credit_score, monthly_income, monthly_debt, age,
+                is_employed, has_judgments, under_debt_review } = req.body;
+
+        // Fetch org's rules and bands
+        const [bandsRes, rulesRes] = await Promise.all([
+            supabaseService.from('credit_score_bands').select('*')
+                .eq('organization_id', organization_id).eq('is_active', true).order('sort_order'),
+            supabaseService.from('credit_eligibility_rules').select('*')
+                .eq('organization_id', organization_id).eq('is_active', true).order('sort_order')
+        ]);
+        if (bandsRes.error) throw bandsRes.error;
+        if (rulesRes.error) throw rulesRes.error;
+
+        const dti = monthly_income > 0 ? (monthly_debt / monthly_income) * 100 : 999;
+        const factors = {
+            min_credit_score:           credit_score,
+            min_monthly_income:         monthly_income,
+            max_debt_to_income_pct:     dti,
+            min_age:                    age,
+            max_age:                    age,
+            no_active_judgments:        !has_judgments,
+            no_sequestration:           !under_debt_review,
+            employed_or_self_employed:  is_employed
+        };
+
+        // Run eligibility rules
+        const failures = [];
+        for (const rule of rulesRes.data) {
+            const val = factors[rule.rule_key];
+            if (val === undefined) continue;
+            const threshold = parseFloat(rule.threshold_value);
+            let passed = true;
+
+            if (rule.operator === 'gte')      passed = val >= threshold;
+            else if (rule.operator === 'lte') passed = val <= threshold;
+            else if (rule.operator === 'eq')  passed = val == rule.threshold_value;
+            else if (rule.operator === 'neq') passed = val != rule.threshold_value;
+            else if (rule.operator === 'is_true')  passed = val === true;
+            else if (rule.operator === 'is_false') passed = val === false;
+
+            if (!passed) {
+                failures.push({
+                    rule_key:   rule.rule_key,
+                    label:      rule.rule_label,
+                    action:     rule.fail_action,
+                    reason:     rule.decline_reason
+                });
+            }
+        }
+
+        const hasHardDecline = failures.some(f => f.action === 'decline');
+        const hasReview      = failures.some(f => f.action === 'review');
+
+        if (hasHardDecline) {
+            return res.json({
+                decision:  'declined',
+                band:      null,
+                failures,
+                message:   failures.find(f => f.action === 'decline')?.reason || 'Application declined.'
+            });
+        }
+
+        // Match score band
+        const band = bandsRes.data.find(b => credit_score >= b.min_score && credit_score <= b.max_score);
+        if (!band || band.risk_level === 'declined') {
+            return res.json({ decision: 'declined', band: null, failures, message: 'Credit score outside lending criteria.' });
+        }
+
+        const decision = (hasReview || band.auto_decision === 'review') ? 'review'
+                       : band.auto_decision === 'approve' ? 'approved'
+                       : 'review';
+
+        // Apply first-loan term restriction if applicable
+        const isFirstLoan = req.body.is_first_loan === true;
+        const effectiveMaxTerm = (isFirstLoan && band.first_loan_max_term_months)
+            ? band.first_loan_max_term_months
+            : band.max_term_months;
+
+        res.json({
+            decision,
+            band: { ...band, effective_max_term_months: effectiveMaxTerm },
+            failures,
+            is_first_loan: isFirstLoan,
+            first_loan_restriction: isFirstLoan && band.first_loan_max_term_months
+                ? `First loan limited to ${band.first_loan_max_term_months} month(s). Longer terms unlock after successful repayment.`
+                : null,
+            message: null
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/letters-of-demand/:applicationId — generate HTML letter ready for browser print-to-PDF
+app.get('/api/letters-of-demand/:applicationId', async (req, res) => {
+    try {
+        const { applicationId } = req.params;
+
+        const { data: app, error } = await supabaseService
+            .from('loan_applications')
+            .select(`
+                id, amount, offer_principal, offer_monthly_repayment, offer_total_repayment,
+                term_months, created_at, status, repayment_start_date, loan_number,
+                loan_purpose, purpose,
+                profiles:user_id (
+                    full_name, identity_number, contact_number, cell_tel_no,
+                    address, postal_code, suburb_area,
+                    nok_name, nok_phone, nok_relationship, client_number
+                )
+            `)
+            .eq('id', applicationId)
+            .maybeSingle();
+
+        if (error || !app) return res.status(404).json({ error: 'Application not found' });
+
+        const profile     = app.profiles || {};
+        const settings    = await getSystemTheme();
+        const companyName = settings?.company_name || process.env.COMPANY_NAME || 'AlgoLend Financial Services';
+        const companyAddr = settings?.company_physical_address || '';
+        const companyPhone= settings?.company_phone || '';
+        const companyEmail= process.env.CREDIT_PROVIDER_EMAIL || '';
+        const today       = new Date().toLocaleDateString('en-ZA', { year:'numeric', month:'long', day:'numeric' });
+
+        const clientNum   = profile.client_number ? String(profile.client_number) : '';
+        const loanSeq     = app.loan_number ? `L${String(app.loan_number).padStart(4,'0')}` : app.id.slice(0,8);
+        const reference   = clientNum ? `${clientNum}-${loanSeq}` : loanSeq;
+
+        const balance     = Number(app.offer_principal || app.amount || 0);
+        const defaultInterest = balance * 0.03;
+
+        const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Letter of Demand — ${reference}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Times New Roman', Times, serif; font-size: 12pt; color: #000; background: #fff; }
+  .page { max-width: 210mm; margin: 0 auto; padding: 25mm 20mm; }
+
+  /* Header */
+  .letterhead { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24pt; border-bottom: 2px solid #000; padding-bottom: 12pt; }
+  .company-name { font-size: 18pt; font-weight: bold; letter-spacing: -0.5px; }
+  .company-details { font-size: 9pt; color: #333; margin-top: 4pt; line-height: 1.5; }
+  .letter-type { font-size: 10pt; font-weight: bold; color: #c00; text-transform: uppercase; letter-spacing: 1px; }
+
+  /* Date & Reference */
+  .meta { margin: 20pt 0; font-size: 10pt; }
+  .meta strong { font-size: 11pt; }
+
+  /* Addressee */
+  .addressee { margin: 16pt 0; font-size: 11pt; line-height: 1.8; }
+
+  /* Subject */
+  .subject { font-size: 12pt; font-weight: bold; text-decoration: underline; margin: 20pt 0 12pt; }
+
+  /* Body */
+  p { margin-bottom: 10pt; line-height: 1.6; text-align: justify; }
+
+  /* Amounts table */
+  .amounts { width: 100%; border-collapse: collapse; margin: 16pt 0; font-size: 11pt; }
+  .amounts th { background: #000; color: #fff; padding: 6pt 10pt; text-align: left; font-size: 10pt; }
+  .amounts td { padding: 5pt 10pt; border-bottom: 1px solid #ddd; }
+  .amounts .total { font-weight: bold; background: #f5f5f5; font-size: 12pt; }
+  .amounts .highlight { color: #c00; font-weight: bold; }
+
+  /* Signature */
+  .signature { margin-top: 36pt; }
+  .sig-line { border-top: 1px solid #000; width: 200pt; margin-top: 40pt; font-size: 9pt; }
+
+  /* Footer */
+  .footer { margin-top: 40pt; padding-top: 8pt; border-top: 1px solid #999; font-size: 8pt; color: #555; text-align: center; }
+
+  @media print {
+    body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    .no-print { display: none; }
+    @page { size: A4; margin: 20mm; }
+  }
+</style>
+</head>
+<body>
+<div class="no-print" style="background:#1a1a1a;color:#fff;padding:12px 20px;font-family:sans-serif;font-size:13px;display:flex;justify-content:space-between;align-items:center;">
+  <span>📄 Letter of Demand — ${profile.full_name || 'Borrower'} | Ref: ${reference}</span>
+  <button onclick="window.print()" style="background:#E7762E;color:#fff;border:none;padding:8px 20px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px;">🖨 Print / Save PDF</button>
+</div>
+
+<div class="page">
+
+  <div class="letterhead">
+    <div>
+      <div class="company-name">${companyName}</div>
+      <div class="company-details">${companyAddr}${companyAddr ? '<br>' : ''}${companyPhone ? 'Tel: '+companyPhone : ''}${companyEmail ? ' | '+companyEmail : ''}</div>
+    </div>
+    <div style="text-align:right;">
+      <div class="letter-type">Letter of Demand</div>
+      <div style="font-size:9pt;color:#555;margin-top:6pt;">NCR Registered Credit Provider</div>
+    </div>
+  </div>
+
+  <div class="meta">
+    <strong>Date:</strong> ${today}<br>
+    <strong>Reference:</strong> ${reference}<br>
+    <strong>Application ID:</strong> ${app.id}
+  </div>
+
+  <div class="addressee">
+    <strong>${profile.full_name || '[Client Name]'}</strong><br>
+    ID Number: ${profile.identity_number || '[ID Number]'}<br>
+    ${profile.address ? profile.address + '<br>' : ''}${profile.suburb_area ? profile.suburb_area + '<br>' : ''}${profile.postal_code || ''}
+    <br><br>
+    Contact: ${profile.contact_number || profile.cell_tel_no || '[Contact Number]'}
+  </div>
+
+  <div class="subject">NOTICE OF DEFAULT AND DEMAND FOR PAYMENT</div>
+
+  <p>Dear <strong>${profile.full_name || 'Client'}</strong>,</p>
+
+  <p>We refer to the loan agreement entered into between yourself and <strong>${companyName}</strong>. Despite previous requests for payment, your account is now in <strong>default</strong>.</p>
+
+  <p>In terms of Section 129 of the National Credit Act 34 of 2005, we hereby give you formal notice that you are in default of your obligations and we demand immediate payment of all outstanding amounts.</p>
+
+  <table class="amounts">
+    <thead><tr><th>Description</th><th style="text-align:right;">Amount (R)</th></tr></thead>
+    <tbody>
+      <tr><td>Original Loan Amount</td><td style="text-align:right;">${Number(app.amount || 0).toLocaleString('en-ZA', {minimumFractionDigits:2})}</td></tr>
+      <tr><td>Outstanding Principal Balance</td><td style="text-align:right;">${balance.toLocaleString('en-ZA', {minimumFractionDigits:2})}</td></tr>
+      <tr><td>Default Interest (3% of balance)</td><td style="text-align:right;" class="highlight">${defaultInterest.toLocaleString('en-ZA', {minimumFractionDigits:2})}</td></tr>
+      <tr class="total"><td>TOTAL AMOUNT DUE</td><td style="text-align:right;" class="highlight">${(balance + defaultInterest).toLocaleString('en-ZA', {minimumFractionDigits:2})}</td></tr>
+    </tbody>
+  </table>
+
+  <p>You are hereby required to pay the above total amount within <strong>10 (ten) business days</strong> of receiving this notice. Failure to respond or make payment will result in:</p>
+
+  <p style="margin-left:20pt;">
+    1. Legal proceedings being instituted against you;<br>
+    2. A negative listing on your credit record with the relevant credit bureau;<br>
+    3. Recovery of all legal costs from you.
+  </p>
+
+  <p>Should you wish to arrange a payment plan or dispute this notice, please contact us immediately at the details above. You also have the right to approach a debt counsellor, alternative dispute resolution agent, consumer court, or the National Credit Regulator.</p>
+
+  ${profile.nok_name ? `<p><em>We note that your next of kin ${profile.nok_name} (${profile.nok_relationship || ''}) may be contacted at ${profile.nok_phone || ''} if we are unable to reach you directly.</em></p>` : ''}
+
+  <p>This letter serves as formal notice in terms of Section 129(1)(a) of the National Credit Act.</p>
+
+  <div class="signature">
+    <p>Yours faithfully,</p>
+    <div class="sig-line">Authorised Signatory — ${companyName}</div>
+  </div>
+
+  <div class="footer">
+    ${companyName} is a registered credit provider in terms of the National Credit Act 34 of 2005.
+    This letter was generated on ${today} | Ref: ${reference}
+  </div>
+
+</div>
+</body>
+</html>`;
+
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(html);
+
+    } catch (err) {
+        console.error('[letter-of-demand]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/loans/:id/default-interest — calculate 3% default interest on current balance
+app.get('/api/loans/:id/default-interest', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { data: loan, error } = await supabaseService
+            .from('loan_applications')
+            .select('id, amount, offer_principal, status, credit_decision')
+            .eq('id', id)
+            .maybeSingle();
+
+        if (error || !loan) return res.status(404).json({ error: 'Loan not found' });
+
+        const currentBalance = Number(loan.offer_principal || loan.amount || 0);
+        const DEFAULT_INTEREST_RATE = 0.03; // 3% of current balance per NCA
+        const defaultInterest = currentBalance * DEFAULT_INTEREST_RATE;
+
+        res.json({
+            loan_id:              id,
+            current_balance:      currentBalance,
+            default_rate:         DEFAULT_INTEREST_RATE,
+            default_interest:     Number(defaultInterest.toFixed(2)),
+            total_with_default:   Number((currentBalance + defaultInterest).toFixed(2)),
+            note:                 'Default interest = current balance × 3% per month (NCA regulated)'
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/contracts/:applicationId/preview
+// Full NCA-compliant Pre-Agreement Quote — print-ready HTML with CPI breakdown + logo
+app.get('/api/contracts/:applicationId/preview', async (req, res) => {
+    try {
+        const { applicationId } = req.params;
+
+        const { data: app, error } = await supabaseService
+            .from('loan_applications')
+            .select(`
+                id, amount, offer_principal, offer_total_repayment, offer_monthly_repayment,
+                offer_total_interest, offer_total_initiation_fees, offer_total_admin_fees,
+                offer_credit_life_monthly, offer_vat_amount, offer_total_cost_of_credit,
+                term_months, repayment_start_date, loan_number, loan_purpose, purpose,
+                is_first_loan, agreement_number,
+                profiles:user_id (
+                    full_name, identity_number, contact_number, cell_tel_no,
+                    address, postal_code, suburb_area, email,
+                    employer_name, work_address,
+                    nok_name, nok_phone, nok_relationship, client_number
+                )
+            `)
+            .eq('id', applicationId)
+            .maybeSingle();
+
+        if (error || !app) return res.status(404).json({ error: 'Application not found' });
+
+        const settings  = await getSystemTheme();
+        const company   = settings?.company_name   || process.env.COMPANY_NAME   || 'Zwane Financial Services';
+        const ncrNumber = settings?.ncr_number      || process.env.COMPANY_NCR    || 'NCRCP13510';
+        const companyReg= settings?.company_reg_number || '';
+        const companyTel= settings?.company_phone   || '';
+        const companyAddr= settings?.company_physical_address || '';
+        const logoUrl   = settings?.company_logo_url || 'https://static.wixstatic.com/media/f82622_cde1fbd5680141c5b0fccca81fb92ad6~mv2.png';
+
+        const profile   = app.profiles || {};
+        const today     = new Date().toLocaleDateString('en-ZA', { year:'numeric', month:'long', day:'numeric' });
+
+        const principal  = Number(app.offer_principal || app.amount || 0);
+        const term       = Number(app.term_months || 1);
+        const interest   = Number(app.offer_total_interest || 0);
+        const initiation = Number(app.offer_total_initiation_fees || 0);
+        const serviceFee = Number(app.offer_total_admin_fees || 0);
+        const cpiMonthly = Number(app.offer_credit_life_monthly || 0);
+        const cpiTotal   = cpiMonthly * term;
+        const vatAmt     = Number(app.offer_vat_amount || (initiation + serviceFee) * 0.15);
+        const tcc        = Number(app.offer_total_cost_of_credit || (interest + initiation + serviceFee + cpiTotal + vatAmt));
+        const totalRepay = Number(app.offer_total_repayment || (principal + tcc));
+        const monthly    = Number(app.offer_monthly_repayment || (totalRepay / term));
+
+        const interestRateMonthly = 5;          // 5% p/m
+        const cpiRate             = 0.45;        // 0.45% p/m
+        const initiationRate      = app.is_first_loan ? 5 : 15;
+
+        const clientNum  = profile.client_number ? String(profile.client_number) : '';
+        const loanSeq    = app.loan_number ? `L${String(app.loan_number).padStart(4,'0')}` : app.id.slice(0,8).toUpperCase();
+        const reference  = clientNum ? `${clientNum}-${loanSeq}` : loanSeq;
+        const agreementNo= app.agreement_number || reference;
+
+        let firstPayDate = 'TBD', finalPayDate = 'TBD';
+        if (app.repayment_start_date) {
+            const d1 = new Date(app.repayment_start_date);
+            firstPayDate = d1.toLocaleDateString('en-ZA');
+            const d2 = new Date(d1); d2.setMonth(d2.getMonth() + term - 1);
+            finalPayDate = d2.toLocaleDateString('en-ZA');
+        }
+
+        const fmtR = (v) => `R ${Number(v).toLocaleString('en-ZA', {minimumFractionDigits:2, maximumFractionDigits:2})}`;
+        const fmtPct = (v) => `${v}%`;
+
+        const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Pre-Agreement Quote — ${agreementNo}</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 9pt; color: #1a1a1a; background: #fff; }
+  .page { max-width: 210mm; margin: 0 auto; padding: 12mm 14mm; }
+
+  /* Print toolbar */
+  .no-print { background:#1a1a1a; color:#fff; padding:10px 20px; font-family:sans-serif; font-size:13px; display:flex; justify-content:space-between; align-items:center; }
+  .no-print button { background:#E7762E; color:#fff; border:none; padding:8px 20px; border-radius:8px; font-weight:700; cursor:pointer; font-size:13px; }
+
+  /* Header */
+  .header { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:2px solid #E7762E; padding-bottom:8pt; margin-bottom:10pt; }
+  .logo img { max-height:50px; max-width:140px; object-fit:contain; }
+  .company-info { text-align:right; font-size:8pt; line-height:1.6; color:#444; }
+  .doc-title { text-align:center; margin:8pt 0; }
+  .doc-title h1 { font-size:13pt; font-weight:bold; letter-spacing:0.5px; }
+  .doc-title p { font-size:8pt; color:#666; margin-top:2pt; }
+
+  /* Reference bar */
+  .ref-bar { background:#f8f4f0; border:1px solid #e0d8d0; border-radius:4pt; padding:6pt 10pt; display:flex; justify-content:space-between; margin-bottom:10pt; font-size:8pt; }
+  .ref-bar strong { color:#E7762E; }
+
+  /* Section headings */
+  .section-title { background:#E7762E; color:#fff; padding:4pt 8pt; font-size:9pt; font-weight:bold; letter-spacing:0.3px; margin:10pt 0 4pt; border-radius:2pt; }
+
+  /* Two-column grid */
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:0; border:1px solid #ddd; margin-bottom:2pt; }
+  .grid2 .cell { padding:4pt 8pt; border-right:1px solid #ddd; }
+  .grid2 .cell:last-child { border-right:none; }
+  .grid2 .cell .label { font-size:7.5pt; color:#888; text-transform:uppercase; letter-spacing:0.3px; }
+  .grid2 .cell .val { font-size:9.5pt; font-weight:bold; color:#1a1a1a; margin-top:1pt; }
+
+  /* Costs table */
+  .costs-table { width:100%; border-collapse:collapse; font-size:8.5pt; }
+  .costs-table th { background:#f0f0f0; padding:4pt 8pt; text-align:left; font-size:7.5pt; text-transform:uppercase; letter-spacing:0.3px; border:1px solid #ddd; }
+  .costs-table td { padding:4pt 8pt; border:1px solid #ddd; }
+  .costs-table tr.highlight td { background:#fff8f3; font-weight:bold; color:#E7762E; }
+  .costs-table tr.total td { background:#E7762E; color:#fff; font-weight:bold; font-size:9.5pt; }
+  .costs-table .pct { color:#888; font-size:8pt; }
+
+  /* CPI box */
+  .cpi-box { border:1px solid #E7762E; border-radius:3pt; padding:8pt 10pt; margin:8pt 0; background:#fff8f3; }
+  .cpi-box h4 { color:#E7762E; font-size:9pt; font-weight:bold; margin-bottom:6pt; display:flex; align-items:center; gap:6pt; }
+  .cpi-box table { width:100%; font-size:8pt; border-collapse:collapse; }
+  .cpi-box table td { padding:2pt 6pt; }
+  .cpi-box table tr:nth-child(even) { background:#fff3ea; }
+
+  /* Manual inserts */
+  .manual { color:#c00; font-weight:bold; }
+  .manual-note { font-size:7pt; color:#c00; margin-top:4pt; }
+
+  /* Schedule */
+  .schedule-table { width:100%; border-collapse:collapse; font-size:8pt; }
+  .schedule-table th { background:#1a1a1a; color:#fff; padding:4pt 8pt; text-align:left; font-size:7.5pt; }
+  .schedule-table td { padding:3pt 8pt; border-bottom:1px solid #eee; }
+  .schedule-table tr:nth-child(even) td { background:#f9f9f9; }
+
+  /* Declarations */
+  .decl { font-size:7.5pt; line-height:1.6; color:#444; margin-top:8pt; text-align:justify; }
+  .sign-row { display:flex; gap:20pt; margin-top:20pt; }
+  .sign-block { flex:1; }
+  .sign-line { border-top:1px solid #333; margin-top:36pt; font-size:7.5pt; padding-top:2pt; }
+
+  /* Footer */
+  .footer { margin-top:12pt; padding-top:6pt; border-top:1px solid #ccc; font-size:7pt; color:#888; text-align:center; }
+
+  @media print {
+    body { print-color-adjust:exact; -webkit-print-color-adjust:exact; }
+    .no-print { display:none; }
+    @page { size:A4; margin:12mm; }
+  }
+</style>
+</head>
+<body>
+
+<div class="no-print">
+  <span>📄 Pre-Agreement Quote — ${profile.full_name || 'Borrower'} | Ref: ${agreementNo}</span>
+  <button onclick="window.print()">🖨 Print / Save PDF</button>
+</div>
+
+<div class="page">
+
+  <!-- Letterhead -->
+  <div class="header">
+    <div class="logo">
+      <img src="${logoUrl}" alt="${company}" onerror="this.style.display='none'">
+      <div style="font-size:11pt;font-weight:bold;color:#E7762E;margin-top:4pt;">${company}</div>
+    </div>
+    <div class="company-info">
+      NCR Registration: <strong>${ncrNumber}</strong><br>
+      ${companyReg ? `Reg No: ${companyReg}<br>` : ''}
+      ${companyTel ? `Tel: ${companyTel}<br>` : ''}
+      ${companyAddr ? companyAddr + '<br>' : ''}
+    </div>
+  </div>
+
+  <!-- Title -->
+  <div class="doc-title">
+    <h1>PRE-AGREEMENT STATEMENT AND QUOTATION</h1>
+    <p>In terms of Section 92 of the National Credit Act 34 of 2005 (NCA) and Regulation 28</p>
+  </div>
+
+  <!-- Reference Bar -->
+  <div class="ref-bar">
+    <span>Agreement No: <strong>${agreementNo}</strong></span>
+    <span>Date: <strong>${today}</strong></span>
+    <span>Purpose: <strong>${app.loan_purpose || app.purpose || 'Personal Loan'}</strong></span>
+    ${app.is_first_loan ? '<span style="color:#E7762E;font-weight:bold;">⭐ First Loan</span>' : ''}
+  </div>
+
+  <!-- Borrower Details -->
+  <div class="section-title">A. BORROWER DETAILS</div>
+  <div class="grid2">
+    <div class="cell"><div class="label">Full Name</div><div class="val">${profile.full_name || '—'}</div></div>
+    <div class="cell"><div class="label">SA ID Number</div><div class="val">${profile.identity_number || '—'}</div></div>
+    <div class="cell"><div class="label">Address</div><div class="val">${[profile.address, profile.suburb_area, profile.postal_code].filter(Boolean).join(', ') || '—'}</div></div>
+    <div class="cell"><div class="label">Mobile</div><div class="val">${profile.contact_number || profile.cell_tel_no || '—'}</div></div>
+    <div class="cell"><div class="label">Email</div><div class="val">${profile.email || '—'}</div></div>
+    <div class="cell"><div class="label">Employer</div><div class="val manual">${profile.employer_name || '— (Manual)'}</div></div>
+  </div>
+  <p class="manual-note">* Red fields require manual verification before disbursement</p>
+
+  <!-- Loan Summary -->
+  <div class="section-title">B. LOAN DETAILS</div>
+  <div class="grid2">
+    <div class="cell"><div class="label">Principal Amount</div><div class="val">${fmtR(principal)}</div></div>
+    <div class="cell"><div class="label">Loan Term</div><div class="val">${term} Month${term>1?'s':''}</div></div>
+    <div class="cell"><div class="label">Interest Rate</div><div class="val">${interestRateMonthly}% per month</div></div>
+    <div class="cell"><div class="label">First Payment Date</div><div class="val">${firstPayDate}</div></div>
+    <div class="cell"><div class="label">Final Payment Date</div><div class="val">${finalPayDate}</div></div>
+    <div class="cell"><div class="label">Monthly Instalment</div><div class="val" style="color:#E7762E">${fmtR(monthly)}</div></div>
+  </div>
+
+  <!-- Cost of Credit -->
+  <div class="section-title">C. TOTAL COST OF CREDIT BREAKDOWN</div>
+  <table class="costs-table">
+    <thead>
+      <tr>
+        <th>Cost Component</th>
+        <th>Rate / Basis</th>
+        <th>Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Interest Charges</td>
+        <td><span class="pct">${interestRateMonthly}% p/m × ${term} month${term>1?'s':''}</span></td>
+        <td>${fmtR(interest)}</td>
+      </tr>
+      <tr>
+        <td>Initiation Fee ${app.is_first_loan ? '<span style="color:#E7762E;font-size:7.5pt;">(First Loan Rate)</span>' : ''}</td>
+        <td><span class="pct">${initiationRate}% of principal (once-off)</span></td>
+        <td>${fmtR(initiation)}</td>
+      </tr>
+      <tr>
+        <td>Service Fee (Admin)</td>
+        <td><span class="pct">R60.00/month × ${term} — first month prorated</span></td>
+        <td>${fmtR(serviceFee)}</td>
+      </tr>
+      <tr class="highlight">
+        <td>Credit Protection Insurance (CPI)</td>
+        <td><span class="pct">${cpiRate}% p/m of principal × ${term} month${term>1?'s':''}</span></td>
+        <td>${fmtR(cpiTotal)}</td>
+      </tr>
+      <tr>
+        <td>VAT (15% on fees)</td>
+        <td><span class="pct">15% on initiation + service fees</span></td>
+        <td>${fmtR(vatAmt)}</td>
+      </tr>
+      <tr class="total">
+        <td colspan="2">TOTAL COST OF CREDIT (D)</td>
+        <td>${fmtR(tcc)}</td>
+      </tr>
+      <tr class="total" style="background:#1a1a1a">
+        <td colspan="2">TOTAL REPAYABLE (Principal + TCC)</td>
+        <td>${fmtR(totalRepay)}</td>
+      </tr>
+    </tbody>
+  </table>
+  <p style="font-size:7.5pt;color:#888;margin-top:3pt;">Credit Cost Multiple (TCC ÷ Principal): ${tcc > 0 && principal > 0 ? (tcc/principal).toFixed(2) : '—'}</p>
+
+  <!-- CPI Detail Box -->
+  <div class="cpi-box">
+    <h4>🛡 Credit Protection Insurance (CPI) — Full Breakdown</h4>
+    <table>
+      <tr><td><strong>Coverage:</strong></td><td>Death, Permanent Disability, Temporary Disability, Retrenchment</td></tr>
+      <tr><td><strong>Monthly Premium:</strong></td><td>${fmtR(cpiMonthly)} (${cpiRate}% of R${principal.toLocaleString('en-ZA')})</td></tr>
+      <tr><td><strong>Total Premium (${term} months):</strong></td><td><strong>${fmtR(cpiTotal)}</strong></td></tr>
+      <tr><td><strong>Premium Rate:</strong></td><td>${cpiRate}% per month of the outstanding principal balance</td></tr>
+      <tr><td><strong>Beneficiary:</strong></td><td>${company} (outstanding balance settled on valid claim)</td></tr>
+      <tr><td><strong>Consent:</strong></td><td>By signing this agreement the borrower consents to CPI being added as a monthly premium.</td></tr>
+    </table>
+  </div>
+
+  <!-- Next of Kin -->
+  ${profile.nok_name ? `
+  <div class="section-title">D. NEXT OF KIN</div>
+  <div class="grid2">
+    <div class="cell"><div class="label">Full Name</div><div class="val">${profile.nok_name}</div></div>
+    <div class="cell"><div class="label">Relationship</div><div class="val">${profile.nok_relationship || '—'}</div></div>
+    <div class="cell"><div class="label">Contact Number</div><div class="val">${profile.nok_phone || '—'}</div></div>
+    <div class="cell"><div class="label"></div><div class="val"></div></div>
+  </div>` : ''}
+
+  <!-- NCA Declarations -->
+  <div class="section-title">${profile.nok_name ? 'E' : 'D'}. DECLARATIONS & CONSENT</div>
+  <div class="decl">
+    <p>I, <strong>${profile.full_name || '[Borrower Name]'}</strong> (ID: ${profile.identity_number || '[ID Number]'}), confirm that:</p>
+    <br>
+    <p>1. I have read and understood this Pre-Agreement Statement and Quotation in terms of Section 92 of the NCA.</p>
+    <p>2. The information provided is true and correct.</p>
+    <p>3. I consent to ${company} conducting credit bureau enquiries on my credit profile.</p>
+    <p>4. I consent to the Credit Protection Insurance (CPI) premium of <strong>${fmtR(cpiMonthly)}/month</strong> being added to my repayments.</p>
+    <p>5. I understand that this quotation is valid for 5 business days and does not constitute a final offer.</p>
+    <p>6. I have the right to reject CPI, but understand that the loan may not be approved without it.</p>
+    <p>7. I consent to debit orders being raised against my nominated bank account for monthly repayments of <strong>${fmtR(monthly)}</strong>.</p>
+  </div>
+
+  <!-- Signatures -->
+  <div class="sign-row">
+    <div class="sign-block">
+      <div class="sign-line">Borrower Signature: ${profile.full_name || '___________________'}</div>
+      <div style="font-size:7.5pt;margin-top:2pt;">Date: ___________________</div>
+    </div>
+    <div class="sign-block">
+      <div class="sign-line">Credit Provider: ${company}</div>
+      <div style="font-size:7.5pt;margin-top:2pt;">Date: ${today}</div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    ${company} — NCR Registration: ${ncrNumber} ${companyReg ? '| Reg: '+companyReg : ''}<br>
+    This document is a Pre-Agreement Quotation in terms of the National Credit Act 34 of 2005 | Ref: ${agreementNo}
+  </div>
+
+</div>
+</body>
+</html>`;
+
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(html);
+
+    } catch (err) {
+        console.error('[contract-preview]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/applications/:id/route-to-head-office
+// Flags online applications for head office review
+app.post('/api/applications/:id/route-to-head-office', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const headOfficeBranchId = process.env.HEAD_OFFICE_BRANCH_ID || null;
+        const updatePayload = { routed_to_head_office: true };
+        if (headOfficeBranchId) updatePayload.branch_id = headOfficeBranchId;
+
+        await supabaseService
+            .from('loan_applications')
+            .update(updatePayload)
+            .eq('id', id);
+
+        // Audit it
+        await writeAudit({
+            entityType: 'loan_application',
+            entityId:   id,
+            action:     'routed_to_head_office',
+            description: 'Online application routed to head office for review',
+            req
+        });
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ================================================================
+// AUDIT TRAIL — log important actions to audit_log table
+// ================================================================
+async function writeAudit({ entityType, entityId, action, oldValue = null, newValue = null, description, req = null }) {
+    try {
+        let performedBy = null, performedByName = null;
+        if (req) {
+            const authHeader = req.headers.authorization || '';
+            const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+            if (token) {
+                const { data: { user } } = await supabaseService.auth.getUser(token);
+                if (user) {
+                    performedBy = user.id;
+                    const { data: profile } = await supabaseService
+                        .from('profiles').select('full_name').eq('id', user.id).maybeSingle();
+                    performedByName = profile?.full_name || user.email;
+                }
+            }
+        }
+        await supabaseService.from('audit_log').insert([{
+            entity_type:       entityType,
+            entity_id:         String(entityId),
+            action,
+            old_value:         oldValue  ? JSON.parse(JSON.stringify(oldValue))  : null,
+            new_value:         newValue  ? JSON.parse(JSON.stringify(newValue))  : null,
+            description,
+            performed_by:      performedBy,
+            performed_by_name: performedByName,
+            ip_address:        req?.ip || null
+        }]);
+    } catch (err) {
+        console.warn('[audit]', err.message); // non-blocking
+    }
+}
+
+// GET /api/audit-log/:entityType/:entityId — fetch audit history for any entity
+app.get('/api/audit-log/:entityType/:entityId', async (req, res) => {
+    try {
+        const { entityType, entityId } = req.params;
+        const { data, error } = await supabaseService
+            .from('audit_log')
+            .select('*')
+            .eq('entity_type', entityType)
+            .eq('entity_id', entityId)
+            .order('created_at', { ascending: false })
+            .limit(100);
+        if (error) throw error;
+        res.json({ data });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/audit-log — full audit log with optional filters
+app.get('/api/audit-log', async (req, res) => {
+    try {
+        const { entity_type, action, limit = 50, offset = 0 } = req.query;
+        let query = supabaseService
+            .from('audit_log')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .range(Number(offset), Number(offset) + Number(limit) - 1);
+        if (entity_type) query = query.eq('entity_type', entity_type);
+        if (action)      query = query.eq('action', action);
+        const { data, error } = await query;
+        if (error) throw error;
+        res.json({ data });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ================================================================
+// MESSAGING API — SMS + WhatsApp endpoints
+// ================================================================
+
+// POST /api/messaging/otp — send OTP to a phone number
+app.post('/api/messaging/otp', async (req, res) => {
+    try {
+        const { phone } = req.body;
+        if (!phone) return res.status(400).json({ error: 'phone is required' });
+        const settings  = await getSystemTheme();
+        const company   = settings?.company_name || process.env.COMPANY_NAME || 'Zwane Financial';
+        await messaging.sendOTPMessage({ to: phone, company });
+        res.json({ success: true, message: 'OTP sent' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/messaging/verify-otp
+app.post('/api/messaging/verify-otp', (req, res) => {
+    const { phone, otp } = req.body;
+    if (!phone || !otp) return res.status(400).json({ error: 'phone and otp required' });
+    const result = messaging.verifyOTP(phone, otp);
+    res.json(result);
+});
+
+// POST /api/messaging/send — manual send (admin tool)
+app.post('/api/messaging/send', async (req, res) => {
+    try {
+        const { to, message, channel = 'both' } = req.body;
+        if (!to || !message) return res.status(400).json({ error: 'to and message required' });
+        let result;
+        if (channel === 'sms')       result = await messaging.sendSMS(to, message);
+        else if (channel === 'whatsapp') result = await messaging.sendWhatsApp(to, message);
+        else result = await messaging.sendBoth(to, message);
+        res.json({ success: true, result });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/messaging/registration-link — send WhatsApp onboarding link
+app.post('/api/messaging/registration-link', async (req, res) => {
+    try {
+        const { phone } = req.body;
+        if (!phone) return res.status(400).json({ error: 'phone required' });
+        const settings = await getSystemTheme();
+        const company  = settings?.company_name || process.env.COMPANY_NAME || 'Zwane Financial';
+        const link     = `${process.env.APP_URL || 'https://your-portal.vercel.app'}/auth/register.html?ref=${messaging.normaliseZANumber(phone)}`;
+        await messaging.sendRegistrationLink({ to: phone, link, company });
+        res.json({ success: true, link });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/messaging/status — check which channels are enabled
+app.get('/api/messaging/status', (req, res) => {
+    res.json({
+        sms:       { enabled: process.env.SMS_ENABLED === 'true',       configured: !!(process.env.BULKSMS_USERNAME && process.env.BULKSMS_PASSWORD) },
+        whatsapp:  { enabled: process.env.WHATSAPP_ENABLED === 'true',  configured: !!(process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID) }
+    });
+});
+
+// GET /api/messaging/webhook — WhatsApp webhook verification (Meta requirement)
+app.get('/api/messaging/webhook', (req, res) => {
+    const mode      = req.query['hub.mode'];
+    const token     = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+    if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+        console.log('✅ WhatsApp webhook verified');
+        return res.status(200).send(challenge);
+    }
+    res.sendStatus(403);
+});
+
+// POST /api/messaging/webhook — incoming WhatsApp messages
+app.post('/api/messaging/webhook', (req, res) => {
+    // Acknowledge receipt immediately (Meta requires 200 within 20s)
+    res.sendStatus(200);
+    const body = req.body;
+    if (body?.object === 'whatsapp_business_account') {
+        const messages = body.entry?.[0]?.changes?.[0]?.value?.messages || [];
+        messages.forEach(msg => {
+            const from = msg.from;
+            const text = msg.text?.body || '';
+            console.log(`[WhatsApp inbound] From: ${from} | ${text}`);
+            // Future: handle keyword routing (REGISTER, STATUS, BALANCE, etc.)
+        });
     }
 });
 

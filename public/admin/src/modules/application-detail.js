@@ -37,7 +37,7 @@ const ALL_STATUS_OPTIONS = [
     { value: 'AFFORD_REFER', label: 'Affordability Refer' },
     { value: 'OFFERED', label: 'Step 4: Contract Sent' },
     { value: 'OFFER_ACCEPTED', label: 'Contract Signed' },
-    { value: 'READY_TO_DISBURSE', label: 'Step 6: Queue Disburse' },
+    { value: 'READY_TO_DISBURSE', label: 'Step 6: Approved — Queue Disburse' },
     { value: 'DECLINED', label: 'Declined' }
 ];
 
@@ -45,22 +45,22 @@ const ALL_STATUS_OPTIONS = [
 const pageTemplate = `
 <div id="application-detail-content" class="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
   <div id="loading-state" class="text-center p-20">
-    <i class="fa-solid fa-circle-notch fa-spin text-4xl text-orange-600"></i>
-    <p class="mt-4 text-gray-600 font-medium animate-pulse">Loading Complete Application Data...</p>
+    <span class="material-symbols-outlined text-4xl animate-spin" style="color:var(--color-primary)">progress_activity</span>
+    <p class="mt-4 text-outline font-medium animate-pulse">Loading Complete Application Data...</p>
   </div>
 
   <div id="page-header" class="mb-8 hidden animate-fade-in">
-    <nav class="flex items-center gap-2 text-sm text-gray-500 mb-4">
-       <a href="/admin/applications" class="hover:text-orange-600 transition-colors">Applications</a>
-       <i class="fa-solid fa-chevron-right text-xs text-gray-400"></i>
-       <span id="breadcrumb-name" class="font-medium text-gray-900">Applicant</span>
+    <nav class="flex items-center gap-2 text-sm text-outline mb-4">
+       <a href="/admin/applications" class="hover:text-on-surface transition-colors">Applications</a>
+       <span class="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
+       <span id="breadcrumb-name" class="font-medium text-on-surface">Applicant</span>
     </nav>
     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
        <div>
-         <h1 id="applicant-name-header" class="text-3xl font-extrabold text-gray-900 tracking-tight">Loading...</h1>
+         <h1 id="applicant-name-header" class="text-3xl font-headline font-bold text-on-surface tracking-tight">Loading...</h1>
          <div class="flex items-center gap-3 mt-2">
-            <p class="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded-md font-mono">ID: <span id="header-id-val">...</span></p>
-            <span id="header-date" class="text-sm text-gray-500"></span>
+            <p class="text-sm text-outline bg-surface-container px-2 py-1 rounded-xl font-mono">ID: <span id="header-id-val">...</span></p>
+            <span id="header-date" class="text-sm text-outline"></span>
          </div>
        </div>
        <span id="header-status-badge" class="px-5 py-2 text-sm font-bold rounded-full bg-gray-200 text-gray-700 shadow-sm uppercase tracking-wide">Status</span>
@@ -71,161 +71,241 @@ const pageTemplate = `
     
     <div class="lg:col-span-8 flex flex-col gap-6">
       
-       <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-         <div class="flex overflow-x-auto scrollbar-hide border-b border-gray-100">
-            <button class="tab-btn active flex-1 py-4 px-4 text-sm font-bold text-center border-b-2 border-orange-600 text-orange-600 bg-orange-50/50 transition-all whitespace-nowrap" data-tab="personal">Personal</button>
-            <button class="tab-btn flex-1 py-4 px-4 text-sm font-medium text-center border-b-2 border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50 transition-all whitespace-nowrap" data-tab="financial">Financial & Credit</button>
-            <button class="tab-btn flex-1 py-4 px-4 text-sm font-medium text-center border-b-2 border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50 transition-all whitespace-nowrap" data-tab="documents">Documents</button>
-            <button class="tab-btn flex-1 py-4 px-4 text-sm font-medium text-center border-b-2 border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50 transition-all whitespace-nowrap" data-tab="loan">Loan & History</button>
+       <div class="glass-card rounded-2xl overflow-hidden">
+         <div class="flex overflow-x-auto scrollbar-hide border-b border-outline-variant/10">
+            <button class="tab-btn active flex-1 py-4 px-4 text-sm font-bold text-center border-b-2 transition-all whitespace-nowrap" style="border-color:var(--color-primary);color:var(--color-primary)" data-tab="personal">Personal</button>
+            <button class="tab-btn flex-1 py-4 px-4 text-sm font-medium text-center border-b-2 border-transparent text-outline hover:text-on-surface hover:bg-surface-container-low transition-all whitespace-nowrap" data-tab="financial">Financial & Credit</button>
+            <button class="tab-btn flex-1 py-4 px-4 text-sm font-medium text-center border-b-2 border-transparent text-outline hover:text-on-surface hover:bg-surface-container-low transition-all whitespace-nowrap" data-tab="documents">Documents</button>
+            <button class="tab-btn flex-1 py-4 px-4 text-sm font-medium text-center border-b-2 border-transparent text-outline hover:text-on-surface hover:bg-surface-container-low transition-all whitespace-nowrap" data-tab="loan">Loan & History</button>
+            <button class="tab-btn flex-1 py-4 px-4 text-sm font-medium text-center border-b-2 border-transparent text-outline hover:text-on-surface hover:bg-surface-container-low transition-all whitespace-nowrap" data-tab="audit">Audit Trail</button>
          </div>
        </div>
 
        <div id="tab-contents" class="relative min-h-[400px]">
        
-          <div id="personal-tab" class="tab-pane bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-             <h3 class="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
-                <i class="fa-solid fa-user-circle text-gray-400"></i> Personal Information
+          <div id="personal-tab" class="tab-pane glass-card rounded-2xl p-8">
+             <h3 class="text-lg font-headline font-bold text-on-surface mb-6 flex items-center gap-2">
+                <span class="material-symbols-outlined text-outline">account_circle</span> Personal Information
              </h3>
              
-             <div class="flex flex-col md:flex-row gap-8 mb-8 pb-8 border-b border-gray-100">
+             <div class="flex flex-col md:flex-row gap-8 mb-8 pb-8 border-b border-outline-variant/10">
                 <div class="shrink-0 mx-auto md:mx-0">
-                   <div class="w-32 h-32 bg-gray-100 rounded-2xl overflow-hidden border-4 border-white shadow-lg">
+                   <div class="w-32 h-32 bg-surface-container rounded-2xl overflow-hidden border-4 border-white shadow-lg">
                       <img id="profile-image" src="" alt="Profile" class="w-full h-full object-cover" onerror="this.src='https://ui-avatars.com/api/?name=User&background=random'">
                    </div>
                 </div>
                 <div class="flex-grow grid grid-cols-1 gap-y-5">
                    <div class="grid grid-cols-1 sm:grid-cols-3 items-center gap-2">
-                      <span class="text-sm font-medium text-gray-500">Full Name</span>
+                      <span class="text-sm font-medium text-outline">Full Name</span>
                       <div class="sm:col-span-2">
-                         <div id="detail-fullname" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm font-semibold"></div>
+                         <div id="detail-fullname" class="w-full p-3 bg-surface-container border border-outline-variant/20 rounded-xl text-on-surface text-sm font-semibold"></div>
                       </div>
                    </div>
                    <div class="grid grid-cols-1 sm:grid-cols-3 items-center gap-2">
-                      <span class="text-sm font-medium text-gray-500">Email Address</span>
+                      <span class="text-sm font-medium text-outline">Email Address</span>
                       <div class="sm:col-span-2">
-                         <div id="detail-email" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm"></div>
+                         <div id="detail-email" class="w-full p-3 bg-surface-container border border-outline-variant/20 rounded-xl text-on-surface text-sm"></div>
                       </div>
                    </div>
                    <div class="grid grid-cols-1 sm:grid-cols-3 items-center gap-2">
-                      <span class="text-sm font-medium text-gray-500">Mobile Number</span>
+                      <span class="text-sm font-medium text-outline">Mobile Number</span>
                       <div class="sm:col-span-2">
-                         <div id="detail-mobile" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 text-sm"></div>
+                         <div id="detail-mobile" class="w-full p-3 bg-surface-container border border-outline-variant/20 rounded-xl text-on-surface text-sm"></div>
+                      </div>
+                   </div>
+                   <div class="grid grid-cols-1 sm:grid-cols-3 items-center gap-2">
+                      <span class="text-sm font-medium text-outline">ID Number</span>
+                      <div class="sm:col-span-2">
+                         <div id="detail-identity-number" class="w-full p-3 bg-surface-container border border-outline-variant/20 rounded-xl text-on-surface text-sm font-mono"></div>
+                      </div>
+                   </div>
+                   <div class="grid grid-cols-1 sm:grid-cols-3 items-center gap-2">
+                      <span class="text-sm font-medium text-outline flex items-center gap-1">
+                        <span class="material-symbols-outlined text-[14px] text-orange-500">people</span>
+                        Next of Kin
+                      </span>
+                      <div class="sm:col-span-2">
+                         <div id="detail-nok" class="w-full p-3 bg-orange-50 border border-orange-100 rounded-xl text-on-surface text-sm font-medium"></div>
                       </div>
                    </div>
                 </div>
              </div>
-             <h4 class="text-md font-bold text-gray-900 mb-4">Linked Bank Accounts</h4>
+             <!-- Employer Verification -->
+             <div class="mt-6 p-5 rounded-2xl border border-outline-variant/10 bg-surface-container-lowest">
+               <div class="flex items-center justify-between mb-4">
+                 <h4 class="text-md font-headline font-bold text-on-surface">Employer Verification</h4>
+                 <span id="employer-verified-badge" class="px-2 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-500">Unverified</span>
+               </div>
+               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                 <div>
+                   <label class="text-[10px] font-semibold text-outline uppercase tracking-wide">Employer Name</label>
+                   <input id="employer-name-input" type="text" placeholder="Company name..."
+                     class="w-full mt-1 border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:outline-none bg-white"
+                     style="--tw-ring-color:var(--color-primary)">
+                 </div>
+                 <div>
+                   <label class="text-[10px] font-semibold text-outline uppercase tracking-wide">Employer Phone</label>
+                   <input id="employer-phone-input" type="tel" placeholder="010 000 0000"
+                     class="w-full mt-1 border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:outline-none bg-white"
+                     style="--tw-ring-color:var(--color-primary)">
+                 </div>
+                 <div class="sm:col-span-2">
+                   <label class="text-[10px] font-semibold text-outline uppercase tracking-wide">Employer Address</label>
+                   <input id="employer-address-input" type="text" placeholder="Work address..."
+                     class="w-full mt-1 border border-outline-variant/30 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:outline-none bg-white"
+                     style="--tw-ring-color:var(--color-primary)">
+                 </div>
+               </div>
+               <div class="flex gap-3">
+                 <button id="btn-save-employer" onclick="window.saveEmployerDetails()"
+                   class="flex-1 py-2 rounded-xl text-white text-sm font-bold transition-colors"
+                   style="background:var(--color-primary)">Save Details</button>
+                 <button id="btn-verify-employer" onclick="window.toggleEmployerVerified()"
+                   class="flex-1 py-2 rounded-xl border border-green-300 text-green-700 bg-green-50 hover:bg-green-100 text-sm font-bold transition-colors">
+                   Mark Verified
+                 </button>
+               </div>
+               <p id="employer-verified-note" class="text-[10px] text-outline mt-2 italic hidden"></p>
+             </div>
+
+             <!-- Client Credit Cap -->
+             <div class="mt-4 p-5 rounded-2xl border border-orange-100 bg-orange-50/30">
+               <div class="flex items-center gap-3 mb-3">
+                 <span class="material-symbols-outlined text-[18px]" style="color:var(--color-primary)">lock</span>
+                 <h4 class="text-md font-headline font-bold text-on-surface">Individual Credit Cap</h4>
+               </div>
+               <p class="text-xs text-outline mb-3">Override the credit band rules for this specific client. Leave blank to use standard band limits.</p>
+               <div class="flex gap-3 items-end">
+                 <div class="flex-1">
+                   <label class="text-[10px] font-semibold text-outline uppercase tracking-wide">Max Loan Override (R)</label>
+                   <input id="credit-cap-input" type="number" min="0" step="100" placeholder="e.g. 5000"
+                     class="w-full mt-1 border border-orange-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:outline-none bg-white"
+                     style="--tw-ring-color:var(--color-primary)">
+                 </div>
+                 <div class="flex-1">
+                   <label class="text-[10px] font-semibold text-outline uppercase tracking-wide">Reason / Note</label>
+                   <input id="credit-cap-note" type="text" placeholder="Reason for cap..."
+                     class="w-full mt-1 border border-orange-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:outline-none bg-white">
+                 </div>
+                 <button onclick="window.saveClientCap()"
+                   class="px-4 py-2 rounded-xl text-white text-sm font-bold flex-shrink-0 mb-0.5"
+                   style="background:var(--color-primary)">Apply Cap</button>
+               </div>
+               <div id="credit-cap-current" class="mt-2 text-xs text-outline"></div>
+             </div>
+
+             <h4 class="text-md font-headline font-bold text-on-surface mb-4 mt-6">Linked Bank Accounts</h4>
              <div id="bank-accounts-container" class="space-y-3">
                 </div>
           </div>
 
-          <div id="financial-tab" class="tab-pane hidden bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-             <h3 class="text-lg font-bold text-gray-900 mb-6">Financial Snapshot</h3>
+          <div id="financial-tab" class="tab-pane hidden glass-card rounded-2xl p-8">
+             <h3 class="text-lg font-headline font-bold text-on-surface mb-6">Financial Snapshot</h3>
              <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                 <div class="p-5 bg-gradient-to-br from-green-50 to-white rounded-2xl border border-green-100 shadow-sm">
                    <div class="flex items-center gap-3 mb-2">
-                      <div class="w-8 h-8 rounded-lg bg-green-100 text-green-600 flex items-center justify-center"><i class="fa-solid fa-arrow-trend-up"></i></div>
+                      <div class="w-8 h-8 rounded-lg bg-green-100 text-green-600 flex items-center justify-center"><span class="material-symbols-outlined text-[18px]">trending_up</span></div>
                       <span class="text-xs font-bold text-green-700 uppercase tracking-wider">Monthly Income</span>
                    </div>
-                   <div id="fin-income" class="text-2xl font-bold text-gray-900">R 0.00</div>
+                   <div id="fin-income" class="text-2xl font-bold text-on-surface">R 0.00</div>
                 </div>
                 <div class="p-5 bg-gradient-to-br from-red-50 to-white rounded-2xl border border-red-100 shadow-sm">
                    <div class="flex items-center gap-3 mb-2">
-                      <div class="w-8 h-8 rounded-lg bg-red-100 text-red-600 flex items-center justify-center"><i class="fa-solid fa-arrow-trend-down"></i></div>
+                      <div class="w-8 h-8 rounded-lg bg-red-100 text-red-600 flex items-center justify-center"><span class="material-symbols-outlined text-[18px]">trending_down</span></div>
                       <span class="text-xs font-bold text-red-700 uppercase tracking-wider">Monthly Expenses</span>
                    </div>
-                   <div id="fin-expenses" class="text-2xl font-bold text-gray-900">R 0.00</div>
+                   <div id="fin-expenses" class="text-2xl font-bold text-on-surface">R 0.00</div>
                 </div>
              </div>
-             <div class="pt-8 border-t border-gray-100">
+             <div class="pt-8 border-t border-outline-variant/10">
                 <div class="flex justify-between items-center mb-6">
-                   <h4 class="text-lg font-bold text-gray-900">Credit Bureau Report</h4>
+                   <h4 class="text-lg font-headline font-bold text-on-surface">Credit Bureau Report</h4>
                    <div class="flex items-center gap-3">
-                      <span id="credit-date" class="text-sm text-gray-500 font-medium"></span>
-                      <button id="btn-download-xml" class="hidden text-sm bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors shadow-sm font-medium flex items-center gap-2">
-                         <i class="fa-solid fa-file-code"></i> Download XML
+                      <span id="credit-date" class="text-sm text-outline font-medium"></span>
+                      <button id="btn-download-xml" class="hidden text-sm bg-blue-600 text-white px-4 py-2 rounded-xl hover:bg-blue-700 transition-colors shadow-sm font-medium flex items-center gap-2">
+                         <span class="material-symbols-outlined text-[16px]">code</span> Download XML
                       </button>
                    </div>
                 </div>
-                <div id="credit-check-content" class="bg-gray-50/50 rounded-2xl border border-gray-200 overflow-hidden">
+                <div id="credit-check-content" class="bg-surface-container-lowest rounded-2xl border border-outline-variant/10 overflow-hidden">
                    </div>
              </div>
           </div>
 
-          <div id="documents-tab" class="tab-pane hidden bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+          <div id="documents-tab" class="tab-pane hidden glass-card rounded-2xl p-8">
              <div class="flex justify-between items-center mb-6">
-                <h3 class="text-lg font-bold text-gray-900">All User Documents</h3>
-                <span id="doc-count" class="bg-gray-100 text-gray-600 text-xs font-bold px-2.5 py-1 rounded-md">0</span>
+                <h3 class="text-lg font-headline font-bold text-on-surface">All User Documents</h3>
+                <span id="doc-count" class="bg-surface-container text-outline text-xs font-semibold px-3 py-1 rounded-full">0</span>
              </div>
              <div id="documents-list" class="grid grid-cols-1 gap-4">
                 </div>
           </div>
 
-          <div id="loan-tab" class="tab-pane hidden bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
-             <h3 class="text-lg font-bold text-gray-900 mb-6">Current Application Data</h3>
+          <div id="loan-tab" class="tab-pane hidden glass-card rounded-2xl p-8">
+             <h3 class="text-lg font-headline font-bold text-on-surface mb-6">Current Application Data</h3>
              <div class="space-y-6 mb-10">
-                <div class="grid grid-cols-1 sm:grid-cols-3 items-center border-b border-gray-50 pb-4">
-                   <span class="text-sm font-medium text-gray-500">Application ID</span>
-                   <div class="sm:col-span-2 font-mono text-sm text-gray-900 bg-gray-50 p-2 rounded-md inline-block border border-gray-200" id="detail-app-id"></div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 items-center border-b border-outline-variant/10 pb-4">
+                   <span class="text-sm font-medium text-outline">Agreement / Reference No.</span>
+                   <div class="sm:col-span-2 font-mono text-sm font-bold text-on-surface bg-orange-50 p-2 rounded-xl inline-block border border-orange-100" id="detail-app-id" style="color:var(--color-primary)"></div>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-3 items-center border-b border-gray-50 pb-4">
-                   <span class="text-sm font-medium text-gray-500">Submitted Date</span>
-                   <div class="sm:col-span-2 text-sm text-gray-900" id="detail-date"></div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 items-center border-b border-outline-variant/10 pb-4">
+                   <span class="text-sm font-medium text-outline">Submitted Date</span>
+                   <div class="sm:col-span-2 text-sm text-on-surface" id="detail-date"></div>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-3 items-center border-b border-gray-50 pb-4">
-                   <span class="text-sm font-medium text-gray-500">Loan Purpose</span>
-                   <div class="sm:col-span-2 text-sm text-gray-900 font-medium" id="detail-purpose"></div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 items-center border-b border-outline-variant/10 pb-4">
+                   <span class="text-sm font-medium text-outline">Loan Purpose</span>
+                   <div class="sm:col-span-2 text-sm text-on-surface font-medium" id="detail-purpose"></div>
                 </div>
                 <div class="pt-2">
                    <label class="text-sm font-medium text-gray-700 block mb-2">Admin Notes</label>
                    
-                   <textarea id="detail-notes" class="w-full bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-sm text-gray-700 h-32 focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all outline-none" placeholder="Add internal notes here..."></textarea>
+                   <textarea id="detail-notes" class="w-full bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-sm text-on-surface h-32 focus:ring-2 focus:border-transparent transition-all outline-none" style="--tw-ring-color:var(--color-primary)" placeholder="Add internal notes here..."></textarea>
                    <div class="mt-2 text-right">
-                       <button id="btn-save-notes" class="px-4 py-2 bg-gray-800 text-white text-xs font-bold rounded-lg hover:bg-black transition-all shadow-sm">
-                           <i class="fa-solid fa-floppy-disk mr-1"></i> Save Notes
+                       <button id="btn-save-notes" class="px-4 py-2 rounded-xl font-semibold text-xs text-white transition-all shadow-sm" style="background:var(--color-primary)">
+                           <span class="material-symbols-outlined text-[14px] align-middle mr-1">save</span> Save Notes
                        </button>
                    </div>
 
                 </div>
              </div>
 
-             <div id="credit-life-contract-panel" class="mb-10 rounded-2xl border border-orange-100 bg-orange-50/40 p-6">
+             <div id="credit-life-contract-panel" class="mb-10 rounded-2xl border border-outline-variant/10 bg-surface-container-lowest p-6">
                 <div class="flex items-start justify-between gap-4 mb-5">
                    <div>
-                      <h3 class="text-lg font-bold text-gray-900">Credit Life Contract</h3>
-                      <p class="text-sm text-gray-500 mt-1">Optional insurance consent, signed snapshot, and supporting signatures.</p>
+                      <h3 class="text-lg font-headline font-bold text-on-surface">Credit Life Contract</h3>
+                      <p class="text-sm text-outline mt-1">Optional insurance consent, signed snapshot, and supporting signatures.</p>
                    </div>
                    <span id="credit-life-status-badge" class="px-3 py-1 text-xs font-bold rounded-full bg-gray-200 text-gray-700">Not selected</span>
                 </div>
                 <div id="credit-life-contract-content" class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                   <div class="rounded-xl border border-gray-200 bg-white p-4">
-                      <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Contract Snapshot</h4>
+                   <div class="rounded-xl border border-outline-variant/20 bg-surface-container-lowest p-4">
+                      <h4 class="text-[10px] font-semibold uppercase tracking-widest text-outline mb-3">Contract Snapshot</h4>
                       <div class="flex items-center justify-end gap-2 mb-3">
-                         <button id="credit-life-view-contract-btn" class="hidden px-3 py-1.5 text-xs font-bold rounded-lg border border-orange-200 text-orange-700 hover:bg-orange-50 transition-all">
-                           <i class="fa-solid fa-expand mr-1"></i> View full contract
+                         <button id="credit-life-view-contract-btn" class="hidden px-3 py-1.5 text-xs font-semibold rounded-xl border border-outline-variant/30 text-on-surface-variant hover:bg-surface-container-low transition-all flex items-center gap-1">
+                           <span class="material-symbols-outlined text-[14px]">open_in_full</span> View full contract
                          </button>
-                         <button id="credit-life-download-contract-btn" class="hidden px-3 py-1.5 text-xs font-bold rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 transition-all">
-                           <i class="fa-solid fa-download mr-1"></i> Download file
+                         <button id="credit-life-download-contract-btn" class="hidden px-3 py-1.5 text-xs font-semibold rounded-xl border border-blue-200 text-blue-700 hover:bg-blue-50 transition-all flex items-center gap-1">
+                           <span class="material-symbols-outlined text-[14px]">download</span> Download file
                          </button>
                       </div>
-                      <div id="credit-life-contract-summary" class="space-y-3 text-sm text-gray-600"></div>
+                      <div id="credit-life-contract-summary" class="space-y-3 text-sm text-outline"></div>
                    </div>
-                   <div class="rounded-xl border border-gray-200 bg-white p-4">
-                      <h4 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Captured Signatures</h4>
+                   <div class="rounded-xl border border-outline-variant/20 bg-surface-container-lowest p-4">
+                      <h4 class="text-[10px] font-semibold uppercase tracking-widest text-outline mb-3">Captured Signatures</h4>
                       <div id="credit-life-signature-gallery" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
                    </div>
                 </div>
              </div>
              
-             <h3 class="text-lg font-bold text-gray-900 mb-4 border-t border-gray-100 pt-8">Client History</h3>
+             <h3 class="text-lg font-headline font-bold text-on-surface mb-4 border-t border-outline-variant/10 pt-8">Client History</h3>
              <div class="mb-6">
-                <h4 class="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wider">Previous Loans</h4>
+                <h4 class="text-[11px] font-semibold text-outline mb-3 uppercase tracking-widest">Previous Loans</h4>
                 <div id="loan-history-list" class="space-y-2">
                    <p class="text-sm text-gray-400 italic">No previous loan history found.</p>
                 </div>
              </div>
              <div>
-                <h4 class="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wider">Other Applications</h4>
+                <h4 class="text-[11px] font-semibold text-outline mb-3 uppercase tracking-widest">Other Applications</h4>
                 <div id="app-history-list" class="space-y-2">
                    <p class="text-sm text-gray-400 italic">No other applications on record.</p>
                 </div>
@@ -233,24 +313,24 @@ const pageTemplate = `
           </div>
        </div>
 
-           <div id="contract-status-card" class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-            <h3 class="font-bold text-gray-900 mb-4 flex items-center gap-2 text-xs uppercase tracking-wider">
-              <i class="fa-solid fa-file-signature text-orange-600"></i> Contract Status
+           <div id="contract-status-card" class="glass-card rounded-2xl p-6">
+            <h3 class="font-headline font-bold text-on-surface mb-4 flex items-center gap-2 text-xs uppercase tracking-widest">
+              <span class="material-symbols-outlined text-[16px]" style="color:var(--color-primary)">draw</span> Contract Status
             </h3>
-            <div id="contract-status-empty" class="text-sm text-gray-500 bg-gray-50 border border-dashed border-gray-200 rounded-xl px-4 py-6 text-center">
+            <div id="contract-status-empty" class="text-sm text-outline bg-surface-container border border-dashed border-outline-variant/30 rounded-xl px-4 py-6 text-center">
               No contracts sent yet.
             </div>
-              <div id="contract-repayment-section" class="mt-4 border-t border-gray-100 pt-4">
-                <h4 class="text-xs font-bold text-gray-400 uppercase mb-3">Repayment Date</h4>
-                <div class="bg-orange-50 border border-orange-100 rounded-xl p-3">
+              <div id="contract-repayment-section" class="mt-4 border-t border-outline-variant/10 pt-4">
+                <h4 class="text-[10px] font-semibold text-outline uppercase tracking-widest mb-3">Repayment Date</h4>
+                <div class="bg-surface-container border border-outline-variant/20 rounded-xl p-3">
                   <div class="mb-2 flex items-center justify-end">
                     <span id="contract-date-status-badge" class="px-2 py-0.5 text-[10px] font-bold rounded-full bg-yellow-100 text-yellow-700">Not set</span>
                   </div>
                   <div id="contract-date-view" class="flex items-center justify-between gap-3">
-                    <span class="text-xs text-orange-800 font-medium">First Repayment:</span>
+                    <span class="text-xs text-outline font-medium">First Repayment:</span>
                     <div class="flex items-center gap-2">
-                      <span id="contract-date-label" class="text-xs font-bold text-orange-900">Not Scheduled</span>
-                      <button id="contract-set-date-btn" onclick="window.toggleContractDateEdit()" class="px-2.5 py-1 text-[11px] font-bold rounded-md bg-orange-600 text-white hover:bg-orange-700 transition-colors">
+                      <span id="contract-date-label" class="text-xs font-bold text-on-surface">Not Scheduled</span>
+                      <button id="contract-set-date-btn" onclick="window.toggleContractDateEdit()" class="px-2.5 py-1 text-[11px] font-semibold rounded-xl text-white transition-colors" style="background:var(--color-primary)">
                         Set date
                       </button>
                     </div>
@@ -258,19 +338,19 @@ const pageTemplate = `
                   <div id="contract-date-edit" class="hidden mt-2">
                     <div class="flex items-center gap-2">
                       <input type="date" id="new-repayment-date"
-                             class="flex-1 text-xs p-1.5 rounded-lg border border-orange-300 bg-white focus:ring-2 focus:ring-orange-500 outline-none">
-                      <button id="btn-save-date" onclick="window.saveRepaymentDate()" class="px-3 py-1.5 bg-orange-600 text-white text-xs font-bold rounded-lg hover:bg-orange-700 shadow-sm">
+                             class="flex-1 text-xs p-1.5 rounded-xl border border-outline-variant/30 bg-white focus:ring-2 outline-none">
+                      <button id="btn-save-date" onclick="window.saveRepaymentDate()" class="px-3 py-1.5 text-white text-xs font-semibold rounded-xl shadow-sm" style="background:var(--color-primary)">
                         Save
                       </button>
-                      <button onclick="window.toggleContractDateEdit()" class="px-2 py-1.5 text-gray-500 hover:text-gray-700">
-                        <i class="fa-solid fa-xmark"></i>
+                      <button onclick="window.toggleContractDateEdit()" class="px-2 py-1.5 text-outline hover:text-on-surface">
+                        <span class="material-symbols-outlined text-[16px]">close</span>
                       </button>
                     </div>
                   </div>
                 </div>
               </div>
-            <div id="contract-status-section" class="hidden mt-4 border-t border-gray-100 pt-4">
-              <h4 class="text-xs font-bold text-gray-400 uppercase mb-3">History</h4>
+            <div id="contract-status-section" class="hidden mt-4 border-t border-outline-variant/10 pt-4">
+              <h4 class="text-[10px] font-semibold text-outline uppercase tracking-widest mb-3">History</h4>
               <div id="contract-status-content" class="space-y-2">
                 </div>
             </div>
@@ -278,31 +358,31 @@ const pageTemplate = `
     </div>
 
     <div class="lg:col-span-4">
-       <div class="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 sticky top-28 overflow-hidden">
-          <div class="p-6 border-b border-gray-100 bg-gray-50/50">
-             <h3 class="font-bold text-gray-900">Loan Status</h3>
-             <div id="status-alert" class="mt-3 p-3 rounded-lg text-xs font-medium leading-relaxed hidden animate-pulse">
+       <div class="glass-card rounded-2xl sticky top-28 overflow-hidden">
+          <div class="p-6 border-b border-outline-variant/10 bg-surface-container-lowest">
+             <h3 class="font-headline font-bold text-on-surface">Loan Status</h3>
+             <div id="status-alert" class="mt-3 p-3 rounded-xl text-xs font-medium leading-relaxed hidden animate-pulse">
                 </div>
           </div>
 
           <div class="p-6 space-y-6">
              <div>
-                <label class="text-xs text-gray-500 uppercase font-bold tracking-wider">Requested Amount</label>
-                <div id="sidebar-amount" class="text-3xl font-extrabold text-gray-900 mt-1 tracking-tight">R 0.00</div>
+                <label class="text-[10px] font-semibold uppercase tracking-widest text-outline">Requested Amount</label>
+                <div id="sidebar-amount" class="text-3xl font-bold text-on-surface mt-1 tracking-tight">R 0.00</div>
              </div>
              <div>
-                <label class="text-xs text-gray-500 uppercase font-bold tracking-wider">Term Length</label>
+                <label class="text-[10px] font-semibold uppercase tracking-widest text-outline">Term Length</label>
                 <div class="mt-2 flex items-center gap-2">
-                   <div class="w-10 h-10 rounded-lg bg-gray-100 text-gray-600 flex items-center justify-center"><i class="fa-regular fa-calendar"></i></div>
-                   <div id="sidebar-term" class="text-lg font-semibold text-gray-800">0 Months</div>
+                   <div class="w-10 h-10 rounded-xl bg-surface-container text-outline flex items-center justify-center"><span class="material-symbols-outlined text-[20px]">calendar_month</span></div>
+                   <div id="sidebar-term" class="text-lg font-semibold text-on-surface">0 Months</div>
                 </div>
              </div>
 
              <div>
                 <label class="text-xs text-gray-500 uppercase font-bold tracking-wider">Est. Monthly Payment</label>
-                <div class="mt-2 p-4 bg-gray-50 rounded-xl border border-gray-200">
-                   <div id="sidebar-payment" class="text-xl font-bold text-gray-800">R 0.00</div>
-                   <div class="text-xs text-gray-400 mt-1">(Principal Only)</div>
+                <div class="mt-2 p-4 bg-surface-container rounded-xl border border-outline-variant/20">
+                   <div id="sidebar-payment" class="text-xl font-bold text-on-surface">R 0.00</div>
+                   <div class="text-xs text-outline mt-1">(Principal Only)</div>
                 </div>
              </div>
 
@@ -310,41 +390,59 @@ const pageTemplate = `
                 </div>
 
              <div>
-                <label class="text-xs text-gray-500 uppercase font-bold tracking-wider">Current Status</label>
-                <div id="sidebar-status" class="mt-2 text-lg font-bold text-orange-600">Pending</div>
+                <label class="text-[10px] font-semibold uppercase tracking-widest text-outline">Current Status</label>
+                <div id="sidebar-status" class="mt-2 text-lg font-bold" style="color:var(--color-primary)">Pending</div>
              </div>
           </div>
-          
-          <div class="p-6 bg-gray-50 border-t border-gray-100 flex flex-col gap-3" id="action-buttons-container">
+
+          <div class="p-6 bg-surface-container-lowest border-t border-outline-variant/10 flex flex-col gap-3" id="action-buttons-container">
               </div>
 
-          <div class="p-6 bg-white border-t border-gray-200">
-              <label class="text-xs font-bold text-gray-400 uppercase mb-2 block">Manual Override (Restricted)</label>
+          <div class="p-6 bg-surface-container-lowest border-t border-outline-variant/10">
+              <label class="text-[10px] font-semibold uppercase tracking-widest text-outline mb-2 block">Manual Override (Restricted)</label>
               <div class="flex gap-2">
-                  <select id="status-override-select" class="flex-1 text-xs border-gray-300 rounded-lg focus:ring-orange-500 focus:border-orange-500">
+                  <select id="status-override-select" class="flex-1 text-xs border-outline-variant/30 rounded-xl">
                       ${ALL_STATUS_OPTIONS.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('')}
                   </select>
-                  <button id="manual-update-btn" onclick="manualStatusChange()" class="px-3 py-2 bg-gray-800 text-white text-xs font-bold rounded-lg hover:bg-black transition">
+                  <button id="manual-update-btn" onclick="manualStatusChange()" class="px-3 py-2 text-white text-xs font-semibold rounded-xl transition" style="background:var(--color-primary)">
                       Update
                   </button>
               </div>
-              <p id="override-hint" class="text-[10px] text-gray-400 mt-1 italic">Use only for corrections. Bureau statuses locked.</p>
+              <p id="override-hint" class="text-[10px] text-outline mt-1 italic">Use only for corrections. Bureau statuses locked.</p>
           </div>
 
        </div>
     </div>
+
+    <!-- Audit Trail Tab -->
+    <div id="audit-tab" class="tab-pane hidden glass-card rounded-2xl p-8 col-span-2">
+      <div class="flex items-center justify-between mb-6">
+        <div>
+          <h3 class="text-lg font-headline font-bold text-on-surface">Audit Trail</h3>
+          <p class="text-sm text-outline mt-0.5">Complete history of all changes to this application</p>
+        </div>
+        <button onclick="window.exportAuditTrail()" class="flex items-center gap-2 text-xs font-bold border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 rounded-xl text-gray-600 transition-colors">
+          <span class="material-symbols-outlined text-[14px]">download</span> Export
+        </button>
+      </div>
+      <div id="audit-trail-list" class="space-y-3">
+        <div class="text-center py-8 text-sm text-gray-400">Loading audit history...</div>
+      </div>
+    </div>
+
   </div>
+
 
   <div id="feedback-container" class="fixed bottom-6 right-6 z-50 hidden"></div>
   <div id="credit-life-contract-modal" class="fixed inset-0 z-[80] hidden items-center justify-center bg-gray-900/70 p-4">
-    <div class="w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-3xl bg-white shadow-2xl">
-      <div class="flex items-center justify-between gap-4 border-b border-gray-100 px-6 py-4">
+    <div class="w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-2xl">
+      <div class="flex items-center justify-between gap-4 border-b border-outline-variant/10 px-6 py-4">
         <div>
-          <p class="text-[10px] font-black uppercase tracking-[0.2em] text-orange-500">Credit Life Contract</p>
-          <h3 class="text-lg font-bold text-gray-900">Signed Contract Snapshot</h3>
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-outline">Credit Life Contract</p>
+          <h3 class="text-lg font-headline font-bold text-on-surface">Signed Contract Snapshot</h3>
         </div>
-        <button id="credit-life-contract-modal-close" class="w-10 h-10 rounded-full text-gray-500 hover:bg-gray-100 transition-all">
-          <i class="fa-solid fa-xmark"></i>
+        <button id="credit-life-contract-modal-close" class="w-10 h-10 rounded-full text-outline hover:bg-surface-container-low transition-all flex items-center justify-center">
+          <span class="material-symbols-outlined text-[20px]">close</span>
         </button>
       </div>
       <div id="credit-life-contract-modal-body" class="max-h-[calc(90vh-80px)] overflow-y-auto px-6 py-5"></div>
@@ -432,27 +530,86 @@ window.viewTruidReport = () => {
     // Extracts the capture data (summary_payload is usually the most readable)
     const displayData = currentApplication.truid_info.summary_payload || currentApplication.truid_info;
     
+    const t  = currentApplication.truid_info;
+    const sp = t.summary_payload || {};
+    const id = sp.id_document || sp.identity || {};
+    const bank = sp.bank_accounts || sp.banking || [];
+    const income = sp.income_summary || sp.income || {};
+    const employer = sp.employment || sp.employer || {};
+
+    const row = (label, val, highlight = false) => val
+        ? `<tr><td style="color:#888;font-size:12px;padding:5px 10px;width:35%">${label}</td><td style="font-weight:${highlight?'700':'500'};font-size:13px;padding:5px 10px;color:${highlight?'#E7762E':'#1a1a1a'}">${val}</td></tr>`
+        : '';
+
     const x = window.open('', '_blank');
-    x.document.write(`
-        <html>
-            <head>
-                <title>TruID Digital Report</title>
-                <style>
-                    body { font-family: 'Courier New', monospace; background: #f4f7f6; padding: 30px; color: #333; line-height: 1.6; }
-                    .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #ddd; }
-                    h2 { color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 10px; }
-                    pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 5px; overflow-x: auto; font-size: 13px; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <h2>TruID Verification Payload</h2>
-                    <p><strong>Collection ID:</strong> ${currentApplication.truid_info.collection_id}</p>
-                    <pre>${JSON.stringify(displayData, null, 2)}</pre>
-                </div>
-            </body>
-        </html>
-    `);
+    x.document.write(`<!DOCTYPE html>
+<html><head><title>TruID Report</title>
+<style>
+  body{font-family:sans-serif;background:#f4f7f6;padding:24px;color:#333}
+  .card{background:#fff;border-radius:14px;padding:20px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,0.07);border:1px solid #e5e7eb}
+  h1{font-size:20px;font-weight:800;margin-bottom:4px;color:#1a1a1a}
+  h3{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#888;margin-bottom:10px}
+  table{width:100%;border-collapse:collapse}
+  .badge{display:inline-block;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase}
+  .green{background:#d1fae5;color:#065f46} .blue{background:#dbeafe;color:#1e3a8a} .orange{background:#fff3cd;color:#92400e}
+  details{margin-top:12px} summary{cursor:pointer;font-size:12px;font-weight:600;color:#3b82f6}
+  pre{background:#1e1e2e;color:#cdd6f4;padding:14px;border-radius:8px;font-size:11px;overflow-x:auto;margin-top:8px}
+</style></head><body>
+<div style="max-width:780px;margin:0 auto">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div><h1>TruID Digital Verification</h1><p style="color:#888;font-size:12px">Collection ID: ${t.collection_id || '—'}</p></div>
+      <span class="badge ${t.verified ? 'green' : 'orange'}">${t.verified ? '✓ Verified' : 'Pending'}</span>
+    </div>
+  </div>
+
+  ${id.full_name || id.surname ? `
+  <div class="card">
+    <h3>Identity Details</h3>
+    <table>
+      ${row('Full Name', id.full_name || [id.forenames, id.surname].filter(Boolean).join(' '), true)}
+      ${row('ID Number', id.id_number || id.identity_number)}
+      ${row('Date of Birth', id.date_of_birth || id.dob)}
+      ${row('Gender', id.gender)}
+      ${row('Nationality', id.nationality || 'South African')}
+      ${row('Verified', id.verified ? '✓ Yes' : 'Pending')}
+    </table>
+  </div>` : ''}
+
+  ${income.gross_income || income.net_income || income.monthly_income ? `
+  <div class="card">
+    <h3>Income Summary (from bank statements)</h3>
+    <table>
+      ${row('Monthly Gross Income', income.gross_income ? 'R ' + Number(income.gross_income).toLocaleString('en-ZA', {minimumFractionDigits:2}) : null, true)}
+      ${row('Monthly Net Income', income.net_income ? 'R ' + Number(income.net_income).toLocaleString('en-ZA', {minimumFractionDigits:2}) : null)}
+      ${row('Average Monthly Income', income.average_monthly ? 'R ' + Number(income.average_monthly).toLocaleString('en-ZA', {minimumFractionDigits:2}) : null)}
+      ${row('Income Source', income.source || income.income_type)}
+      ${row('Employer', income.employer_name || employer.name)}
+    </table>
+  </div>` : ''}
+
+  ${Array.isArray(bank) && bank.length ? `
+  <div class="card">
+    <h3>Bank Accounts (${bank.length})</h3>
+    ${bank.map(b => `
+    <div style="background:#f9fafb;border-radius:8px;padding:10px 14px;margin-bottom:8px;">
+      <table>
+        ${row('Bank', b.bank_name || b.institution)}
+        ${row('Account No', b.account_number)}
+        ${row('Account Type', b.account_type)}
+        ${row('Balance', b.current_balance ? 'R ' + Number(b.current_balance).toLocaleString('en-ZA', {minimumFractionDigits:2}) : null)}
+      </table>
+    </div>`).join('')}
+  </div>` : ''}
+
+  <div class="card">
+    <h3>Raw Payload</h3>
+    <details><summary>Show raw JSON</summary>
+    <pre>${JSON.stringify(displayData, null, 2)}</pre>
+    </details>
+  </div>
+</div>
+</body></html>`);
     x.document.close();
 };
 //Toast Feedback
@@ -465,11 +622,11 @@ const showFeedback = (message, type = 'success') => {
   feedbackContainer.innerHTML = `
     <div class="flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl border ${isSuccess ? 'bg-white border-green-100' : 'bg-white border-red-100'} transform transition-all duration-300">
         <div class="w-8 h-8 rounded-full ${isSuccess ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'} flex items-center justify-center">
-            <i class="fa-solid ${isSuccess ? 'fa-check' : 'fa-exclamation'}"></i>
+            <span class="material-symbols-outlined text-[18px]">${isSuccess ? 'check' : 'error'}</span>
         </div>
         <div>
-            <p class="text-sm font-bold text-gray-900">${isSuccess ? 'Success' : 'Error'}</p>
-            <p class="text-xs text-gray-500">${message}</p>
+            <p class="text-sm font-bold text-on-surface">${isSuccess ? 'Success' : 'Error'}</p>
+            <p class="text-xs text-outline">${message}</p>
         </div>
     </div>
   `;
@@ -490,9 +647,9 @@ const initDocuSealCard = async () => {
     if (emptyState) {
       emptyState.classList.remove('hidden');
       emptyState.innerHTML = `
-        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-left">
+        <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-left">
           <div class="flex items-start gap-3">
-            <i class="fa-solid fa-triangle-exclamation text-yellow-600 text-xl mt-0.5"></i>
+            <span class="material-symbols-outlined text-yellow-600 text-xl mt-0.5">warning</span>
             <div>
               <h4 class="font-semibold text-yellow-900 mb-1">DocuSeal Not Configured</h4>
               <p class="text-sm text-yellow-700">
@@ -523,7 +680,7 @@ const handleSendContract = async (triggerButton = null) => {
   const originalHTML = btn ? btn.innerHTML : '';
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending...';
+    btn.innerHTML = '<span class="material-symbols-outlined text-[16px] animate-spin align-middle">progress_activity</span> Sending...';
   }
   try {
     const submission = await sendContract(currentApplication, currentApplication.profiles);
@@ -545,9 +702,9 @@ const handleSendContract = async (triggerButton = null) => {
 };
 
 const handlePreviewContract = () => {
-  // Open DocuSeal template in new tab
-  const templateUrl = `https://docuseal.co/templates/${import.meta.env.VITE_DOCUSEAL_TEMPLATE_ID || 'your_template_id'}`;
-  window.open(templateUrl, '_blank');
+  if (!currentApplication?.id) return;
+  // Open full NCA pre-agreement quote in new tab (print-ready)
+  window.open(`/api/contracts/${currentApplication.id}/preview`, '_blank');
 };
 
 const shouldPollContractStatus = () => {
@@ -662,31 +819,31 @@ const renderContractSubmissions = (submissions) => {
     const statusColor = getSubmissionStatusColor(sub.status);
     const statusIcon = getSubmissionStatusIcon(sub.status);
     return `
-      <div class="bg-gray-50 border border-gray-200 rounded-xl p-4">
+      <div class="bg-surface-container-lowest border border-outline-variant/20 rounded-xl p-4">
         <div class="flex items-center justify-between mb-3">
           <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-lg ${statusColor.bg} ${statusColor.text} flex items-center justify-center">
-              <i class="${statusIcon}"></i>
+            <div class="w-10 h-10 rounded-xl ${statusColor.bg} ${statusColor.text} flex items-center justify-center">
+              <span class="material-symbols-outlined text-[20px]">${statusIcon}</span>
             </div>
             <div>
-              <div class="font-semibold text-gray-900 text-sm">Contract #${sub.submission_id.slice(-8)}</div>
-              <div class="text-xs text-gray-500">Sent ${formatDate(sub.created_at)}</div>
+              <div class="font-semibold text-on-surface text-sm">Contract #${sub.submission_id.slice(-8)}</div>
+              <div class="text-xs text-outline">Sent ${formatDate(sub.created_at)}</div>
             </div>
           </div>
-          <span class="px-3 py-1 text-xs font-bold rounded-full ${statusColor.badge}">${sub.status}</span>
+          <span class="px-3 py-1 text-xs font-semibold rounded-full ${statusColor.badge}">${sub.status}</span>
         </div>
         <div class="flex gap-2">
-          <button onclick="window.viewSubmission('${sub.slug || ''}', '${sub.submitter_id || ''}', '${sub.embed_src || ''}')" class="flex-1 px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-xs font-semibold">
-            <i class="fa-solid fa-eye mr-1"></i> View
+          <button onclick="window.viewSubmission('${sub.slug || ''}', '${sub.submitter_id || ''}', '${sub.embed_src || ''}')" class="flex-1 px-3 py-2 bg-surface-container border border-outline-variant/30 text-on-surface-variant rounded-xl hover:bg-surface-container-low text-xs font-semibold flex items-center justify-center gap-1">
+            <span class="material-symbols-outlined text-[14px]">visibility</span> View
           </button>
           ${sub.status === 'pending' ? `
-            <button onclick="window.resendSubmission('${sub.submitter_id}', '${sub.submission_id}')" class="flex-1 px-3 py-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-100 text-xs font-semibold">
-              <i class="fa-solid fa-paper-plane mr-1"></i> Resend
+            <button onclick="window.resendSubmission('${sub.submitter_id}', '${sub.submission_id}')" class="flex-1 px-3 py-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl hover:bg-blue-100 text-xs font-semibold flex items-center justify-center gap-1">
+              <span class="material-symbols-outlined text-[14px]">send</span> Resend
             </button>
           ` : ''}
           ${sub.status !== 'completed' && sub.status !== 'voided' ? `
-            <button onclick="window.voidSubmission('${sub.submission_id}')" class="px-3 py-2 bg-red-50 border border-red-200 text-red-700 rounded-lg hover:bg-red-100 text-xs font-semibold">
-              <i class="fa-solid fa-ban mr-1"></i> Void
+            <button onclick="window.voidSubmission('${sub.submission_id}')" class="px-3 py-2 bg-red-50 border border-red-200 text-red-700 rounded-xl hover:bg-red-100 text-xs font-semibold flex items-center gap-1">
+              <span class="material-symbols-outlined text-[14px]">block</span> Void
             </button>
           ` : ''}
         </div>
@@ -718,7 +875,7 @@ const markContractDeclinedState = (isDeclined) => {
       banner.id = bannerId;
       banner.className = 'mt-3 p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-700 font-semibold flex items-center gap-2';
       banner.innerHTML = `
-        <i class="fa-solid fa-circle-xmark text-red-500"></i>
+        <span class="material-symbols-outlined text-red-500 text-[16px]">cancel</span>
         <span>Contract was declined by the applicant.</span>
       `;
       const heading = contractCard.querySelector('h3');
@@ -754,11 +911,11 @@ const getSubmissionStatusColor = (status) => {
 const getSubmissionStatusIcon = (status) => {
   const normalized = (status || '').toLowerCase();
   const icons = {
-    pending: 'fa-solid fa-clock',
-    completed: 'fa-solid fa-check-circle',
-    expired: 'fa-solid fa-exclamation-circle',
-    voided: 'fa-solid fa-ban',
-    declined: 'fa-solid fa-circle-xmark'
+    pending: 'schedule',
+    completed: 'check_circle',
+    expired: 'error',
+    voided: 'block',
+    declined: 'cancel'
   };
   return icons[normalized] || icons.pending;
 };
@@ -838,15 +995,24 @@ const initTabs = () => {
   tabBtns.forEach(btn => {
      btn.addEventListener('click', () => {
         tabBtns.forEach(b => {
-           b.classList.remove('active', 'text-orange-600', 'border-orange-600', 'bg-orange-50/50');
-           b.classList.add('text-gray-500', 'border-transparent');
+           b.classList.remove('active');
+           b.style.borderColor = '';
+           b.style.color = '';
+           b.classList.add('text-outline', 'border-transparent');
         });
-        btn.classList.remove('text-gray-500', 'border-transparent');
-        btn.classList.add('active', 'text-orange-600', 'border-orange-600', 'bg-orange-50/50');
+        btn.classList.remove('text-outline', 'border-transparent');
+        btn.classList.add('active');
+        btn.style.borderColor = 'var(--color-primary)';
+        btn.style.color = 'var(--color-primary)';
         tabPanes.forEach(pane => pane.classList.add('hidden'));
         const targetId = btn.getAttribute('data-tab') + '-tab';
         const targetPane = document.getElementById(targetId);
         if (targetPane) targetPane.classList.remove('hidden');
+        // Reload audit trail when that tab is opened
+        if (btn.getAttribute('data-tab') === 'audit') {
+            const urlParams = new URLSearchParams(window.location.search);
+            loadAuditTrail(urlParams.get('id'));
+        }
      });
   });
 };
@@ -922,7 +1088,7 @@ window.saveNotes = async () => {
     // UX State
     const originalText = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin mr-1"></i> Saving...`;
+    btn.innerHTML = `<span class="material-symbols-outlined text-[14px] align-middle animate-spin mr-1">progress_activity</span> Saving...`;
 
     try {
         const { error } = await updateApplicationNotes(currentApplication.id, noteText);
@@ -931,15 +1097,13 @@ window.saveNotes = async () => {
         showFeedback('Notes saved successfully', 'success');
         
         // Optional: Blink success
-        btn.innerHTML = `<i class="fa-solid fa-check mr-1"></i> Saved!`;
-        btn.classList.remove('bg-gray-800');
-        btn.classList.add('bg-green-600');
+        btn.innerHTML = `<span class="material-symbols-outlined text-[14px] align-middle mr-1">check</span> Saved!`;
+        btn.style.background = '#16a34a';
         
         setTimeout(() => {
             btn.innerHTML = originalText;
             btn.disabled = false;
-            btn.classList.remove('bg-green-600');
-            btn.classList.add('bg-gray-800');
+            btn.style.background = 'var(--color-primary)';
         }, 2000);
 
     } catch (err) {
@@ -960,7 +1124,7 @@ window.saveRepaymentDate = async () => {
 
     // 1. UI Loading State
     btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+    btn.innerHTML = '<span class="material-symbols-outlined text-[14px] animate-spin">progress_activity</span>';
 
     try {
         // 2. Prepare the updated JSON object
@@ -1192,8 +1356,24 @@ const renderPersonalDetails = (profile, bankAccounts) => {
   document.getElementById('profile-image').src = avatarUrl;
   document.getElementById('detail-fullname').textContent = name;
   document.getElementById('detail-email').textContent = profile?.email || 'N/A';
-  document.getElementById('detail-mobile').textContent = profile?.contact_number || 'N/A';
-  
+  document.getElementById('detail-mobile').textContent = profile?.contact_number || profile?.cell_tel_no || 'N/A';
+
+  // Employer + Client Cap
+  populateEmployerFields(profile);
+  populateClientCap(profile);
+
+  // Next of Kin
+  const nokEl = document.getElementById('detail-nok');
+  if (nokEl) {
+    const nok = [profile?.nok_name, profile?.nok_relationship, profile?.nok_phone].filter(Boolean).join(' · ');
+    nokEl.textContent = nok || '— Not provided —';
+    nokEl.style.color = nok ? '' : '#ef4444';
+  }
+
+  // Identity number
+  const idEl = document.getElementById('detail-identity-number');
+  if (idEl) idEl.textContent = profile?.identity_number || 'N/A';
+
   const bankContainer = document.getElementById('bank-accounts-container');
   if (!bankContainer) return;
   bankContainer.innerHTML = '';
@@ -1201,15 +1381,15 @@ const renderPersonalDetails = (profile, bankAccounts) => {
   if (bankAccounts && bankAccounts.length > 0) {
     bankAccounts.forEach(acc => {
       const div = document.createElement('div');
-      div.className = 'p-4 border border-gray-200 rounded-xl bg-white flex justify-between items-center hover:border-orange-300 hover:shadow-sm transition-all';
+      div.className = 'p-4 border border-outline-variant/20 rounded-xl bg-surface-container-lowest flex justify-between items-center hover:border-[var(--color-primary)] hover:shadow-sm transition-all';
       div.innerHTML = `
         <div class="flex items-center gap-4">
-            <div class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500">
-                <i class="fa-solid fa-building-columns"></i>
+            <div class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center text-outline">
+                <span class="material-symbols-outlined text-[20px]">account_balance</span>
             </div>
             <div>
-                <p class="text-sm font-bold text-gray-900">${acc.bank_name || 'Unknown Bank'}</p>
-                <p class="text-xs text-gray-500 font-mono">${acc.account_number || '----'} • ${acc.account_type || 'Savings'}</p>
+                <p class="text-sm font-bold text-on-surface">${acc.bank_name || 'Unknown Bank'}</p>
+                <p class="text-xs text-outline font-mono">${acc.account_number || '----'} • ${acc.account_type || 'Savings'}</p>
             </div>
         </div>
         ${acc.is_primary ? '<span class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-md font-bold border border-green-200">Primary</span>' : ''}
@@ -1241,19 +1421,19 @@ const renderComplianceDetails = async (userId) => {
     // Create the Compliance section
     const complianceDiv = document.createElement('div');
     // FIX: Added 'compliance-section' class for targeting during cleanup
-    complianceDiv.className = "mt-8 pt-8 border-t border-gray-100 compliance-section";
+    complianceDiv.className = "mt-8 pt-8 border-t border-outline-variant/10 compliance-section";
     complianceDiv.innerHTML = `
-        <h4 class="text-md font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <i class="fa-solid fa-file-shield text-gray-400"></i> Compliance & Statutory Data
+        <h4 class="text-md font-headline font-bold text-on-surface mb-4 flex items-center gap-2">
+            <span class="material-symbols-outlined text-outline text-[20px]">shield</span> Compliance & Statutory Data
         </h4>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div class="p-3 bg-gray-50 rounded-xl border border-gray-200">
-                <p class="text-[10px] text-gray-400 uppercase font-bold">Marital Status</p>
-                <p class="text-sm font-semibold text-gray-700 capitalize">${decl.marital_status || 'Not Set'}</p>
+            <div class="p-3 bg-surface-container rounded-xl border border-outline-variant/10">
+                <p class="text-[10px] text-outline uppercase font-semibold tracking-widest">Marital Status</p>
+                <p class="text-sm font-semibold text-on-surface capitalize">${decl.marital_status || 'Not Set'}</p>
             </div>
-            <div class="p-3 bg-gray-50 rounded-xl border border-gray-200">
-                <p class="text-[10px] text-gray-400 uppercase font-bold">Residential Status</p>
-                <p class="text-sm font-semibold text-gray-700 capitalize">${decl.home_ownership || 'Not Set'}</p>
+            <div class="p-3 bg-surface-container rounded-xl border border-outline-variant/10">
+                <p class="text-[10px] text-outline uppercase font-semibold tracking-widest">Residential Status</p>
+                <p class="text-sm font-semibold text-on-surface capitalize">${decl.home_ownership || 'Not Set'}</p>
             </div>
         </div>
 
@@ -1291,39 +1471,39 @@ const renderFinancials = (financials, creditChecks) => {
       const grid = document.querySelector('#financial-tab .grid');
       const div = document.createElement('div');
       div.id = 'affordability-breakdown-list';
-      div.className = "mt-6 p-6 bg-gray-50 rounded-2xl border border-gray-200";
+      div.className = "mt-6 p-6 bg-surface-container rounded-2xl border border-outline-variant/10";
       grid.after(div);
       breakdownContainer = div;
   }
 
   breakdownContainer.innerHTML = `
-    <h4 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-        <i class="fa-solid fa-list-check"></i> Monthly Budget Breakdown
+    <h4 class="text-[10px] font-semibold text-outline uppercase tracking-widest mb-4 flex items-center gap-2">
+        <span class="material-symbols-outlined text-[16px]">checklist</span> Monthly Budget Breakdown
     </h4>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
-        <div class="flex justify-between border-b border-gray-200 pb-1">
-            <span class="text-sm text-gray-500">Basic Salary (Net)</span>
-            <span class="text-sm font-bold text-gray-900">${formatCurrency(parsed.income.salary || 0)}</span>
+        <div class="flex justify-between border-b border-outline-variant/10 pb-1">
+            <span class="text-sm text-outline">Basic Salary (Net)</span>
+            <span class="text-sm font-bold text-on-surface">${formatCurrency(parsed.income.salary || 0)}</span>
         </div>
-        <div class="flex justify-between border-b border-gray-200 pb-1">
-            <span class="text-sm text-gray-500">Housing / Rent</span>
-            <span class="text-sm font-bold text-gray-900">${formatCurrency(parsed.expenses.housing_rent || 0)}</span>
+        <div class="flex justify-between border-b border-outline-variant/10 pb-1">
+            <span class="text-sm text-outline">Housing / Rent</span>
+            <span class="text-sm font-bold text-on-surface">${formatCurrency(parsed.expenses.housing_rent || 0)}</span>
         </div>
-        <div class="flex justify-between border-b border-gray-200 pb-1">
-            <span class="text-sm text-gray-500">Other Earnings</span>
-            <span class="text-sm font-bold text-gray-900">${formatCurrency(parsed.income.other_monthly_earnings || 0)}</span>
+        <div class="flex justify-between border-b border-outline-variant/10 pb-1">
+            <span class="text-sm text-outline">Other Earnings</span>
+            <span class="text-sm font-bold text-on-surface">${formatCurrency(parsed.income.other_monthly_earnings || 0)}</span>
         </div>
-        <div class="flex justify-between border-b border-gray-200 pb-1">
-            <span class="text-sm text-gray-500">School Fees</span>
-            <span class="text-sm font-bold text-gray-900">${formatCurrency(parsed.expenses.school || 0)}</span>
+        <div class="flex justify-between border-b border-outline-variant/10 pb-1">
+            <span class="text-sm text-outline">School Fees</span>
+            <span class="text-sm font-bold text-on-surface">${formatCurrency(parsed.expenses.school || 0)}</span>
         </div>
-        <div class="flex justify-between border-b border-gray-200 pb-1">
-            <span class="text-sm text-gray-500">Disposable Surplus</span>
-            <span class="text-sm font-bold text-brand-accent">${formatCurrency(profile.affordability_ratio || 0)}</span>
+        <div class="flex justify-between border-b border-outline-variant/10 pb-1">
+            <span class="text-sm text-outline">Disposable Surplus</span>
+            <span class="text-sm font-bold" style="color:var(--color-primary)">${formatCurrency(profile.affordability_ratio || 0)}</span>
         </div>
-        <div class="flex justify-between border-b border-gray-200 pb-1">
-            <span class="text-sm text-gray-500">Transport / Fuel</span>
-            <span class="text-sm font-bold text-gray-900">${formatCurrency(parsed.expenses.petrol || 0)}</span>
+        <div class="flex justify-between border-b border-outline-variant/10 pb-1">
+            <span class="text-sm text-outline">Transport / Fuel</span>
+            <span class="text-sm font-bold text-on-surface">${formatCurrency(parsed.expenses.petrol || 0)}</span>
         </div>
     </div>
   `;
@@ -1342,8 +1522,9 @@ const renderFinancials = (financials, creditChecks) => {
 
         if (pdfData) {
             reportBtn.classList.remove('hidden');
-            reportBtn.innerHTML = `<i class="fa-solid fa-file-pdf mr-2"></i> View Bureau Report`;
-            reportBtn.className = "text-sm bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 transition-colors shadow-sm font-medium flex items-center gap-2";
+            reportBtn.innerHTML = `<span class="material-symbols-outlined text-[16px] mr-1">picture_as_pdf</span> View Bureau Report`;
+            reportBtn.className = "text-sm text-white px-4 py-2 rounded-xl transition-colors shadow-sm font-semibold flex items-center gap-1";
+            reportBtn.style.background = 'var(--color-primary)';
             reportBtn.onclick = () => window.viewBureauReport(pdfData); // Calling helper from Part 2
         } else {
             reportBtn.classList.add('hidden');
@@ -1351,38 +1532,59 @@ const renderFinancials = (financials, creditChecks) => {
       }
 
       creditContainer.innerHTML = `
-        <div class="p-6 border-b border-gray-200 text-center bg-white">
+        <div class="p-6 border-b border-outline-variant/10 text-center bg-surface-container-lowest">
             <div class="text-6xl font-extrabold ${scoreColor} mb-2 tracking-tighter">${score}</div>
-            <p class="font-bold text-gray-700 uppercase tracking-wide text-xs">Bureau Score</p>
-            <span class="inline-block mt-2 px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-semibold border border-gray-200">${latest.score_band || 'Standard'}</span>
+            <p class="font-bold text-outline uppercase tracking-widest text-[10px]">Bureau Score</p>
+            <span class="inline-block mt-2 px-3 py-1 rounded-full bg-surface-container text-outline text-xs font-semibold border border-outline-variant/20">${latest.score_band || 'Standard'}</span>
         </div>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 p-6 bg-gray-50">
-            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 text-center">
-                <span class="block text-2xl font-bold text-gray-800">${latest.total_accounts || 0}</span>
-                <span class="text-xs text-gray-400 font-bold uppercase mt-1">Total Acc</span>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 p-6 bg-surface-container">
+            <div class="bg-surface-container-lowest p-4 rounded-xl border border-outline-variant/10 text-center">
+                <span class="block text-2xl font-bold text-on-surface">${latest.total_accounts || 0}</span>
+                <span class="text-[10px] text-outline font-semibold uppercase tracking-widest mt-1">Total Acc</span>
             </div>
-            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 text-center">
+            <div class="bg-surface-container-lowest p-4 rounded-xl border border-outline-variant/10 text-center">
                 <span class="block text-2xl font-bold text-red-600">${latest.accounts_with_arrears || 0}</span>
-                <span class="text-xs text-gray-400 font-bold uppercase mt-1">Arrears</span>
+                <span class="text-[10px] text-outline font-semibold uppercase tracking-widest mt-1">Arrears</span>
             </div>
-            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 text-center">
-                <span class="block text-2xl font-bold text-orange-600">${latest.total_enquiries || 0}</span>
-                <span class="text-xs text-gray-400 font-bold uppercase mt-1">Enquiries</span>
+            <div class="bg-surface-container-lowest p-4 rounded-xl border border-outline-variant/10 text-center">
+                <span class="block text-2xl font-bold" style="color:var(--color-primary)">${latest.total_enquiries || 0}</span>
+                <span class="text-[10px] text-outline font-semibold uppercase tracking-widest mt-1">Enquiries</span>
             </div>
-            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 text-center">
-                <span class="block text-2xl font-bold text-gray-800">${latest.total_judgments || 0}</span>
-                <span class="text-xs text-gray-400 font-bold uppercase mt-1">Judgments</span>
+            <div class="bg-surface-container-lowest p-4 rounded-xl border border-outline-variant/10 text-center">
+                <span class="block text-2xl font-bold text-on-surface">${latest.total_judgments || 0}</span>
+                <span class="text-[10px] text-outline font-semibold uppercase tracking-widest mt-1">Judgments</span>
             </div>
         </div>
-        <div class="p-6 bg-white border-t border-gray-200 space-y-4">
-            <div class="flex justify-between items-center border-b border-gray-100 pb-2">
-                <span class="text-sm text-gray-500">Total Balance</span>
-                <span class="font-bold text-gray-900">${formatCurrency(latest.total_balance || 0)}</span>
+        <div class="p-6 bg-surface-container-lowest border-t border-outline-variant/10 space-y-3">
+            <div class="flex justify-between items-center border-b border-outline-variant/10 pb-2">
+                <span class="text-sm text-outline">Total Balance</span>
+                <span class="font-bold text-on-surface">${formatCurrency(latest.total_balance || 0)}</span>
             </div>
-            <div class="flex justify-between items-center">
-                <span class="text-sm text-gray-500">Judgment Value</span>
+            <div class="flex justify-between items-center border-b border-outline-variant/10 pb-2">
+                <span class="text-sm text-outline">Judgment Value</span>
                 <span class="font-bold text-red-600">${formatCurrency(latest.total_judgment_amount || 0)}</span>
             </div>
+            ${latest.ncr_reference ? `
+            <div class="flex justify-between items-center border-b border-outline-variant/10 pb-2">
+                <span class="text-sm text-outline flex items-center gap-1.5">
+                    <span class="material-symbols-outlined text-[14px] text-green-600">verified</span>
+                    NCR Reporting Reference
+                </span>
+                <span class="font-mono text-xs font-bold text-green-700 bg-green-50 px-2 py-1 rounded-lg">${latest.ncr_reference}</span>
+            </div>
+            <div class="flex justify-between items-center">
+                <span class="text-sm text-outline">Reported to NCR</span>
+                <span class="font-bold ${latest.reported_to_ncr ? 'text-green-600' : 'text-gray-400'}">
+                    ${latest.reported_to_ncr ? '✓ Yes — ' + (latest.reported_at ? formatDate(latest.reported_at) : 'Confirmed') : 'Pending'}
+                </span>
+            </div>` : `
+            <div class="flex justify-between items-center">
+                <span class="text-sm text-outline flex items-center gap-1.5">
+                    <span class="material-symbols-outlined text-[14px] text-yellow-500">warning</span>
+                    NCR Reference
+                </span>
+                <span class="text-xs text-yellow-600 font-semibold">Not yet generated — run credit check</span>
+            </div>`}
         </div>
       `;
   } else {
@@ -2033,19 +2235,54 @@ const renderSidePanel = (app) => {
       else if (status === 'DISBURSED') {
           actionsContainer.innerHTML = `<div class="p-4 bg-gray-50 border border-gray-100 rounded-xl text-center"><p class="text-sm font-bold text-gray-600">Loan Active / Completed</p></div>`;
       }
+      else if (status === 'IN_ARREARS') {
+          actionsContainer.innerHTML = `
+            <div class="p-3 bg-yellow-50 border border-yellow-200 rounded-xl mb-3 text-xs text-yellow-800 font-bold">
+              <i class="fa-solid fa-triangle-exclamation mr-1"></i> Account In Arrears — follow up required
+            </div>
+            <button onclick="window.open('/api/letters-of-demand/${app.id}', '_blank')"
+              class="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white text-sm font-bold rounded-xl flex items-center justify-center gap-2">
+              <i class="fa-solid fa-file-lines"></i> Generate Letter of Demand
+            </button>`;
+      }
+      else if (status === 'IN_DEFAULT') {
+          const balance = parseFloat(app.offer_principal || app.amount || 0);
+          const defaultInterest = (balance * 0.03).toLocaleString('en-ZA', {minimumFractionDigits:2});
+          actionsContainer.innerHTML = `
+            <div class="p-3 bg-red-50 border border-red-200 rounded-xl mb-3 text-xs text-red-800 font-bold">
+              <i class="fa-solid fa-circle-exclamation mr-1"></i> IN DEFAULT — 3% interest applies
+              <div class="font-normal mt-1 text-red-700">Default interest: R ${defaultInterest}</div>
+            </div>
+            <button onclick="window.open('/api/letters-of-demand/${app.id}', '_blank')"
+              class="w-full py-3 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-xl flex items-center justify-center gap-2 mb-2">
+              <i class="fa-solid fa-file-lines"></i> Generate Letter of Demand
+            </button>
+            <button onclick="updateStatus('ACTIVE')"
+              class="w-full py-3 bg-white border border-green-200 text-green-700 text-sm font-bold rounded-xl flex items-center justify-center gap-2">
+              <i class="fa-solid fa-check"></i> Mark Payment Received
+            </button>`;
+      }
   }
 };
 
 const renderHeader = (app) => {
   if (!app) return;
   document.getElementById('applicant-name-header').textContent = app.profiles?.full_name || 'Unknown';
-  document.getElementById('header-id-val').textContent = app.id;
+
+  // Build reference: C{clientNum}-L{loanNum}
+  const profile   = app.profiles || {};
+  const clientNum = profile.client_number ? String(profile.client_number) : '';
+  const loanSeq   = app.loan_number ? `L${String(app.loan_number).padStart(4,'0')}` : '';
+  const reference = clientNum && loanSeq ? `${clientNum}-${loanSeq}` : (loanSeq || app.id.slice(0,8).toUpperCase());
+  const agreementNum = app.agreement_number || reference;
+
+  document.getElementById('header-id-val').textContent = reference;
   document.getElementById('header-date').textContent = formatDate(app.created_at);
-  
+
   // Populate detail tab fields
-  document.getElementById('detail-app-id').textContent = `#${app.id}`;
+  document.getElementById('detail-app-id').textContent = agreementNum;
   document.getElementById('detail-date').textContent = formatDate(app.created_at);
-  document.getElementById('detail-purpose').textContent = app.purpose || 'Personal Loan';
+  document.getElementById('detail-purpose').textContent = app.loan_purpose || app.purpose || 'Personal Loan';
   document.getElementById('detail-notes').value = app.notes || '';
 
   const badge = document.getElementById('header-status-badge');
@@ -2054,6 +2291,184 @@ const renderHeader = (app) => {
       badge.className = `px-4 py-1.5 text-sm font-bold rounded-full shadow-sm ${getBadgeColor(app.status)}`;
   }
 };
+
+// ── Employer Verification ─────────────────────────────────────────
+window.saveEmployerDetails = async function() {
+    if (!currentApplication?.user_id) return;
+    const name    = document.getElementById('employer-name-input')?.value.trim();
+    const phone   = document.getElementById('employer-phone-input')?.value.trim();
+    const address = document.getElementById('employer-address-input')?.value.trim();
+    const btn = document.getElementById('btn-save-employer');
+    btn.textContent = 'Saving…'; btn.disabled = true;
+    try {
+        const { error } = await supabase.from('profiles').update({
+            employer_name: name || null,
+            employer_phone: phone || null,
+            employer_address: address || null
+        }).eq('id', currentApplication.user_id);
+        if (error) throw error;
+        showFeedback('Employer details saved.', 'success');
+    } catch (e) { showFeedback(e.message, 'error'); }
+    finally { btn.textContent = 'Save Details'; btn.disabled = false; }
+};
+
+window.toggleEmployerVerified = async function() {
+    if (!currentApplication?.user_id) return;
+    const badge    = document.getElementById('employer-verified-badge');
+    const note     = document.getElementById('employer-verified-note');
+    const btn      = document.getElementById('btn-verify-employer');
+    const isVerified = badge?.textContent === 'Verified';
+    const newVal   = !isVerified;
+    const { data: { session } } = await supabase.auth.getSession();
+    const { data: admin } = session ? await supabase.from('profiles').select('full_name').eq('id', session.user.id).maybeSingle() : { data: null };
+    const { error } = await supabase.from('profiles').update({
+        employer_verified: newVal,
+        employer_verified_at: newVal ? new Date().toISOString() : null,
+        employer_verified_by: newVal ? (admin?.full_name || session?.user?.email || 'Admin') : null
+    }).eq('id', currentApplication.user_id);
+    if (error) { showFeedback(error.message, 'error'); return; }
+    if (badge) { badge.textContent = newVal ? 'Verified' : 'Unverified'; badge.className = `px-2 py-1 rounded-full text-xs font-bold ${newVal ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`; }
+    if (btn)  btn.textContent = newVal ? 'Revoke Verification' : 'Mark Verified';
+    if (note) { note.textContent = newVal ? `Verified by ${admin?.full_name || 'Admin'} on ${new Date().toLocaleDateString('en-ZA')}` : ''; note.classList.toggle('hidden', !newVal); }
+    showFeedback(newVal ? 'Employer verified.' : 'Verification revoked.', 'success');
+};
+
+function populateEmployerFields(profile) {
+    const nameEl    = document.getElementById('employer-name-input');
+    const phoneEl   = document.getElementById('employer-phone-input');
+    const addrEl    = document.getElementById('employer-address-input');
+    const badge     = document.getElementById('employer-verified-badge');
+    const note      = document.getElementById('employer-verified-note');
+    const btn       = document.getElementById('btn-verify-employer');
+    if (nameEl)  nameEl.value  = profile?.employer_name    || '';
+    if (phoneEl) phoneEl.value = profile?.employer_phone   || '';
+    if (addrEl)  addrEl.value  = profile?.employer_address || '';
+    const verified = profile?.employer_verified === true;
+    if (badge) { badge.textContent = verified ? 'Verified' : 'Unverified'; badge.className = `px-2 py-1 rounded-full text-xs font-bold ${verified ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`; }
+    if (btn)  btn.textContent = verified ? 'Revoke Verification' : 'Mark Verified';
+    if (note && verified && profile.employer_verified_at) { note.textContent = `Verified by ${profile.employer_verified_by || 'Admin'} on ${new Date(profile.employer_verified_at).toLocaleDateString('en-ZA')}`; note.classList.remove('hidden'); }
+}
+
+// ── Client Credit Cap ─────────────────────────────────────────────
+window.saveClientCap = async function() {
+    if (!currentApplication?.user_id) return;
+    const capVal  = document.getElementById('credit-cap-input')?.value;
+    const noteVal = document.getElementById('credit-cap-note')?.value.trim();
+    const cap     = capVal ? parseFloat(capVal) : null;
+    const { error } = await supabase.from('profiles').update({
+        credit_limit_override: cap,
+        credit_limit_note:     noteVal || null
+    }).eq('id', currentApplication.user_id);
+    if (error) { showFeedback(error.message, 'error'); return; }
+    const capDisplay = document.getElementById('credit-cap-current');
+    if (capDisplay) capDisplay.textContent = cap ? `Current cap: R${cap.toLocaleString('en-ZA')} — ${noteVal || ''}` : 'No cap set — using standard band rules.';
+    showFeedback(cap ? `Credit cap set to R${cap.toLocaleString('en-ZA')}.` : 'Credit cap removed.', 'success');
+    // Audit it
+    await supabase.from('audit_log').insert([{
+        entity_type: 'profile', entity_id: currentApplication.user_id,
+        action: 'credit_cap_set', new_value: { cap, note: noteVal },
+        description: cap ? `Credit cap set to R${cap.toLocaleString('en-ZA')}` : 'Credit cap removed'
+    }]).catch(() => {});
+};
+
+function populateClientCap(profile) {
+    const capInput  = document.getElementById('credit-cap-input');
+    const noteInput = document.getElementById('credit-cap-note');
+    const display   = document.getElementById('credit-cap-current');
+    if (capInput && profile?.credit_limit_override) capInput.value = profile.credit_limit_override;
+    if (noteInput && profile?.credit_limit_note) noteInput.value = profile.credit_limit_note;
+    if (display) display.textContent = profile?.credit_limit_override
+        ? `Current cap: R${Number(profile.credit_limit_override).toLocaleString('en-ZA')}${profile.credit_limit_note ? ' — ' + profile.credit_limit_note : ''}`
+        : 'No cap set — using standard band rules.';
+}
+// ─────────────────────────────────────────────────────────────────
+
+// ── Audit trail ──────────────────────────────────────────────────
+let auditEntries = [];
+
+async function loadAuditTrail(applicationId) {
+    try {
+        const res  = await fetch(`/api/audit-log/loan_application/${applicationId}`);
+        const json = await res.json();
+        auditEntries = json.data || [];
+        renderAuditTrail();
+    } catch (e) {
+        console.warn('[audit-trail]', e.message);
+    }
+}
+
+function renderAuditTrail() {
+    const container = document.getElementById('audit-trail-list');
+    if (!container) return;
+    if (!auditEntries.length) {
+        container.innerHTML = `<div class="text-center py-8 text-sm text-gray-400">No audit entries yet. Changes will appear here.</div>`;
+        return;
+    }
+
+    const ACTION_ICONS = {
+        status_change: { icon: 'swap_horiz',    color: '#3b82f6' },
+        field_update:  { icon: 'edit',           color: '#f59e0b' },
+        created:       { icon: 'add_circle',     color: '#10b981' },
+        viewed:        { icon: 'visibility',     color: '#8b5cf6' },
+        default:       { icon: 'history',        color: '#6b7280' }
+    };
+
+    container.innerHTML = auditEntries.map(e => {
+        const ai = ACTION_ICONS[e.action] || ACTION_ICONS.default;
+        const dt = new Date(e.created_at);
+        const dateStr = dt.toLocaleDateString('en-ZA', { day:'numeric', month:'short', year:'numeric' });
+        const timeStr = dt.toLocaleTimeString('en-ZA', { hour:'2-digit', minute:'2-digit' });
+
+        let detail = '';
+        if (e.action === 'status_change' && e.old_value?.status && e.new_value?.status) {
+            detail = `<span class="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded">${e.old_value.status}</span>
+                      <span class="text-gray-400 mx-1">→</span>
+                      <span class="font-mono text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">${e.new_value.status}</span>`;
+        } else if (e.description) {
+            detail = `<span class="text-xs text-gray-500">${e.description}</span>`;
+        }
+
+        return `
+        <div class="flex items-start gap-3 p-4 bg-white rounded-xl border border-gray-100 hover:border-gray-200 transition-colors">
+          <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+               style="background:${ai.color}18">
+            <span class="material-symbols-outlined text-[16px]" style="color:${ai.color}">${ai.icon}</span>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-sm font-semibold text-gray-800">${e.performed_by_name || 'System'}</span>
+              <span class="text-xs text-gray-400">${e.action.replace(/_/g,' ')}</span>
+              ${detail}
+            </div>
+            <div class="text-xs text-gray-400 mt-1">${dateStr} at ${timeStr}</div>
+          </div>
+        </div>`;
+    }).join('');
+}
+
+window.exportAuditTrail = function() {
+    if (!auditEntries.length) { alert('No audit entries to export.'); return; }
+    const headers = ['Date','Time','Action','Description','Old Value','New Value','Performed By'];
+    const rows = auditEntries.map(e => {
+        const dt = new Date(e.created_at);
+        return [
+            dt.toLocaleDateString('en-ZA'),
+            dt.toLocaleTimeString('en-ZA'),
+            e.action,
+            `"${(e.description||'').replace(/"/g,'""')}"`,
+            e.old_value ? JSON.stringify(e.old_value) : '',
+            e.new_value ? JSON.stringify(e.new_value) : '',
+            e.performed_by_name || 'System'
+        ].join(',');
+    });
+    const csv  = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `audit_trail_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+};
+// ─────────────────────────────────────────────────────────────────
 
 const loadApplicationData = async () => {
   const urlParams = new URLSearchParams(window.location.search);
@@ -2083,6 +2498,7 @@ const loadApplicationData = async () => {
       
       await renderLoanHistory(data.loan_history, data.application_history, data);
       renderCreditLifeContractPanel(data);
+      loadAuditTrail(appId); // non-blocking
       
       // Part 1: Side Panel with Tiered Rates (Step 5)
       renderSidePanel(data); 

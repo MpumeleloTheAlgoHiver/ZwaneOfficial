@@ -146,7 +146,7 @@ function renderAppShell(profile, role, theme = null) {
       </div>
     </aside>
 
-    <div id="sidebar-overlay" class="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm md:hidden hidden"></div>
+    <div id="sidebar-overlay" class="fixed inset-0 z-40 bg-black/20 overlay-transition overlay-hidden md:hidden"></div>
 
     <!-- Main -->
     <div class="flex flex-col flex-1 md:pl-[280px] min-h-screen bg-surface relative">
@@ -239,7 +239,7 @@ function renderSidebarNav(role) {
             </span>
             <span class="material-symbols-outlined text-[16px] transition-transform duration-200" id="analytics-chevron">expand_more</span>
           </button>
-          <ul id="analytics-submenu" class="hidden ml-10 mt-0.5 space-y-0.5 border-l-2 border-outline-variant/30 pl-3">
+          <ul id="analytics-submenu" class="nav-submenu ml-10 mt-0.5 space-y-0.5 border-l-2 border-outline-variant/30 pl-3">
             <li><a href="/admin/analytics.html" class="nav-sublink block py-2 px-3 text-sm text-outline hover:text-on-surface rounded-lg transition-colors">Customer Analytics</a></li>
             <li><a href="/admin/financials.html" class="nav-sublink block py-2 px-3 text-sm text-outline hover:text-on-surface rounded-lg transition-colors">Financials</a></li>
           </ul>
@@ -259,7 +259,7 @@ function renderSidebarNav(role) {
             </span>
             <span class="material-symbols-outlined text-[16px] transition-transform duration-200" id="payments-chevron">expand_more</span>
           </button>
-          <ul id="payments-submenu" class="hidden ml-10 mt-0.5 space-y-0.5 border-l-2 border-outline-variant/30 pl-3">
+          <ul id="payments-submenu" class="nav-submenu ml-10 mt-0.5 space-y-0.5 border-l-2 border-outline-variant/30 pl-3">
             <li><a href="/admin/incoming-payments" class="nav-sublink block py-2 px-3 text-sm text-outline hover:text-on-surface rounded-lg transition-colors">Incoming</a></li>
             <li><a href="/admin/outgoing-payments" class="nav-sublink block py-2 px-3 text-sm text-outline hover:text-on-surface rounded-lg transition-colors">Outgoing</a></li>
           </ul>
@@ -269,6 +269,12 @@ function renderSidebarNav(role) {
       ${isAdmin ? `
         ${navSection('Compliance')}
         ${navLink('/admin/sacrra', 'verified_user', 'SACRRA')}
+      ` : ''}
+
+      ${isAdmin ? `
+        ${navSection('Configuration')}
+        ${navLink('/admin/credit-rules', 'rule', 'Credit Rules')}
+        ${navLink('/admin/cash-ledger', 'account_balance_wallet', 'Cash Ledger')}
       ` : ''}
 
       ${isSuperAdmin ? `
@@ -302,11 +308,17 @@ function attachEventListeners() {
   if (sidebarToggle && sidebar) {
     sidebarToggle.addEventListener('click', () => {
       sidebar.classList.toggle('-translate-x-full');
-      sidebarOverlay?.classList.toggle('hidden');
+      if (sidebarOverlay) {
+        sidebarOverlay.classList.toggle('overlay-hidden');
+        sidebarOverlay.classList.toggle('overlay-visible');
+      }
     });
     sidebarOverlay?.addEventListener('click', () => {
       sidebar.classList.add('-translate-x-full');
-      sidebarOverlay.classList.add('hidden');
+      if (sidebarOverlay) {
+        sidebarOverlay.classList.add('overlay-hidden');
+        sidebarOverlay.classList.remove('overlay-visible');
+      }
     });
   }
 
@@ -316,7 +328,7 @@ function attachEventListeners() {
     const chevron = document.getElementById(chevronId);
     if (toggle && menu) {
         toggle.addEventListener('click', () => {
-            menu.classList.toggle('hidden');
+            menu.classList.toggle('expanded');
             if (chevron) chevron.classList.toggle('rotate-180');
         });
     }
@@ -358,7 +370,7 @@ function highlightActiveLink() {
       // expand parent submenu
       const submenu = link.closest('ul[id$="-submenu"]');
       if (submenu) {
-        submenu.classList.remove('hidden');
+        submenu.classList.add('expanded');
         const chevron = document.getElementById(submenu.id.replace('-submenu', '-chevron'));
         if (chevron) chevron.classList.add('rotate-180');
       }

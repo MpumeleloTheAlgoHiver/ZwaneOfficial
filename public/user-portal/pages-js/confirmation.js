@@ -509,7 +509,7 @@ async function handleBankFormSubmit() {
           .update({
             amount: Number(pendingLoanConfig.amount),
             term_months: Number(pendingLoanConfig.period),
-            purpose: 'Personal Loan',
+            purpose: sessionStorage.getItem('pendingLoanPurpose') || 'Personal Loan',
             status: 'STARTED',
             bank_account_id: bankAccountId,
             repayment_start_date: firstPaymentDateIso,
@@ -548,7 +548,7 @@ async function handleBankFormSubmit() {
         user_id: session.user.id,
         amount: Number(pendingLoanConfig.amount),
         term_months: Number(pendingLoanConfig.period),
-        purpose: 'Personal Loan',
+        purpose: sessionStorage.getItem('pendingLoanPurpose') || 'Personal Loan',
         status: 'STARTED',
         bank_account_id: bankAccountId,
         repayment_start_date: firstPaymentDateIso,
@@ -579,6 +579,18 @@ async function handleBankFormSubmit() {
     sessionStorage.setItem('lastApplicationId', newApplication.id);
     sessionStorage.removeItem(PENDING_LOAN_KEY);
     sessionStorage.removeItem('currentApplicationId'); // Clear so next application creates new record
+    sessionStorage.removeItem('pendingLoanPurpose');   // Clear stored purpose
+
+    // Route online applications to head office via server
+    try {
+        await fetch(`/api/applications/${newApplication.id}/route-to-head-office`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.access_token}`
+            }
+        });
+    } catch (_) { /* non-blocking */ }
 
     // Create notification for application submission (for user)
     const { notifyApplicationSubmitted, notifyAdminsNewApplication } = await import('/Services/notificationService.js');

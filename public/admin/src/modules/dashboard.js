@@ -10,6 +10,22 @@ import {
   fetchFinancialTrends
 } from '../services/dataService.js';
 
+// ---------- Shared Animation Config ----------
+const APEX_ANIM = {
+  enabled: true,
+  easing: 'easeinout',
+  speed: 900,
+  animateGradually: { enabled: true, delay: 120 },
+  dynamicAnimation: { enabled: true, speed: 400 }
+};
+
+// Sprinkle animation into any ApexCharts options object
+function withAnim(chartOptions) {
+  if (!chartOptions.chart) chartOptions.chart = {};
+  chartOptions.chart.animations = { ...APEX_ANIM, ...(chartOptions.chart.animations || {}) };
+  return chartOptions;
+}
+
 // ---------- Helpers ----------
 const loadApexCharts = () =>
   new Promise((resolve, reject) => {
@@ -134,8 +150,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const failed = Number(sureSystemsActivation?.recent?.failed || 0);
     const success = Number(sureSystemsActivation?.recent?.success || 0);
+    const lastAttempt = sureSystemsActivation?.recent?.lastAttemptAt;
+    const daysSinceLastAttempt = lastAttempt
+      ? (Date.now() - new Date(lastAttempt).getTime()) / (1000 * 60 * 60 * 24)
+      : 999;
 
-    if (failed > 0 && success === 0) {
+    // Only flag as error if there are recent failures (within last 7 days) with no successes
+    if (failed > 0 && success === 0 && daysSinceLastAttempt <= 7) {
       return {
         text: 'SureSystems: Activation Errors',
         color: '#ef4444',
@@ -143,8 +164,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       };
     }
 
+    if (failed > 0 && success === 0 && daysSinceLastAttempt > 7) {
+      return {
+        text: 'SureSystems: Connected',
+        color: '#10b981',
+        dot: 'bg-emerald-500'
+      };
+    }
+
     return {
-      text: `SureSystems: ${success} recent successes`,
+      text: success > 0 ? `SureSystems: ${success} mandates activated` : 'SureSystems: Connected',
       color: '#10b981',
       dot: 'bg-emerald-500'
     };
@@ -174,6 +203,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             <span class="w-2 h-2 rounded-full" style="background:${sureSystemsState.color}"></span>
             <span style="color:${sureSystemsState.color}">${sureSystemsState.text}</span>
           </div>
+          <button id="btn-export-dashboard" class="flex items-center gap-2 px-4 py-2 rounded-full border border-outline-variant/30 bg-white hover:bg-gray-50 text-xs font-semibold text-gray-700 transition-colors">
+            <span class="material-symbols-outlined text-[14px]">download</span> Export Dashboard
+          </button>
         </div>
       </section>
 
@@ -299,9 +331,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const riskData = analytics.risk_matrix?.length ? analytics.risk_matrix : [];
   initRiskScatter(riskData);
-
   initFunnelChart(pipeline);
   initPerformanceRadial(detailedFin, analytics.vintage);
+
+  // Capture snapshot for dashboard export
+  captureDashboardSnapshot(dashData, detailedFin, pipelineData, perfData);
 
   setupDynamicChart('tabs-velocity', ['1M', '3M', '6M', '1Y', 'YTD'], '1Y', (range) => {
     const filtered = filterDataByDate(perf, 'month_year', range);
@@ -328,6 +362,51 @@ function filterDataByDate(data, dateKey, range) {
   if (range === '1Y') startDate.setFullYear(now.getFullYear() - 1);
   if (range === 'YTD') startDate = new Date(now.getFullYear(), 0, 1);
   return data.filter((item) => new Date(item[dateKey]) >= startDate);
+}
+
+// Dashboard data snapshot for export
+let _dashboardSnapshot = null;
+
+function captureDashboardSnapshot(dash, fin, pipeline, perf) {
+    _dashboardSnapshot = { dash, fin, pipeline, perf, capturedAt: new Date().toISOString() };
+    // Wire export button once data is ready
+    setTimeout(() => {
+        document.getElementById('btn-export-dashboard')?.addEventListener('click', exportDashboardCSV);
+    }, 500);
+}
+
+function exportDashboardCSV() {
+    if (!_dashboardSnapshot) { alert('Dashboard data not loaded yet.'); return; }
+    const { dash, fin, pipeline, capturedAt } = _dashboardSnapshot;
+    const date = new Date(capturedAt).toLocaleDateString('en-ZA');
+
+    const sections = [
+        ['DASHBOARD EXPORT', date, '', ''],
+        ['', '', '', ''],
+        ['KPI SUMMARY', '', '', ''],
+        ['Metric', 'Value', '', ''],
+        ['Total Disbursed', fin?.data?.balanceSheet?.totalLoanBook || 0, '', ''],
+        ['Active Clients', fin?.data?.balanceSheet?.activeClients || 0, '', ''],
+        ['Avg Loan Per Client', fin?.data?.balanceSheet?.avgLoanPerClient?.toFixed(2) || 0, '', ''],
+        ['Arrears Rate', (fin?.data?.balanceSheet?.arrearsPercentage || 0).toFixed(1) + '%', '', ''],
+        ['Interest Income', fin?.data?.incomeStatement?.interestIncome || 0, '', ''],
+        ['Fee Income', fin?.data?.incomeStatement?.feeIncome || 0, '', ''],
+        ['Total Revenue', fin?.data?.incomeStatement?.totalRevenue || 0, '', ''],
+        ['', '', '', ''],
+        ['PIPELINE SUMMARY', '', '', ''],
+        ['Status', 'Count', '', ''],
+    ];
+
+    const statusCounts = {};
+    (pipeline?.data || []).forEach(a => { statusCounts[a.status] = (statusCounts[a.status]||0)+1; });
+    Object.entries(statusCounts).forEach(([s,c]) => sections.push([s, c, '', '']));
+
+    const csv  = sections.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `dashboard_export_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 
 function setupDynamicChart(containerId, options, defaultOption, onRender) {
@@ -373,7 +452,7 @@ function initFunnelChart(apps) {
     grid: { borderColor: '#f1f5f9', strokeDashArray: 4 },
     legend: { show: false }
   };
-  new ApexCharts(document.querySelector('#funnelChart'), options).render();
+  new ApexCharts(document.querySelector('#funnelChart'), withAnim(options)).render();
 }
 
 function initPerformanceRadial(fin, vintage) {
@@ -406,7 +485,7 @@ function initPerformanceRadial(fin, vintage) {
     labels: ['Profit Margin', 'Portfolio Health', 'Recovery Rate'],
     colors: [primaryColor, '#10b981', secondaryColor]
   };
-  new ApexCharts(document.querySelector('#radialChart'), options).render();
+  new ApexCharts(document.querySelector('#radialChart'), withAnim(options)).render();
 }
 
 let velocityChartInstance = null;
@@ -430,7 +509,7 @@ function renderVelocityChart(perf) {
     legend: { position: 'top', horizontalAlign: 'right', fontSize: '12px', fontWeight: '600' }
   };
   if (velocityChartInstance) velocityChartInstance.destroy();
-  velocityChartInstance = new ApexCharts(document.querySelector('#velocityChart'), options);
+  velocityChartInstance = new ApexCharts(document.querySelector('#velocityChart'), withAnim(options));
   velocityChartInstance.render();
 }
 
@@ -453,7 +532,7 @@ function initRiskScatter(data) {
     yaxis: { title: { text: 'DTI Ratio (%)', style: { fontSize: '12px', fontWeight: '700', color: '#64748b' } }, max: 100, labels: { style: { colors: '#64748b', fontSize: '11px', fontWeight: '600' } } },
     grid: { borderColor: '#f1f5f9', strokeDashArray: 4 }
   };
-  new ApexCharts(document.querySelector('#riskChart'), options).render();
+  new ApexCharts(document.querySelector('#riskChart'), withAnim(options)).render();
 }
 
 let vintageChartInstance = null;
@@ -487,7 +566,7 @@ function renderVintageChart(data) {
     grid: { borderColor: '#f1f5f9', strokeDashArray: 4 }
   };
   if (vintageChartInstance) vintageChartInstance.destroy();
-  vintageChartInstance = new ApexCharts(document.querySelector('#vintageChart'), options);
+  vintageChartInstance = new ApexCharts(document.querySelector('#vintageChart'), withAnim(options));
   vintageChartInstance.render();
 }
 
@@ -506,7 +585,7 @@ function renderTrendCharts(data) {
   const months = sorted.map((d) => d.month);
 
   if (trendChart1) trendChart1.destroy();
-  trendChart1 = new ApexCharts(document.querySelector('#comboChart'), {
+  trendChart1 = new ApexCharts(document.querySelector('#comboChart'), withAnim({
     series: [
       { name: 'Principal', data: sorted.map((d) => d.total_principal || 0) },
       { name: 'Projected Interest', data: sorted.map((d) => d.projected_interest || 0) }
@@ -521,11 +600,11 @@ function renderTrendCharts(data) {
     tooltip: { shared: true, intersect: false },
     legend: { position: 'top', horizontalAlign: 'right', fontSize: '12px', fontWeight: '600' },
     dataLabels: { enabled: false }
-  });
+  }));
   trendChart1.render();
 
   if (trendChart3) trendChart3.destroy();
-  trendChart3 = new ApexCharts(document.querySelector('#growthChart'), {
+  trendChart3 = new ApexCharts(document.querySelector('#growthChart'), withAnim({
     series: [{ name: 'Total Exposure', data: sorted.map((d) => (d.total_principal || 0) + (d.projected_interest || 0)) }],
     chart: {
       height: 300,
@@ -545,7 +624,7 @@ function renderTrendCharts(data) {
     grid: { borderColor: '#f1f5f9', strokeDashArray: 4 },
     dataLabels: { enabled: false },
     tooltip: { y: { formatter: (val) => formatCurrency(val) } }
-  });
+  }));
   trendChart3.render();
 }
 
@@ -604,7 +683,7 @@ function initStatusDonut(statusData) {
     dataLabels: { enabled: false },
     stroke: { show: false }
   };
-  new ApexCharts(document.querySelector('#donutChart'), options).render();
+  new ApexCharts(document.querySelector('#donutChart'), withAnim(options)).render();
 }
 
 // ---------- Fallback stats ----------

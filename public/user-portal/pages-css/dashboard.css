@@ -260,3 +260,27 @@ body, #main-content .page-container {
     .modal-close-btn { background: var(--color-white); border: none; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: var(--text-main); font-size: 18px; box-shadow: var(--shadow-soft);}
     .modal-body-content { flex: 1; overflow-y: auto; padding: 0 24px 40px; display: flex; flex-direction: column; gap: 16px;}
 }
+/* ── Greeting Line ─────────────────────────────────────────── */
+.greeting-line {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--color-primary, #E7762E);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    margin: 0 0 6px 0;
+    opacity: 0;
+    transform: translateY(-6px);
+    animation: greetingFadeIn 0.5s ease 0.1s forwards;
+}
+
+@keyframes greetingFadeIn {
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Mobile: slightly larger greeting */
+@media (max-width: 768px) {
+    .greeting-line {
+        font-size: 12px;
+        margin: 0 0 4px 0;
+    }
+}

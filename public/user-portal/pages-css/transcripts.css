@@ -156,6 +156,117 @@ body,
 }
 
 /* ==========================================
+   SVG GAUGE — Score Card
+   ========================================== */
+
+/* Container: relative so the overlay can be absolutely centred */
+.msc-gauge-container {
+    position: relative;
+    width: 260px;
+    height: 260px;
+    flex-shrink: 0;
+}
+
+/* The SVG fills the container */
+.score-gauge {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+/* All gauge circles: no fill, just strokes */
+.gauge-track,
+.gauge-fill,
+.gauge-glow {
+    fill: none;
+    stroke-linecap: round;
+    /* Only 270° of the full circumference (2π×80 = 502.65):
+       270/360 × 502.65 ≈ 377 */
+    stroke-dasharray: 377 502.65;
+    stroke-dashoffset: 0;
+}
+
+/* Background track — light grey arc */
+.gauge-track {
+    stroke: #E5E7EB;
+    stroke-width: 10;
+    opacity: 0.9;
+}
+
+/* Animated fill arc — colour set by JS */
+.gauge-fill {
+    stroke: var(--color-primary, #E7762E);
+    stroke-width: 10;
+    stroke-dasharray: 0 502.65;   /* starts empty; JS animates to score amount */
+    transition: stroke-dasharray 1.9s cubic-bezier(0.22, 1, 0.36, 1),
+                stroke            0.3s ease;
+}
+
+/* Pulse effect when gauge finishes drawing */
+.gauge-fill.pulse-complete {
+    animation: gaugePulse 0.8s ease-out forwards;
+}
+
+@keyframes gaugePulse {
+    0%   { stroke-width: 10;  opacity: 1;   }
+    40%  { stroke-width: 13;  opacity: 0.7; }
+    100% { stroke-width: 10;  opacity: 1;   }
+}
+
+/* Glow halo — wider, transparent, blur — starts at 0 so it doesn't flash full arc on load */
+.gauge-glow {
+    stroke: var(--color-primary, #E7762E);
+    stroke-width: 16;
+    stroke-dasharray: 0 502.65;   /* explicitly start empty */
+    opacity: 0.22;
+    transition: stroke-dasharray 1.9s cubic-bezier(0.22, 1, 0.36, 1) 0.08s,
+                stroke            0.3s ease;
+    filter: blur(5px);
+}
+
+/* Centre overlay — absolutely positioned over the SVG */
+.gauge-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    text-align: center;
+    pointer-events: none;
+    /* push slightly up so it sits in the visual middle of the arc, not the SVG box */
+    margin-top: -6px;
+}
+
+.gauge-score-label {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-muted, #8E8E93);
+}
+
+/* Range labels pinned to arc ends */
+.gauge-label-min,
+.gauge-label-max {
+    position: absolute;
+    bottom: 14px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted, #8E8E93);
+}
+.gauge-label-min { left: 10px; }
+.gauge-label-max { right: 10px; }
+
+/* Responsive: shrink gauge on small screens */
+@media (max-width: 480px) {
+    .msc-gauge-container { width: 220px; height: 220px; }
+    .msc-score { font-size: 56px !important; }
+}
+
+/* ==========================================
    Circular Quick Actions Row
    ========================================== */
 .quick-actions-row { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
