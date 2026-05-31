@@ -1,5 +1,6 @@
 import { supabase } from '../services/supabaseClient.js';
 import { ensureThemeLoaded, getCompanyName } from '../shared/theme.js';
+import * as openpgp from 'openpgp';
 
 const sacrraState = {
     view: 'overview',
@@ -105,6 +106,19 @@ export async function init(container) {
                             </button>
                         </div>
                     </div>
+                    <!-- Backdating: reporting period override -->
+                    <div>
+                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3">
+                            Reporting Period
+                            <span class="ml-1 font-normal text-slate-400 normal-case tracking-normal">(leave blank for current month)</span>
+                        </label>
+                        <input type="month" id="sacrra-backdate-month"
+                            class="w-full border border-slate-200 rounded-2xl px-4 py-3 text-sm font-semibold focus:ring-2 focus:outline-none bg-white"
+                            style="--tw-ring-color:var(--color-primary)"
+                            title="Select a past month to generate a backdated SACRRA submission">
+                        <p class="text-[10px] text-slate-400 mt-1.5">Used for backdating submissions to correct prior-period data.</p>
+                    </div>
+
                     <div id="daily-options" class="hidden">
                         <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-4">Record Prefix</label>
                         <div class="flex gap-2 p-2 bg-slate-50 rounded-2xl border border-slate-100">
@@ -157,6 +171,16 @@ function setupGlobalHandlers() {
         modal.classList.add('opacity-0');
         modal.children[0].classList.add('scale-95');
         setTimeout(() => modal.classList.add('hidden'), 300);
+    };
+
+    window.resolveRejection = async (id) => {
+        if (!confirm('Mark this rejection as resolved?')) return;
+        await supabase.from('sacrra_rejections').update({
+            resolved: true,
+            resolved_at: new Date().toISOString()
+        }).eq('id', id);
+        await fetchData();
+        renderView();
     };
 
     window.processBureauFile = async (event) => {
@@ -686,7 +710,7 @@ function renderParser(container) {
                                     <td class="px-6 py-6 font-black text-red-600 text-xs">${r.error_code}</td>
                                     <td class="px-6 py-6 text-slate-500 text-xs font-medium">${r.error_message}</td>
                                     <td class="px-8 py-6 text-right">
-                                        <button class="text-slate-400 hover:text-[#a04100] transition-colors"><span class="material-symbols-outlined">edit_note</span></button>
+                                        <button onclick="window.resolveRejection(${r.id})" class="px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors">Resolve</button>
                                     </td>
                                 </tr>
                             `).join('')}
@@ -742,10 +766,97 @@ function zeroPad(val, len) {
     return String(val || '').slice(0, len).padStart(len, '0');
 }
 
+// ── Derive title from gender ──────────────────────────────────────────
+function deriveTitle(gender) {
+    const g = (gender || '').toUpperCase().trim();
+    if (g === 'F') return 'MS';
+    return 'MR';
+}
+
+// ── Build the fixed-width 700-char file content ───────────────────────
+function buildSacrraFileContent(settings) {
+    // Support backdating: if admin selected a past month, use that period end
+    const backdateInput = document.getElementById('sacrra-backdate-month')?.value; // 'YYYY-MM'
+    let reportingDate;
+    if (backdateInput && backdateInput.length === 7) {
+        const [yr, mo] = backdateInput.split('-').map(Number);
+        reportingDate  = new Date(yr, mo, 0); // last day of selected month
+        console.log(`[SACRRA] Backdated submission for ${backdateInput}`);
+    } else {
+        reportingDate = new Date(); // current date, last day calculated below
+    }
+
+    const now      = reportingDate;
+    const lastDay  = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const monthEnd = lastDay.toISOString().slice(0, 10).replace(/-/g, '');
+    const dateStr  = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const srn      = (sacrraState.members[0]?.f02_supplier_ref || 'ZFS001').trim().slice(0, 6).padEnd(6, ' ');
+
+    // Header: H + SRN(6) + monthEnd(8) + 'L702' + spaces to 700
+    let content = ('H' + srn + monthEnd + 'L702').padEnd(700, ' ') + '\r\n';
+
+    sacrraState.members.forEach(m => {
+        const recordType = settings.type === 'DAILY' ? settings.prefix : (m.f01_record_type || 'R');
+        const statusCode = (m.f50_status_code || 'L').trim().slice(0, 1);
+        const accountNo  = (m.f40_account_number || m.internal_id || '').replace(/\s/g, '');
+        // Account type: P = personal loan (all terms), never 'M' which is non-standard
+        const accountType = (m.f03_account_type || 'P').slice(0, 1) === 'M' ? 'P' : (m.f03_account_type || 'P');
+        const gender     = (m.f11_gender || 'M').slice(0, 1).toUpperCase();
+        const title      = deriveTitle(gender);
+
+        // Financial fields: zero out for closed/positive statuses
+        const isPositive = ['C', 'E', 'P', 'T'].includes(statusCode);
+        const balance    = isPositive ? '000000000000' : zeroPad((m.f44_current_balance || '0').replace(/\D/g, ''), 12);
+        const instalment = isPositive ? '000000000000' : zeroPad((m.f45_installment    || '0').replace(/\D/g, ''), 12);
+        const arrears    = isPositive ? '000000000000' : zeroPad((m.f49_arrears_amount  || '0').replace(/\D/g, ''), 12);
+        const mthsArr    = isPositive ? '00' : zeroPad(m.f53_months_in_arrears, 2);
+
+        let line = '';
+        line += recordType.slice(0, 1);                                      // 1:      Record type
+        line += pad(accountNo, 20);                                          // 2–21:   Account number
+        line += pad(m.f02_supplier_ref, 6);                                  // 22–27:  SRN
+        line += accountType.slice(0, 1);                                     // 28:     Account type (P)
+        line += statusCode;                                                  // 29:     Status code
+        line += pad(m.f51_status_date || dateStr, 8);                        // 30–37:  Status date YYYYMMDD
+        line += pad(m.f43_date_opened || '00000000', 8);                     // 38–45:  Date opened YYYYMMDD
+        line += zeroPad((m.f41_opening_balance || '0').replace(/\D/g, ''), 12); // 46–57: Opening balance (cents)
+        line += balance;                                                     // 58–69:  Current balance
+        line += instalment;                                                  // 70–81:  Instalment
+        line += arrears;                                                     // 82–93:  Arrears
+        line += mthsArr;                                                     // 94–95:  Months in arrears
+        line += pad(m.f46_first_payment_date || '00000000', 8);              // 96–103: First payment date
+        line += pad((m.f10_id_number || '').trim(), 13);                     // 104–116: SA ID (13 digits)
+        line += '  ';                                                        // 117–118: Non-SA ID type (blank)
+        line += pad('', 20);                                                 // 119–138: Non-SA ID number
+        line += gender;                                                      // 139:    Gender (M/F)
+        line += pad(m.f12_date_of_birth || '00000000', 8);                   // 140–147: DOB YYYYMMDD
+        line += pad(title, 5);                                               // 148–152: Title (MR/MS derived)
+        line += pad((m.f06_surname    || '').toUpperCase(), 30);             // 153–182: Surname
+        line += pad((m.f07_first_names || '').toUpperCase(), 30);            // 183–212: First names
+        line += pad((m.f09_middle_names || '').toUpperCase(), 15);           // 213–227: Middle names
+        line += pad(m.f13_address_1, 30);                                    // 228–257: Address 1
+        line += pad(m.f14_address_2, 30);                                    // 258–287: Address 2
+        line += pad(m.f15_city, 30);                                         // 288–317: City/Suburb
+        line += pad(m.f16_province || '', 30);                               // 318–347: Province
+        line += pad(m.f17_postal, 10);                                       // 348–357: Postal code
+        line += pad(m.f31_mobile, 15);                                       // 358–372: Mobile
+        line += pad(m.f32_work, 15);                                         // 373–387: Work phone
+        line += pad(m.f35_employer, 50);                                     // 388–437: Employer
+        line += pad(m.f36_occupation, 30);                                   // 438–467: Occupation
+
+        content += line.padEnd(700, ' ').slice(0, 700) + '\r\n';
+    });
+
+    // Trailer: T + zero-padded record count (10) + spaces to 700
+    content += ('T' + zeroPad(sacrraState.members.length, 10)).padEnd(700, ' ') + '\r\n';
+
+    return content;
+}
+
 window.generateSacrraFile = async () => {
     if (sacrraState.members.length === 0) return alert("No data found.");
 
-    // Pre-flight validation — block file generation if critical errors exist
+    // Pre-flight validation
     const invalidStatus = sacrraState.members.filter(m => !VALID_STATUS_CODES.has((m.f50_status_code || '').trim()));
     const invalidId     = sacrraState.members.filter(m => !m.isValidId);
     if (invalidStatus.length > 0 || invalidId.length > 0) {
@@ -756,92 +867,156 @@ window.generateSacrraFile = async () => {
     }
 
     const settings  = sacrraState.exportSettings;
-    const now       = new Date();
-    // Month-end date = last day of current month
-    const lastDay   = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    const monthEnd  = lastDay.toISOString().slice(0, 10).replace(/-/g, '');
-    const dateStr   = now.toISOString().slice(0, 10).replace(/-/g, '');
-    const fileName  = `SACRRA_${settings.type}_${dateStr}.txt`;
+    const dateStr   = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const plainName = `SACRRA_${settings.type}_${dateStr}.txt`;
+    const pgpName   = `SACRRA_${settings.type}_${dateStr}.pgp`;
 
-    // SRN: 2 letters + 4 digits (6 chars) — from system_settings.provider_branch_code
-    const srn = (sacrraState.members[0]?.f02_supplier_ref || 'AL0001').trim().slice(0, 6).padEnd(6, ' ');
+    // Build fixed-width content
+    const fileContent = buildSacrraFileContent(settings);
 
-    // ── Header Record ─────────────────────────────────────────────────
-    // Pos 1:    Record type = 'H'
-    // Pos 2–7:  SRN (6 chars)
-    // Pos 8–15: Month-end date CCYYMMDD
-    // Pos 16–19: Layout version 'L702'
-    // Pos 20–700: Spaces
-    let fileContent = ('H' + srn + monthEnd + 'L702').padEnd(700, ' ') + '\n';
+    // ── PGP encryption ────────────────────────────────────────────────
+    // Load bureau public key from Supabase system_settings.sacrra_bureau_public_key
+    // Falls back to the test key if not configured (UAT mode)
+    let downloadName = plainName;
+    let downloadContent;
+    let downloadType = 'text/plain';
 
-    // ── Data Records ──────────────────────────────────────────────────
-    sacrraState.members.forEach(m => {
-        const recordType = settings.type === 'DAILY' ? settings.prefix : (m.f01_record_type || 'R');
-        const statusCode = (m.f50_status_code || 'L').trim().slice(0, 1);
-        const accountNo  = (m.f40_account_number || m.internal_id || '').replace(/\s/g, '');
+    try {
+        const { data: settingsRow } = await supabase
+            .from('system_settings')
+            .select('sacrra_bureau_public_key')
+            .limit(1)
+            .single();
 
-        // Positive status codes (C, E, P, T) → financial fields zero out
-        const isPositive = ['C', 'E', 'P', 'T'].includes(statusCode);
-        const balance    = isPositive ? '000000000000' : pad(m.f44_current_balance, 12, '0');
-        const instalment = isPositive ? '000000000000' : pad(m.f45_installment, 12, '0');
-        const arrears    = isPositive ? '000000000000' : pad(m.f49_arrears_amount, 12, '0');
-        const mthsArr    = isPositive ? '00' : zeroPad(m.f53_months_in_arrears, 2);
+        const armoredKey = settingsRow?.sacrra_bureau_public_key?.trim();
 
-        let line = '';
-        line += recordType.slice(0, 1);                                   // 1:   Record type
-        line += pad(accountNo, 20);                                        // 2–21: Account number
-        line += pad(m.f02_supplier_ref, 6);                                // 22–27: SRN
-        line += pad(m.f03_account_type || 'M', 1);                         // 28:   Account type
-        line += statusCode;                                                // 29:   Status code
-        line += pad(m.f51_status_date || dateStr, 8);                      // 30–37: Status date
-        line += pad(m.f43_date_opened || '00000000', 8);                   // 38–45: Date opened
-        line += pad(m.f41_opening_balance || '000000000000', 12);          // 46–57: Opening balance
-        line += balance;                                                   // 58–69: Current balance
-        line += instalment;                                                // 70–81: Instalment
-        line += arrears;                                                   // 82–93: Arrears
-        line += mthsArr;                                                   // 94–95: Months in arrears
-        line += pad(m.f46_first_payment_date || '00000000', 8);            // 96–103: First payment date
-        line += pad(m.f10_id_number, 13);                                  // 104–116: SA ID
-        line += '  ';                                                      // 117–118: Non-SA ID type (blank)
-        line += pad('', 20);                                               // 119–138: Non-SA ID number
-        line += (m.f11_gender || 'M').slice(0, 1);                         // 139:  Gender
-        line += pad(m.f12_date_of_birth || '00000000', 8);                 // 140–147: DOB
-        line += pad(m.f08_title || 'MR', 5);                               // 148–152: Title
-        line += pad((m.f06_surname || '').toUpperCase(), 30);              // 153–182: Surname
-        line += pad((m.f07_first_names || '').toUpperCase(), 30);          // 183–212: First names
-        line += pad((m.f09_middle_names || '').toUpperCase(), 15);         // 213–227: Middle names
-        line += pad(m.f13_address_1, 30);                                  // 228–257: Address 1
-        line += pad(m.f14_address_2, 30);                                  // 258–287: Address 2
-        line += pad(m.f15_city, 30);                                       // 288–317: City
-        line += pad(m.f16_province, 30);                                   // 318–347: Province
-        line += pad(m.f17_postal, 10);                                     // 348–357: Postal code
-        line += pad(m.f31_mobile, 15);                                     // 358–372: Mobile
-        line += pad(m.f32_work, 15);                                       // 373–387: Work phone
-        line += pad(m.f35_employer, 50);                                   // 388–437: Employer
-        line += pad(m.f36_occupation, 30);                                 // 438–467: Occupation
+        if (armoredKey && armoredKey.includes('BEGIN PGP PUBLIC KEY')) {
+            const publicKey   = await openpgp.readKey({ armoredKey });
+            const message     = await openpgp.createMessage({ text: fileContent });
+            const encrypted   = await openpgp.encrypt({ message, encryptionKeys: publicKey });
 
-        fileContent += line.padEnd(700, ' ').slice(0, 700) + '\n';
-    });
+            downloadName    = pgpName;
+            downloadContent = encrypted;
+            downloadType    = 'application/octet-stream';
 
-    // ── Trailer Record ────────────────────────────────────────────────
-    // Pos 1: 'T', Pos 2–11: zero-padded record count, Pos 12–700: spaces
-    fileContent += ('T' + zeroPad(sacrraState.members.length, 10)).padEnd(700, ' ') + '\n';
+            console.log('[SACRRA] File PGP-encrypted successfully.');
+        } else {
+            // No bureau key configured — download plain .txt with a warning
+            console.warn('[SACRRA] No bureau public key found in system_settings — downloading plain .TXT (UAT/debug mode).');
+            downloadContent = fileContent;
+        }
+    } catch (pgpErr) {
+        console.error('[SACRRA] PGP encryption failed:', pgpErr);
+        if (!confirm('PGP encryption failed. Download unencrypted .TXT for debugging?')) return;
+        downloadContent = fileContent;
+    }
 
-    // Log submission
+    // Log submission to sacrra_submissions
     await supabase.from('sacrra_submissions').insert([{
-        file_name:       fileName,
+        file_name:       downloadName,
         submission_type: settings.type,
         record_count:    sacrraState.members.length,
         status:          'PENDING'
     }]);
 
-    const blob = new Blob([fileContent], { type: 'text/plain' });
+    // Trigger download
+    const blob = new Blob([downloadContent], { type: downloadType });
     const url  = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href  = url;
-    link.download = fileName;
+    link.download = downloadName;
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 
     window.hideExportModal();
+
+    // ── Transmit to MOVEit ────────────────────────────────────────────
+    if (confirm(`File downloaded. Transmit "${downloadName}" to Experian MOVEit now?`)) {
+        await transmitToMoveIt(downloadName, downloadContent);
+    }
+
     setTimeout(() => window.refreshSacrraData(), 1000);
 };
+
+async function transmitToMoveIt(fileName, fileContent) {
+    const statusEl = showTransmitStatus('Authenticating with MOVEit...');
+
+    try {
+        // Step 1: Authenticate
+        const authRes = await fetch('/api/moveit/auth', { method: 'POST' });
+        const authData = await authRes.json();
+
+        let accessToken;
+
+        if (authData.requiresMfa) {
+            // MFA required — prompt for OTP
+            updateTransmitStatus(statusEl, 'MFA required — check your email for the OTP code.');
+            const otp = prompt('Enter the OTP code sent to your email:');
+            if (!otp) { updateTransmitStatus(statusEl, 'Transmission cancelled.', 'warn'); return; }
+
+            const mfaRes  = await fetch('/api/moveit/auth/mfa', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({ mfaToken: authData.mfaToken, otpCode: otp }),
+            });
+            const mfaData = await mfaRes.json();
+            if (!mfaData.success) {
+                updateTransmitStatus(statusEl, `MFA failed: ${mfaData.error}`, 'error'); return;
+            }
+            accessToken = mfaData.accessToken;
+        } else if (authData.success) {
+            accessToken = authData.accessToken;
+        } else {
+            updateTransmitStatus(statusEl, `Auth failed: ${authData.error}`, 'error'); return;
+        }
+
+        // Step 2: Upload
+        updateTransmitStatus(statusEl, `Uploading ${fileName} to Experian MOVEit...`);
+        const contentBase64 = typeof fileContent === 'string'
+            ? btoa(unescape(encodeURIComponent(fileContent)))
+            : btoa(String.fromCharCode(...new Uint8Array(await fileContent.arrayBuffer())));
+
+        const uploadRes  = await fetch('/api/moveit/upload', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ accessToken, fileName, fileContent: contentBase64 }),
+        });
+        const uploadData = await uploadRes.json();
+
+        if (uploadData.success) {
+            updateTransmitStatus(statusEl, `✅ Transmitted successfully — File ID: ${uploadData.fileId || 'confirmed'}`, 'success');
+        } else {
+            updateTransmitStatus(statusEl, `Upload failed: ${uploadData.error}`, 'error');
+        }
+
+    } catch (err) {
+        updateTransmitStatus(statusEl, `Transmission error: ${err.message}`, 'error');
+        console.error('[MOVEit]', err);
+    }
+}
+
+function showTransmitStatus(message) {
+    const el = document.createElement('div');
+    el.id = 'moveit-status';
+    el.className = 'fixed bottom-6 right-6 z-[200] bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl text-sm font-bold flex items-center gap-3 transition-all';
+    el.innerHTML = `<span class="material-symbols-outlined animate-spin text-orange-400">sync</span><span id="moveit-status-text">${message}</span>`;
+    document.body.appendChild(el);
+    return el;
+}
+
+function updateTransmitStatus(el, message, type = 'loading') {
+    if (!el) return;
+    const icon = el.querySelector('.material-symbols-outlined');
+    const text = el.querySelector('#moveit-status-text');
+    if (text) text.textContent = message;
+    if (icon) {
+        icon.classList.remove('animate-spin', 'text-orange-400', 'text-emerald-400', 'text-red-400', 'text-yellow-400');
+        if (type === 'success') { icon.textContent = 'check_circle'; icon.classList.add('text-emerald-400'); }
+        else if (type === 'error') { icon.textContent = 'error'; icon.classList.add('text-red-400'); }
+        else if (type === 'warn')  { icon.textContent = 'warning'; icon.classList.add('text-yellow-400'); }
+        else { icon.textContent = 'sync'; icon.classList.add('animate-spin', 'text-orange-400'); }
+    }
+    if (type !== 'loading') setTimeout(() => el.remove(), 5000);
+}

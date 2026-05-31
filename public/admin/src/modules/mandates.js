@@ -124,6 +124,10 @@ function renderPage() {
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fade-in">
       <div class="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-6 mb-8">
         <div>
+          <a href="/admin/dashboard" class="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-400 hover:text-gray-700 transition mb-3 group">
+            <i class="fa-solid fa-arrow-left text-[10px] group-hover:-translate-x-0.5 transition-transform"></i>
+            Back to Dashboard
+          </a>
           <p class="text-[11px] font-black uppercase tracking-[0.2em] text-orange-500 mb-2">SureSystems / DebiCheck</p>
           <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight flex items-center gap-3">
             <i class="fa-solid fa-file-invoice text-orange-600"></i> Mandate Control Room

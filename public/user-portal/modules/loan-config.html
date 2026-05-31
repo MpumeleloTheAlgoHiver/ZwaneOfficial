@@ -107,21 +107,25 @@
       </div>
       <div class="summary-item">
         <span class="summary-label">
-          Total Admin Fees (R60/month)
-          <i class="fas fa-info-circle" style="color: var(--color-primary); font-size: 0.8rem; margin-left: 4px;" title="R60 charged per month"></i>
+          Service Fee (R60/month)
+          <i class="fas fa-info-circle" style="color: var(--color-primary); font-size: 0.8rem; margin-left: 4px;" title="R60 per month. First month prorated."></i>
         </span>
         <span class="summary-value" id="summaryFee">R 60.00</span>
       </div>
       <div class="summary-item">
-        <span class="summary-label">
-          Total Initiation Fees (15% per month)
-          <i class="fas fa-info-circle" style="color: var(--color-primary); font-size: 0.8rem; margin-left: 4px;" title="15% of loan amount charged every month"></i>
+        <span class="summary-label" id="summaryInitiationLabel">
+          Initiation Fee (15%)
+          <i class="fas fa-info-circle" style="color: var(--color-primary); font-size: 0.8rem; margin-left: 4px;" title="5% for first loan of the calendar year, 15% thereafter"></i>
         </span>
-        <span class="summary-value" id="summaryInitiationFee">R 165.00</span>
+        <span class="summary-value" id="summaryInitiationFee">R 0.00</span>
       </div>
-      <div class="summary-item">
-        <span class="summary-label">Credit Life (0.45% of loan)</span>
-        <span class="summary-value" id="summaryCreditLife">R 0.00</span>
+      <div class="summary-item" style="background: rgba(231,118,46,0.04); border-radius: 10px; padding: 6px 10px;">
+        <span class="summary-label" style="display:flex; align-items:center; gap:6px;">
+          <i class="fas fa-shield-heart" style="color:#E7762E; font-size:13px;"></i>
+          CPI — Credit Protection Insurance (0.45%/mo)
+          <i class="fas fa-info-circle" style="color: var(--color-primary); font-size: 0.8rem;" title="0.45% of loan amount per month. Covers outstanding balance in event of death, disability or retrenchment."></i>
+        </span>
+        <span class="summary-value" id="summaryCPI">R 0.00</span>
       </div>
       <div class="summary-item highlight">
         <span class="summary-label">Monthly Repayment</span>
@@ -169,6 +173,10 @@
     <button class="btn-secondary" onclick="closeLoanModal()">
       <i class="fas fa-arrow-left"></i>
       Back
+    </button>
+    <button class="btn-secondary" id="previewQuoteBtn" onclick="previewLoanQuote()" style="border-color:var(--color-primary);color:var(--color-primary);">
+      <i class="fas fa-file-lines"></i>
+      View Quote
     </button>
     <button class="btn-primary" id="submitBtn" onclick="prepareLoanApplication()">
       Continue to Confirmation

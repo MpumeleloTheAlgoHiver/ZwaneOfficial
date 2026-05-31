@@ -35,7 +35,11 @@ export default {
         financials: resolve(__dirname, 'financials.html'),
 
         // Compliance
-        sacrra: resolve(__dirname, 'sacrra.html')
+        sacrra: resolve(__dirname, 'sacrra.html'),
+
+        // Configuration
+        creditRules: resolve(__dirname, 'credit-rules.html'),
+        cashLedger:  resolve(__dirname, 'cash-ledger.html')
       },
     },
   },

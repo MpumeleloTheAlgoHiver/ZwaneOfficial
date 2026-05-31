@@ -188,13 +188,46 @@ function applyBrandLogo(theme) {
   });
 }
 
+/** Convert a hex colour string (#RRGGBB or #RGB) to "R, G, B" format */
+function hexToRgbString(hex) {
+  if (!hex) return null;
+  hex = hex.replace('#', '').trim();
+  if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+  if (hex.length !== 6) return null;
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  return isNaN(r) ? null : `${r}, ${g}, ${b}`;
+}
+
+/** Apply brand colours as CSS variables on :root so every stylesheet responds */
+function applyBrandColors(theme) {
+  const root = document.documentElement;
+  const primary   = (theme?.primary_color   || '#E7762E').trim();
+  const secondary = (theme?.secondary_color || '#F97316').trim();
+  const tertiary  = (theme?.tertiary_color  || '#FACC15').trim();
+
+  root.style.setProperty('--color-primary',   primary);
+  root.style.setProperty('--color-secondary', secondary);
+  root.style.setProperty('--color-tertiary',  tertiary);
+
+  const primaryRgb = hexToRgbString(primary);
+  if (primaryRgb) root.style.setProperty('--color-primary-rgb', primaryRgb);
+
+  // Also feed the design-system tokens so ds-* variables update instantly
+  root.style.setProperty('--ds-orange',     primary);
+  root.style.setProperty('--ds-orange-rgb', primaryRgb || '231, 118, 46');
+}
+
 async function hydrateBranding() {
   try {
     const theme = await getSystemTheme();
     applyBrandLogo(theme);
+    applyBrandColors(theme);
   } catch (error) {
     console.warn('Branding hydration error:', error);
     applyBrandLogo(FALLBACK_SYSTEM_THEME);
+    applyBrandColors(FALLBACK_SYSTEM_THEME);
   }
 }
 
@@ -298,7 +331,14 @@ async function checkAuth() {
   profile.hasFinancialProfile = !!financialProfile && financialProfile.monthly_income > 0;
   profile.hasDeclarations = !!declarations && declarations.accepted_std_conditions === true;
   profile.isProfileComplete = profile.hasFinancialProfile && profile.hasDeclarations;
-  
+
+  // Track last active time (non-blocking)
+  supabase.from('profiles')
+    .update({ last_active_at: new Date().toISOString() })
+    .eq('id', profile.id)
+    .then(() => {})
+    .catch(() => {});
+
   return profile;
 }
 

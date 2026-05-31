@@ -141,73 +141,73 @@ const pageTemplate = `
             </div>
         </div>
 
-        <div class="flex flex-col md:flex-row justify-between items-end border-b border-gray-200 pb-6 gap-4 print:hidden">
+        <div class="flex flex-col md:flex-row justify-between items-end border-b border-outline-variant/20 pb-6 gap-4 print:hidden">
             <div>
-                <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">Revenue Analytics</h1>
-                <p class="text-sm text-gray-500 mt-2">Portfolio Revenue & Amortisation Statement</p>
+                <h1 class="text-3xl font-headline font-bold text-on-surface tracking-tight">Revenue Analytics</h1>
+                <p class="text-[11px] font-semibold uppercase tracking-widest text-outline mt-0.5">Portfolio Revenue & Amortisation Statement</p>
             </div>
             
             <div class="flex items-center space-x-4">
-                <div class="bg-gray-100 p-1 rounded-lg flex space-x-1 period-tab-container">
-                    <button id="tab-current_month" class="period-tab px-3 py-1.5 text-xs font-medium rounded-md transition-all text-gray-500">1M</button>
-                    <button id="tab-last_3_months" class="period-tab px-3 py-1.5 text-xs font-medium rounded-md transition-all text-gray-500">3M</button>
-                    <button id="tab-ytd" class="period-tab px-3 py-1.5 text-xs font-medium rounded-md transition-all text-gray-500">YTD</button>
-                    <button id="tab-all" class="period-tab px-3 py-1.5 text-xs font-medium rounded-md transition-all bg-white text-blue-600 shadow-sm">ALL</button>
+                <div class="bg-surface-container p-1 rounded-xl flex space-x-1 period-tab-container">
+                    <button id="tab-current_month" class="period-tab px-3 py-1.5 text-xs font-medium rounded-lg transition-all text-outline">1M</button>
+                    <button id="tab-last_3_months" class="period-tab px-3 py-1.5 text-xs font-medium rounded-lg transition-all text-outline">3M</button>
+                    <button id="tab-ytd" class="period-tab px-3 py-1.5 text-xs font-medium rounded-lg transition-all text-outline">YTD</button>
+                    <button id="tab-all" class="period-tab px-3 py-1.5 text-xs font-medium rounded-lg transition-all bg-white shadow-sm" style="color:var(--color-primary)">ALL</button>
                 </div>
 
                 <div class="relative group">
-                    <button class="flex items-center px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-700 shadow-md">
-                        <i class="fa-solid fa-file-export mr-2"></i> Export <i class="fa-solid fa-chevron-down ml-2 text-xs opacity-70"></i>
+                    <button class="flex items-center px-4 py-2 rounded-xl text-sm font-semibold text-white shadow-md" style="background:var(--color-primary)">
+                        <span class="material-symbols-outlined text-[16px] mr-2">file_export</span> Export <span class="material-symbols-outlined text-[14px] ml-2 opacity-70">expand_more</span>
                     </button>
-                    <div class="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 overflow-hidden">
-                        <button id="printPdfBtn" class="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center border-b border-gray-100">
-                            <i class="fa-solid fa-file-pdf mr-3 text-red-500"></i> Save as PDF
+                    <div class="absolute right-0 mt-2 w-48 bg-white border border-outline-variant/20 rounded-xl shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 overflow-hidden">
+                        <button id="printPdfBtn" class="w-full text-left px-4 py-3 text-sm text-on-surface hover:bg-surface-container-low flex items-center border-b border-outline-variant/10">
+                            <span class="material-symbols-outlined text-[16px] mr-3 text-red-500">picture_as_pdf</span> Save as PDF
                         </button>
-                        <button id="exportExcelBtn" class="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center">
-                            <i class="fa-solid fa-file-excel mr-3 text-green-600"></i> Download Excel
+                        <button id="exportExcelBtn" class="w-full text-left px-4 py-3 text-sm text-on-surface hover:bg-surface-container-low flex items-center">
+                            <span class="material-symbols-outlined text-[16px] mr-3 text-green-600">table_chart</span> Download Excel
                         </button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="bg-white p-3 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row gap-4 justify-between items-center print:hidden">
+        <div class="glass-card p-3 rounded-2xl flex flex-col md:flex-row gap-4 justify-between items-center print:hidden">
             <div class="flex items-center gap-4 w-full md:w-auto">
                 <div class="relative w-full md:w-96">
-                    <i class="fa-solid fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
-                    <input type="text" id="searchInput" placeholder="Search customer or loan ID..." class="w-full pl-10 pr-4 py-2 text-sm border-none bg-gray-50 rounded-lg outline-none">
+                    <span class="material-symbols-outlined absolute left-3 top-1/2 transform -translate-y-1/2 text-outline text-[18px]">search</span>
+                    <input type="text" id="searchInput" placeholder="Search customer or loan ID..." class="w-full pl-10 pr-4 py-2 text-sm border-none bg-surface-container rounded-xl outline-none">
                 </div>
-                <button id="resetViewBtn" class="hidden items-center px-3 py-2 text-xs font-bold text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-all whitespace-nowrap">
-                    <i class="fa-solid fa-rotate-left mr-2"></i> Reset View
+                <button id="resetViewBtn" class="hidden items-center px-3 py-2 text-xs font-bold rounded-xl hover:bg-surface-container-low transition-all whitespace-nowrap" style="color:var(--color-primary);background:rgba(var(--color-primary-rgb,160,65,0),0.06)">
+                    <span class="material-symbols-outlined text-[14px] mr-2">refresh</span> Reset View
                 </button>
             </div>
-            
+
             <div class="flex items-center gap-2">
-                <button id="filterBtn" class="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                    <i class="fa-solid fa-filter mr-2"></i> <span>Filter: All</span>
+                <button id="filterBtn" class="px-4 py-2 text-sm text-on-surface-variant bg-white border border-outline-variant/30 rounded-xl hover:bg-surface-container-low transition-colors">
+                    <span class="material-symbols-outlined text-[14px] mr-2 align-middle">filter_list</span><span>Filter: All</span>
                 </button>
-                <button id="sortBtn" class="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                    <i class="fa-solid fa-sort mr-2"></i> <span>Sort: Date (Newest)</span>
+                <button id="sortBtn" class="px-4 py-2 text-sm text-on-surface-variant bg-white border border-outline-variant/30 rounded-xl hover:bg-surface-container-low transition-colors">
+                    <span class="material-symbols-outlined text-[14px] mr-2 align-middle">sort</span><span>Sort: Date (Newest)</span>
                 </button>
             </div>
         </div>
 
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden relative print:border-none">
+        <div class="glass-card rounded-2xl overflow-hidden relative print:border-none">
             <div class="overflow-x-auto max-h-[75vh] print:max-h-none print:overflow-visible">
                 <table class="w-full text-sm text-left relative border-collapse">
-                    <thead class="bg-gray-50 text-gray-500 font-semibold text-[11px] border-b border-gray-200 uppercase sticky-header shadow-sm print:static">
+                    <thead class="bg-surface-container text-outline font-semibold text-[10px] border-b border-outline-variant/20 uppercase sticky-header shadow-sm print:static">
                         <tr>
-                            <th class="pl-6 py-4 bg-gray-50">Loan ID</th>
-                            <th class="px-4 py-4 bg-gray-50">Customer</th>
-                            <th class="px-4 py-4 bg-gray-50">Month</th>
-                            <th class="px-4 py-4 text-right bg-gray-50">Principal</th>
-                            <th class="px-4 py-4 text-right bg-gray-50">Interest</th>
-                            <th class="px-4 py-4 text-right bg-gray-50">Fees</th>
-                            <th class="px-4 py-4 text-right bg-gray-50">Arrears</th>
-                            <th class="px-4 py-4 text-center bg-gray-50 print:hidden">Actions</th>
+                            <th class="pl-6 py-4 bg-surface-container">Loan ID</th>
+                            <th class="px-4 py-4 bg-surface-container">Customer</th>
+                            <th class="px-4 py-4 bg-surface-container">Month</th>
+                            <th class="px-4 py-4 text-right bg-surface-container">Principal</th>
+                            <th class="px-4 py-4 text-right bg-surface-container">Interest</th>
+                            <th class="px-4 py-4 text-right bg-surface-container">Fees</th>
+                            <th class="px-4 py-4 text-right bg-surface-container">Arrears</th>
+                            <th class="px-4 py-4 text-center bg-surface-container print:hidden">Actions</th>
                         </tr>
                     </thead>
-                    <tbody id="analytics-table-body" class="divide-y divide-gray-100 bg-white">
+                    <tbody id="analytics-table-body" class="divide-y divide-outline-variant/10 bg-white">
                         <tr>
                             <td colspan="8" class="text-center py-20 text-gray-400">
                                 <i class="fa-solid fa-circle-notch fa-spin text-2xl text-blue-600"></i>

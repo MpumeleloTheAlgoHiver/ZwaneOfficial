@@ -23,8 +23,8 @@ const LIST_VIEW_HTML = `
 <div id="view-list" class="flex flex-col h-full animate-fade-in">
   <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4 shrink-0">
     <div>
-      <h1 class="text-2xl font-bold text-gray-900 tracking-tight">User Directory</h1>
-      <p class="mt-1 text-sm text-gray-500 font-medium">Manage institutional clients and branch assignments.</p>
+      <h1 class="text-2xl font-headline font-bold text-on-surface tracking-tight">User Directory</h1>
+      <p class="mt-1 text-[11px] font-semibold uppercase tracking-widest text-outline">Manage institutional clients and branch assignments.</p>
     </div>
     
     <div class="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
@@ -47,10 +47,10 @@ const LIST_VIEW_HTML = `
     </div>
   </div>
 
-  <div class="bg-white rounded-[32px] shadow-sm border border-slate-100 flex flex-col overflow-hidden flex-1 min-h-0">
+  <div class="glass-card rounded-2xl flex flex-col overflow-hidden flex-1 min-h-0">
     <div class="overflow-auto custom-scrollbar"> 
       <table class="min-w-full divide-y divide-slate-50 relative">
-        <thead class="bg-slate-50/50 sticky top-0 z-10"> 
+        <thead class="bg-white sticky top-0 z-10 shadow-[0_1px_0_0_rgba(0,0,0,0.05)]"> 
           <tr>
             <th class="px-8 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Client Identity</th>
             <th class="px-6 py-5 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Match Key</th>
@@ -96,18 +96,18 @@ const DETAIL_VIEW_HTML = `
 
         <div class="col-span-12 lg:col-span-8 flex flex-col gap-6 overflow-y-auto custom-scrollbar pb-10">
 
-            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-                <h3 class="text-sm font-bold text-gray-900 uppercase tracking-wide mb-4 flex items-center gap-2">
-                    <i class="fa-solid fa-wallet text-gray-400"></i> Financial Snapshot
+            <div class="glass-card p-6 rounded-2xl">
+                <h3 class="text-sm font-semibold uppercase tracking-widest text-outline mb-4 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-[18px]">account_balance_wallet</span> Financial Snapshot
                 </h3>
                 <div class="grid grid-cols-2 gap-3">
-                    <div class="bg-gray-50 p-3 rounded-lg">
-                        <p class="text-[10px] text-gray-500 uppercase">Gross Income</p>
-                        <p id="detail-income" class="text-sm font-bold text-gray-900">-</p>
+                    <div class="bg-surface-container p-3 rounded-xl">
+                        <p class="text-[10px] text-outline uppercase">Gross Income</p>
+                        <p id="detail-income" class="text-sm font-bold text-on-surface">-</p>
                     </div>
-                    <div class="bg-gray-50 p-3 rounded-lg">
-                        <p class="text-[10px] text-gray-500 uppercase">Expenses</p>
-                        <p id="detail-expenses" class="text-sm font-bold text-gray-900">-</p>
+                    <div class="bg-surface-container p-3 rounded-xl">
+                        <p class="text-[10px] text-outline uppercase">Expenses</p>
+                        <p id="detail-expenses" class="text-sm font-bold text-on-surface">-</p>
                     </div>
                 </div>
             </div>
@@ -116,44 +116,44 @@ const DETAIL_VIEW_HTML = `
         <div class="col-span-12 lg:col-span-8 flex flex-col gap-6 overflow-y-auto custom-scrollbar pb-10">
             
             <div class="grid grid-cols-3 gap-4">
-                <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-                    <div class="text-xs text-gray-500 font-bold uppercase">Total Loans</div>
-                    <div id="stat-total-loans" class="text-2xl font-extrabold text-gray-900 mt-1">0</div>
+                <div class="glass-card p-4 rounded-2xl">
+                    <div class="text-[10px] font-semibold uppercase tracking-widest text-outline">Total Loans</div>
+                    <div id="stat-total-loans" class="text-2xl font-extrabold text-on-surface mt-1">0</div>
                 </div>
-                <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-                    <div class="text-xs text-gray-500 font-bold uppercase">Active Debt</div>
-                    <div id="stat-active-debt" class="text-2xl font-extrabold text-orange-600 mt-1">R 0.00</div>
+                <div class="glass-card p-4 rounded-2xl">
+                    <div class="text-[10px] font-semibold uppercase tracking-widest text-outline">Active Debt</div>
+                    <div id="stat-active-debt" class="text-2xl font-extrabold mt-1" style="color:var(--color-primary)">R 0.00</div>
                 </div>
-                <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-                    <div class="text-xs text-gray-500 font-bold uppercase">Uploaded Docs</div>
+                <div class="glass-card p-4 rounded-2xl">
+                    <div class="text-[10px] font-semibold uppercase tracking-widest text-outline">Uploaded Docs</div>
                     <div id="stat-total-docs" class="text-2xl font-extrabold text-blue-600 mt-1">0</div>
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
-                    <h3 class="font-bold text-gray-900">Application History</h3>
-                    <span class="text-xs text-gray-400">Most recent first</span>
+            <div class="glass-card rounded-2xl overflow-hidden">
+                <div class="px-6 py-4 border-b border-outline-variant/10 flex justify-between items-center">
+                    <h3 class="font-headline font-bold text-on-surface">Application History</h3>
+                    <span class="text-[11px] font-semibold uppercase tracking-widest text-outline">Most recent first</span>
                 </div>
                 <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-100">
-                        <thead class="bg-gray-50">
+                    <table class="min-w-full divide-y divide-outline-variant/10">
+                        <thead class="bg-surface-container">
                             <tr>
-                                <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">ID</th>
-                                <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Date</th>
-                                <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Amount</th>
-                                <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase">Status</th>
-                                <th class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase">Action</th>
+                                <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">ID</th>
+                                <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Date</th>
+                                <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Amount</th>
+                                <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Status</th>
+                                <th class="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-widest text-outline">Action</th>
                             </tr>
                         </thead>
-                        <tbody id="detail-loans-body" class="bg-white divide-y divide-gray-50">
+                        <tbody id="detail-loans-body" class="bg-white divide-y divide-outline-variant/10">
                             </tbody>
                     </table>
                 </div>
             </div>
 
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                 <h3 class="font-bold text-gray-900 mb-4">Uploaded Documents</h3>
+            <div class="glass-card p-6 rounded-2xl">
+                 <h3 class="font-headline font-bold text-on-surface mb-4">Uploaded Documents</h3>
                  <div id="detail-docs-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     </div>
             </div>
@@ -378,11 +378,16 @@ const renderUserList = (data) => {
                  </span>
             </td>
             <td class="px-6 py-6">
-                <div class="flex items-center gap-2">
-                    <span class="w-1.5 h-1.5 rounded-full ${isLuhnValid ? 'bg-emerald-500' : 'bg-red-500'}"></span>
-                    <span class="text-[10px] font-black uppercase tracking-widest ${isLuhnValid ? 'text-emerald-600' : 'text-red-600'}">
-                        ${isLuhnValid ? 'Verified' : 'Invalid ID'}
-                    </span>
+                <div class="flex flex-col gap-1">
+                    <div class="flex items-center gap-2">
+                        <span class="w-1.5 h-1.5 rounded-full ${isLuhnValid ? 'bg-emerald-500' : 'bg-red-500'}"></span>
+                        <span class="text-[10px] font-black uppercase tracking-widest ${isLuhnValid ? 'text-emerald-600' : 'text-red-600'}">
+                            ${isLuhnValid ? 'ID Valid' : 'ID Invalid'}
+                        </span>
+                    </div>
+                    ${u.employer_verified ? '<div class="text-[10px] font-bold text-blue-600 flex items-center gap-1"><span>✓</span> Employer verified</div>' : ''}
+                    ${u.credit_limit_override ? `<div class="text-[10px] font-bold text-orange-600">Cap: R${Number(u.credit_limit_override).toLocaleString('en-ZA')}</div>` : ''}
+                    ${u.last_active_at ? `<div class="text-[9px] text-slate-400">Active: ${new Date(u.last_active_at).toLocaleDateString('en-ZA')}</div>` : ''}
                 </div>
             </td>
             <td class="px-8 py-6 text-right">
@@ -441,7 +446,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   main.className = 'flex-1 p-4 sm:p-6 lg:p-8 h-screen overflow-hidden flex flex-col'; 
 
   try {
-      const [admin, usersData, branchesData] = await Promise.all([
+      const [admin, usersData, branchesResult] = await Promise.all([
           getCurrentAdminProfile(),
           fetchUsers(),
           fetchBranches()
@@ -449,7 +454,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       currentAdmin = admin;
       allUsers = usersData;
-      branches = branchesData;
+      branches = branchesResult.data || [];
 
       // Populate Branch Filters
       const branchSelect = document.getElementById('branch-filter');

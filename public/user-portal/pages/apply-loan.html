@@ -226,51 +226,88 @@
             </div>
           </div>
 
+          <!-- Purpose of Loan -->
+          <div class="popup-decl-card">
+            <div class="popup-decl-header">
+              <i class="fas fa-bullseye"></i>
+              <div>
+                <strong>Purpose of Loan *</strong>
+                <small>Required — what will the loan be used for?</small>
+              </div>
+            </div>
+            <div class="popup-financial-grid">
+              <div class="popup-money-field" style="grid-column: 1 / -1;">
+                <label for="popup_loan_purpose">Select purpose *</label>
+                <select id="popup_loan_purpose" class="popup-input" required>
+                  <option value="">— Select purpose —</option>
+                  <option value="Personal / Family Expenses">Personal / Family Expenses</option>
+                  <option value="Medical">Medical</option>
+                  <option value="Education / School Fees">Education / School Fees</option>
+                  <option value="Funeral Costs">Funeral Costs</option>
+                  <option value="Home Improvements">Home Improvements</option>
+                  <option value="Vehicle Repairs">Vehicle Repairs</option>
+                  <option value="Business / Working Capital">Business / Working Capital</option>
+                  <option value="Debt Consolidation">Debt Consolidation</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
           <!-- Financial Information -->
           <div class="popup-decl-card">
             <div class="popup-decl-header">
               <i class="fas fa-wallet"></i>
               <div>
                 <strong>Financial Information</strong>
-                <small>Monthly income and expenses (required to unlock application steps)</small>
+                <small>Income details — verified against Experian</small>
               </div>
             </div>
-
             <div class="popup-financial-grid">
               <div class="popup-money-field">
                 <label for="popup_income_salary">Salary Income (R) *</label>
                 <input type="number" id="popup_income_salary" class="popup-money-input" min="0" step="0.01" placeholder="0.00" required>
               </div>
               <div class="popup-money-field">
-                <label for="popup_income_other">Other Earnings (R)</label>
+                <label for="popup_income_other">
+                  Additional Income (R)
+                  <span style="font-size:11px;color:#8E8E93;"> — optional</span>
+                </label>
                 <input type="number" id="popup_income_other" class="popup-money-input" min="0" step="0.01" placeholder="0.00">
               </div>
+            </div>
+          </div>
 
+          <!-- Next of Kin -->
+          <div class="popup-decl-card">
+            <div class="popup-decl-header">
+              <i class="fas fa-people-arrows"></i>
+              <div>
+                <strong>Next of Kin *</strong>
+                <small>Emergency contact — required for all applications</small>
+              </div>
+            </div>
+            <div class="popup-financial-grid">
               <div class="popup-money-field">
-                <label for="popup_expense_housing">Housing / Rent (R)</label>
-                <input type="number" id="popup_expense_housing" class="popup-money-input" min="0" step="0.01" placeholder="0.00">
+                <label for="popup_nok_name">Full Name *</label>
+                <input type="text" id="popup_nok_name" class="popup-input" placeholder="Full name" required>
               </div>
               <div class="popup-money-field">
-                <label for="popup_expense_school">School Fees (R)</label>
-                <input type="number" id="popup_expense_school" class="popup-money-input" min="0" step="0.01" placeholder="0.00">
+                <label for="popup_nok_phone">Contact Number *</label>
+                <input type="tel" id="popup_nok_phone" class="popup-input" placeholder="0821234567" maxlength="10" required>
               </div>
-
-              <div class="popup-money-field">
-                <label for="popup_expense_maintenance">Maintenance (R)</label>
-                <input type="number" id="popup_expense_maintenance" class="popup-money-input" min="0" step="0.01" placeholder="0.00">
-              </div>
-              <div class="popup-money-field">
-                <label for="popup_expense_petrol">Transport (R)</label>
-                <input type="number" id="popup_expense_petrol" class="popup-money-input" min="0" step="0.01" placeholder="0.00">
-              </div>
-
-              <div class="popup-money-field">
-                <label for="popup_expense_groceries">Groceries (R)</label>
-                <input type="number" id="popup_expense_groceries" class="popup-money-input" min="0" step="0.01" placeholder="0.00">
-              </div>
-              <div class="popup-money-field">
-                <label for="popup_expense_other">Other Expenses (R)</label>
-                <input type="number" id="popup_expense_other" class="popup-money-input" min="0" step="0.01" placeholder="0.00">
+              <div class="popup-money-field" style="grid-column: 1 / -1;">
+                <label for="popup_nok_relationship">Relationship *</label>
+                <select id="popup_nok_relationship" class="popup-input" required>
+                  <option value="">— Select —</option>
+                  <option value="Spouse">Spouse</option>
+                  <option value="Partner">Partner</option>
+                  <option value="Parent">Parent</option>
+                  <option value="Sibling">Sibling</option>
+                  <option value="Child">Child</option>
+                  <option value="Friend">Friend</option>
+                  <option value="Other">Other</option>
+                </select>
               </div>
             </div>
           </div>

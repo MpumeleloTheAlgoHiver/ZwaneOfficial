@@ -25,9 +25,33 @@
         </div>
         
         <div class="msc-content">
-          <div class="msc-score-wrapper">
-            <h3 class="msc-score" id="creditScoreValue">—</h3>
-            <span class="msc-risk" id="creditRiskValue">Pending</span>
+          <div class="msc-gauge-container" id="gaugeContainer">
+
+            <svg class="score-gauge" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+              <!-- Tick marks (JS-generated) -->
+              <g id="gaugeTicks"></g>
+              <!-- Background track arc -->
+              <circle class="gauge-track" cx="100" cy="100" r="80"
+                      transform="rotate(135, 100, 100)"/>
+              <!-- Animated glow layer -->
+              <circle class="gauge-glow" id="gaugeGlow" cx="100" cy="100" r="80"
+                      transform="rotate(135, 100, 100)"/>
+              <!-- Animated fill arc -->
+              <circle class="gauge-fill" id="gaugeArc" cx="100" cy="100" r="80"
+                      transform="rotate(135, 100, 100)"/>
+            </svg>
+
+            <!-- Centered content overlay -->
+            <div class="gauge-center">
+              <span class="gauge-score-label">SCORE</span>
+              <h3 class="msc-score" id="creditScoreValue">—</h3>
+              <span class="msc-risk" id="creditRiskValue">Pending</span>
+            </div>
+
+            <!-- Range end-point labels -->
+            <span class="gauge-label-min">300</span>
+            <span class="gauge-label-max">999</span>
+
           </div>
         </div>
 

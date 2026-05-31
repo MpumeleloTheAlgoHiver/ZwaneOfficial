@@ -313,14 +313,14 @@ function renderPageContent() {
   if (!mainContent) return;
 
   mainContent.innerHTML = `
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 h-[calc(100vh-8rem)] flex flex-col overflow-hidden">
-      <div class="flex border-b border-gray-200 bg-gray-50/50 px-6 overflow-x-auto">
-        <button class="tab-btn active" data-tab="profile"><i class="fa-solid fa-id-card mr-2"></i>My Profile</button>
-        <button class="tab-btn" data-tab="security"><i class="fa-solid fa-shield-halved mr-2"></i>Security</button>
+    <div class="glass-card rounded-2xl h-[calc(100vh-8rem)] flex flex-col overflow-hidden">
+      <div class="flex border-b border-outline-variant/10 bg-surface-container-lowest px-6 overflow-x-auto">
+        <button class="tab-btn active" data-tab="profile"><span class="material-symbols-outlined text-[16px] mr-2 align-middle">badge</span>My Profile</button>
+        <button class="tab-btn" data-tab="security"><span class="material-symbols-outlined text-[16px] mr-2 align-middle">shield</span>Security</button>
         ${userRole === 'super_admin' ? `
-          <button class="tab-btn" data-tab="users"><i class="fa-solid fa-users-gear mr-2"></i>User Management</button>
-          <button class="tab-btn" data-tab="billing"><i class="fa-solid fa-credit-card mr-2"></i>Billing</button>
-          <button class="tab-btn" data-tab="system"><i class="fa-solid fa-sliders mr-2"></i>System Branding</button>
+          <button class="tab-btn" data-tab="users"><span class="material-symbols-outlined text-[16px] mr-2 align-middle">manage_accounts</span>User Management</button>
+          <button class="tab-btn" data-tab="billing"><span class="material-symbols-outlined text-[16px] mr-2 align-middle">credit_card</span>Billing</button>
+          <button class="tab-btn" data-tab="system"><span class="material-symbols-outlined text-[16px] mr-2 align-middle">tune</span>System Branding</button>
         ` : ''}
       </div>
 
@@ -359,8 +359,8 @@ function renderPageContent() {
   const style = document.createElement('style');
   style.innerHTML = `
     .tab-btn { padding: 1rem 1.5rem; font-size: 0.875rem; font-weight: 600; color: #6B7280; border-bottom: 2px solid transparent; transition: all 0.2s; white-space: nowrap; }
-    .tab-btn:hover { color: #111827; background: #F3F4F6; }
-    .tab-btn.active { color: #EA580C; border-bottom-color: #EA580C; background: #FFF; }
+    .tab-btn:hover { color: #111827; background: rgba(0,0,0,0.03); }
+    .tab-btn.active { color: var(--color-primary, #EA580C); border-bottom-color: var(--color-primary, #EA580C); background: #FFF; }
   `;
   document.head.appendChild(style);
 
@@ -409,9 +409,9 @@ function renderProfileTab() {
     const container = document.getElementById('tab-content');
     container.innerHTML = `
         <div class="max-w-2xl animate-fade-in">
-            <h2 class="text-2xl font-bold text-gray-900 mb-1">My Profile</h2>
-            <p class="text-sm text-gray-500 mb-8">Manage your personal account details.</p>
-            <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <h2 class="text-2xl font-headline font-bold text-on-surface mb-1">My Profile</h2>
+            <p class="text-[11px] font-semibold uppercase tracking-widest text-outline mb-8">Manage your personal account details.</p>
+            <div class="glass-card p-8 rounded-2xl">
                 <div class="flex items-center gap-6 mb-8">
                     <div class="relative group cursor-pointer w-20 h-20">
                         ${renderAvatar({ ...currentUserProfile, avatar_url: currentUserProfile.avatar_url }, { sizeClass: 'w-20 h-20', textClass: 'text-2xl' })} 
@@ -495,9 +495,9 @@ function renderSecurityTab() {
     const container = document.getElementById('tab-content');
     container.innerHTML = `
         <div class="max-w-2xl animate-fade-in">
-            <h2 class="text-2xl font-bold text-gray-900 mb-1">Security</h2>
-            <p class="text-sm text-gray-500 mb-8">Update your password and security settings.</p>
-            <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <h2 class="text-2xl font-headline font-bold text-on-surface mb-1">Security</h2>
+            <p class="text-[11px] font-semibold uppercase tracking-widest text-outline mb-8">Update your password and security settings.</p>
+            <div class="glass-card p-8 rounded-2xl">
                 <form id="security-form" class="space-y-5">
                     <div>
                         <label class="block text-xs font-bold text-gray-700 uppercase mb-1">New Password</label>
@@ -540,8 +540,8 @@ async function renderUserManagementTab() {
   container.innerHTML = `
     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div>
-            <h2 class="text-2xl font-bold text-gray-900">User Management</h2>
-            <p class="text-sm text-gray-500">Manage permissions and roles for all users.</p>
+            <h2 class="text-2xl font-headline font-bold text-on-surface">User Management</h2>
+            <p class="text-[11px] font-semibold uppercase tracking-widest text-outline mt-0.5">Manage permissions and roles for all users.</p>
         </div>
         <div class="relative w-full sm:w-72">
             <input type="text" id="user-search" placeholder="Search users..." 
@@ -550,18 +550,18 @@ async function renderUserManagementTab() {
         </div>
     </div>
     
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+    <div class="glass-card rounded-2xl overflow-hidden">
         <div class="overflow-x-auto custom-scrollbar">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
+            <table class="min-w-full divide-y divide-outline-variant/10">
+                <thead class="bg-surface-container">
                     <tr>
-                        <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">User Identity</th>
-                        <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">System ID</th>
-                        <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Current Role</th>
-                        <th class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Actions</th>
+                        <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">User Identity</th>
+                        <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">System ID</th>
+                        <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Current Role</th>
+                        <th class="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-widest text-outline">Actions</th>
                     </tr>
                 </thead>
-                <tbody id="user-management-list" class="bg-white divide-y divide-gray-200">
+                <tbody id="user-management-list" class="bg-white divide-y divide-outline-variant/10">
                     <tr><td colspan="4" class="p-12 text-center text-gray-400"><i class="fa-solid fa-circle-notch fa-spin text-2xl"></i><br>Loading directory...</td></tr>
                 </tbody>
             </table>
@@ -613,11 +613,11 @@ async function renderUserManagementTab() {
                   </td>
                   <td class="px-6 py-4 whitespace-nowrap text-right">
                       ${!isMe ? `
-                      <button class="change-role-btn text-gray-600 hover:text-orange-600 font-bold text-xs bg-white border border-gray-200 hover:border-orange-200 px-3 py-1.5 rounded-lg transition-colors shadow-sm inline-flex items-center gap-2"
-                          data-user-id="${user.id}" 
-                          data-user-name="${user.full_name || 'User'}" 
+                      <button class="change-role-btn text-on-surface-variant font-semibold text-xs bg-surface-container border border-outline-variant/30 px-3 py-1.5 rounded-xl transition-colors shadow-sm inline-flex items-center gap-2"
+                          data-user-id="${user.id}"
+                          data-user-name="${user.full_name || 'User'}"
                           data-user-role="${user.role}">
-                          <i class="fa-solid fa-user-tag"></i> Change Role
+                          <span class="material-symbols-outlined text-[14px]">manage_accounts</span> Change Role
                       </button>` : 
                       `<span class="text-xs text-gray-400 italic">Current User</span>`}
                   </td>
@@ -689,9 +689,9 @@ function renderUserTable() {
             </td>
             <td class="px-6 py-4 text-right">
                 ${user.id !== currentUserProfile.id ? `
-                <button onclick="window.openRoleModal('${user.id}', '${user.full_name?.replace(/'/g, "\\'") || ''}', '${user.role}')" 
-                    class="text-gray-600 hover:text-gray-900 font-bold text-xs bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-lg transition-colors shadow-sm" title="Change Role">
-                    <i class="fa-solid fa-user-tag"></i> Change Role
+                <button onclick="window.openRoleModal('${user.id}', '${user.full_name?.replace(/'/g, "\\'") || ''}', '${user.role}')"
+                    class="text-on-surface-variant font-semibold text-xs bg-surface-container border border-outline-variant/30 px-3 py-1.5 rounded-xl transition-colors inline-flex items-center gap-2" title="Change Role">
+                    <span class="material-symbols-outlined text-[14px]">manage_accounts</span> Change Role
                 </button>` : `<span class="text-xs text-gray-300 italic pr-2">Current User</span>`}
             </td>
         </tr>
@@ -710,19 +710,19 @@ async function renderBillingTab() {
     const container = document.getElementById('tab-content');
     container.innerHTML = `
         <div class="max-w-4xl animate-fade-in">
-            <h2 class="text-2xl font-bold text-gray-900 mb-1">Billing & Payments</h2>
-            <p class="text-sm text-gray-500 mb-8">Manage disbursement methods.</p>
+            <h2 class="text-2xl font-headline font-bold text-on-surface mb-1">Billing & Payments</h2>
+            <p class="text-[11px] font-semibold uppercase tracking-widest text-outline mb-8">Manage disbursement methods.</p>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div class="glass-card p-8 rounded-2xl">
                     <h3 class="font-bold text-gray-800 mb-4">Add Payment Method</h3>
                     <form id="card-form" class="space-y-4">
                         <div><label class="block text-xs font-bold text-gray-500 uppercase mb-1">Card Type</label><select id="card-type" class="w-full border-gray-300 rounded-lg text-sm p-2.5"><option value="visa">Visa</option><option value="mastercard">Mastercard</option></select></div>
                         <div><label class="block text-xs font-bold text-gray-500 uppercase mb-1">Last 4 Digits</label><input type="text" id="card-last4" maxlength="4" class="w-full border-gray-300 rounded-lg text-sm p-2.5" placeholder="1234"></div>
                         <div class="grid grid-cols-2 gap-4"><input type="text" id="card-mm" maxlength="2" placeholder="MM" class="w-full border-gray-300 rounded-lg text-sm p-2.5"><input type="text" id="card-yy" maxlength="4" placeholder="YYYY" class="w-full border-gray-300 rounded-lg text-sm p-2.5"></div>
-                        <button type="submit" class="w-full py-2.5 bg-gray-900 text-white font-bold text-sm rounded-lg hover:bg-black mt-2">Add Card</button>
+                        <button type="submit" class="w-full py-2.5 rounded-xl font-semibold text-sm text-white mt-2" style="background:var(--color-primary)">Add Card</button>
                     </form>
                 </div>
-                <div class="bg-gray-50 p-6 rounded-xl border border-gray-200">
+                <div class="bg-surface-container p-8 rounded-2xl border border-outline-variant/20">
                     <h3 class="font-bold text-gray-800 mb-4">Saved Cards</h3>
                     <div id="cards-list" class="space-y-3"><p class="text-sm text-gray-400 italic">Loading...</p></div>
                 </div>
@@ -734,9 +734,9 @@ async function renderBillingTab() {
         const list = document.getElementById('cards-list');
         if(!data || data.length === 0) { list.innerHTML = `<p class="text-sm text-gray-400 italic">No cards saved.</p>`; return; }
         list.innerHTML = data.map(c => `
-            <div class="flex items-center gap-3 p-3 bg-white border border-gray-200 rounded-lg shadow-sm">
-                <i class="fa-brands fa-cc-${c.card_type} text-2xl text-gray-600"></i>
-                <div class="flex-1"><p class="text-sm font-bold text-gray-800">•••• ${c.last_four}</p><p class="text-xs text-gray-500">Exp: ${c.expiry_month}/${c.expiry_year}</p></div>
+            <div class="flex items-center gap-3 p-3 bg-surface-container-lowest border border-outline-variant/20 rounded-xl">
+                <span class="material-symbols-outlined text-outline">credit_card</span>
+                <div class="flex-1"><p class="text-sm font-bold text-on-surface">•••• ${c.last_four}</p><p class="text-xs text-outline">Exp: ${c.expiry_month}/${c.expiry_year}</p></div>
                 ${c.is_default ? '<span class="text-[10px] bg-green-100 text-green-700 px-2 py-1 rounded font-bold uppercase">Default</span>' : ''}
             </div>
         `).join('');
@@ -774,15 +774,15 @@ async function renderSystemSettingsTab() {
     container.innerHTML = `
         <div class="max-w-5xl space-y-8 animate-fade-in">
             <div class="flex items-center justify-between">
-                <div><h2 class="text-2xl font-bold text-gray-900">System Branding</h2><p class="text-sm text-gray-500">Customize the look and feel of the platform.</p></div>
+                <div><h2 class="text-2xl font-headline font-bold text-on-surface">System Branding</h2><p class="text-[11px] font-semibold uppercase tracking-widest text-outline mt-0.5">Customize the look and feel of the platform.</p></div>
                 <div class="text-right">
-                    <button id="save-system-settings" class="px-6 py-2.5 bg-brand-accent text-white font-bold rounded-xl shadow-lg hover:bg-orange-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed">Save Changes</button>
+                    <button id="save-system-settings" class="px-6 py-2.5 rounded-xl font-semibold text-sm text-white shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed" style="background:var(--color-primary)">Save Changes</button>
                     <p id="system-settings-status" class="text-xs text-gray-400 mt-2 font-medium">No pending changes</p>
                 </div>
             </div>
 
-            <section class="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-                <h4 class="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Company Identity</h4>
+            <section class="glass-card p-8 rounded-2xl">
+                <h4 class="text-lg font-headline font-bold text-on-surface mb-4 border-b border-outline-variant/10 pb-2">Company Identity</h4>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div>
                         <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Company Name</label>
@@ -791,8 +791,8 @@ async function renderSystemSettingsTab() {
                     <div>
                         <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Company Logo</label>
                         <div class="flex flex-col lg:flex-row gap-4">
-                            <div class="h-20 w-20 bg-gray-50 rounded-lg border border-gray-200 flex items-center justify-center overflow-hidden shrink-0">
-                                ${currentLogo ? `<img src="${currentLogo}" class="h-full w-full object-contain">` : `<i class="fa-solid fa-image text-gray-300 text-2xl"></i>`}
+                            <div class="h-20 w-20 bg-surface-container rounded-xl border border-outline-variant/20 flex items-center justify-center overflow-hidden shrink-0">
+                                ${currentLogo ? `<img src="${currentLogo}" class="h-full w-full object-contain">` : `<span class="material-symbols-outlined text-outline text-3xl">image</span>`}
                             </div>
                             <div class="space-y-3 flex-1">
                                 <div class="flex gap-2">
@@ -811,8 +811,8 @@ async function renderSystemSettingsTab() {
                 </div>
             </section>
 
-            <section class="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-                <h4 class="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Company Legal Details</h4>
+            <section class="glass-card p-8 rounded-2xl">
+                <h4 class="text-lg font-headline font-bold text-on-surface mb-4 border-b border-outline-variant/10 pb-2">Company Legal Details</h4>
                 <p class="text-xs text-gray-400 mb-4">These details appear in loan contracts and NCA disclosures generated via DocuSeal.</p>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
@@ -846,8 +846,8 @@ async function renderSystemSettingsTab() {
                 </div>
             </section>
 
-            <section class="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-                <h4 class="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Theme Colors</h4>
+            <section class="glass-card p-8 rounded-2xl">
+                <h4 class="text-lg font-headline font-bold text-on-surface mb-4 border-b border-outline-variant/10 pb-2">Theme Colors</h4>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     ${COLOR_FIELDS.map(f => `
                         <div>
@@ -858,14 +858,14 @@ async function renderSystemSettingsTab() {
                             </div>
                         </div>`).join('')}
                 </div>
-                <div class="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200 flex items-center gap-4">
+                <div class="mt-6 p-4 bg-surface-container rounded-xl border border-outline-variant/20 flex items-center gap-4">
                     <span class="text-xs font-bold text-gray-500 uppercase">Preview:</span>
                     <div id="brand-gradient-preview" class="flex-1 h-8 rounded-lg shadow-inner" style="background: linear-gradient(90deg, ${systemSettingsDraft.primary_color}, ${systemSettingsDraft.secondary_color}, ${systemSettingsDraft.tertiary_color})"></div>
                 </div>
             </section>
 
-            <section class="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-                <h4 class="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Login Styling</h4>
+            <section class="glass-card p-8 rounded-2xl">
+                <h4 class="text-lg font-headline font-bold text-on-surface mb-4 border-b border-outline-variant/10 pb-2">Login Styling</h4>
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     <div>
                         <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Wallpaper</label>
@@ -874,8 +874,8 @@ async function renderSystemSettingsTab() {
                         </div>
                         <div class="space-y-3">
                             <div class="flex gap-2">
-                                <label class="cursor-pointer px-4 py-2 bg-gray-900 text-white rounded-lg text-xs font-bold hover:bg-black">
-                                    <i class="fa-solid fa-cloud-arrow-up mr-1"></i> Upload
+                                <label class="cursor-pointer px-4 py-2.5 rounded-xl text-xs font-semibold text-white" style="background:var(--color-primary)">
+                                    <span class="material-symbols-outlined text-[14px] align-middle mr-1">cloud_upload</span> Upload
                                     <input type="file" id="wallpaper-file-input" class="hidden" accept="image/*">
                                 </label>
                                 ${currentWallpaper ? `<button id="remove-wallpaper-btn" class="px-3 py-2 text-xs font-bold text-red-600 bg-red-50 rounded-lg hover:bg-red-100">Remove</button>` : ''}
@@ -906,11 +906,11 @@ async function renderSystemSettingsTab() {
                 </div>
             </section>
 
-            <section class="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-                <h4 class="text-lg font-bold text-gray-900 mb-4 border-b pb-2">Login Text</h4>
+            <section class="glass-card p-8 rounded-2xl">
+                <h4 class="text-lg font-headline font-bold text-on-surface mb-4 border-b border-outline-variant/10 pb-2">Login Text</h4>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     ${carouselSlides.map((slide, i) => `
-                        <div class="space-y-2 p-3 bg-gray-50 rounded-lg border border-gray-100">
+                        <div class="space-y-2 p-3 bg-surface-container rounded-xl border border-outline-variant/10">
                             <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Slide ${i + 1}</span>
                             <input type="text" value="${escapeHtmlAttr(slide.title)}" data-carousel-index="${i}" data-carousel-field="title" class="w-full border-gray-300 rounded-lg text-sm font-bold p-2 focus:ring-orange-500" placeholder="Title">
                             <textarea rows="3" data-carousel-index="${i}" data-carousel-field="text" class="w-full border-gray-300 rounded-lg text-xs p-2 focus:ring-orange-500 resize-none" placeholder="Description">${escapeHtmlContent(slide.text)}</textarea>

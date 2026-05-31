@@ -110,7 +110,12 @@ async function checkLoanHistory() {
     );
 
     // Period limits: <3 loans → 1 month max; 3+ → 6 months max
-    if (count >= 3) {
+    // Term rules:
+    // 0 loans       → 1 month (first-time)
+    // 1–3 loans     → 1 month
+    // more than 3   → max 6 months
+    // Online cap    → never exceed 6 months regardless
+    if (count > 3) {
       loanConfig.maxAllowedPeriod = 6;
     } else {
       loanConfig.maxAllowedPeriod = 1;
@@ -374,13 +379,15 @@ function getLoanSummary() {
   const period = Math.max(1, Number(loanConfig.period) || 1);
 
   // NCA-compliant rates
-  const INTEREST_RATE_MONTHLY = 0.05;   // 5%/month
-  const INITIATION_FEE_RATE   = 0.15;   // 15% one-time (waived if first loan of year)
-  const CREDIT_LIFE_RATE      = 0.0045; // 0.45%/month CPI
-  const SERVICE_FEE_MONTHLY   = 69;     // R69/month NCA cap
-  const VAT_RATE              = 0.15;
+  const INTEREST_RATE_MONTHLY    = 0.05;   // 5% per month
+  const INITIATION_FEE_RATE      = 0.15;   // 15% one-time (standard)
+  const INITIATION_FEE_RATE_FIRST = 0.05;  // 5% for first loan of the calendar year
+  const CREDIT_LIFE_RATE         = 0.0045; // 0.45% per month CPI
+  const SERVICE_FEE_MONTHLY      = 60;     // R60/month
+  const VAT_RATE                 = 0.15;
 
-  const waiveInitiation = loanConfig.isFirstLoanOfYear || loanConfig.completedOneMonthLoans === 0;
+  // First loan of the year gets reduced initiation (5% not 15%)
+  const initiationRate = loanConfig.isFirstLoanOfYear ? INITIATION_FEE_RATE_FIRST : INITIATION_FEE_RATE;
 
   // Service fee: prorate first month based on days to repayment date
   let totalServiceFees = 0;
@@ -397,7 +404,7 @@ function getLoanSummary() {
   }
 
   const totalInterest        = amount * INTEREST_RATE_MONTHLY * period;
-  const totalInitiationFees  = waiveInitiation ? 0 : amount * INITIATION_FEE_RATE;
+  const totalInitiationFees  = amount * initiationRate;
   const totalCreditLife      = amount * CREDIT_LIFE_RATE * period;
   const monthlyCreditLife    = amount * CREDIT_LIFE_RATE;
   const vatAmount            = (totalInitiationFees + totalServiceFees) * VAT_RATE;
@@ -415,10 +422,11 @@ function getLoanSummary() {
     totalCostOfCredit,
     totalRepayment,
     monthlyPayment,
-    waiveInitiation,
+    isFirstLoanOfYear: loanConfig.isFirstLoanOfYear,
+    initiationRateUsed: initiationRate,
     // legacy aliases used in display and confirmation.js
     totalMonthlyFees: totalServiceFees,
-    initiationFee: waiveInitiation ? 0 : amount * INITIATION_FEE_RATE,
+    initiationFee: totalInitiationFees,
     monthlyFee: SERVICE_FEE_MONTHLY,
     monthlyInterest: totalInterest / period,
     creditLifeMonthly: monthlyCreditLife,
@@ -477,9 +485,27 @@ function calculateAndUpdateSummary() {
   }
   
   // Update initiation fee display
+  // Initiation fee — show rate and first-loan-of-year discount notice
   const initiationFeeElement = document.getElementById('summaryInitiationFee');
   if (initiationFeeElement) {
     initiationFeeElement.textContent = `R ${formatCurrency(summary.totalInitiationFees)}`;
+  }
+  const initiationLabel = document.getElementById('summaryInitiationLabel');
+  if (initiationLabel) {
+    const rate = (summary.initiationRateUsed * 100).toFixed(0);
+    initiationLabel.innerHTML = summary.isFirstLoanOfYear
+      ? `Initiation Fee (${rate}% <span style="color:#10b981;font-weight:700;">— First Loan Discount</span>)`
+      : `Initiation Fee (${rate}%)`;
+  }
+
+  // CPI (Credit Protection Insurance) — always visible
+  const cpiElement = document.getElementById('summaryCPI');
+  if (cpiElement) {
+    cpiElement.textContent = `R ${formatCurrency(summary.totalCreditLife)}`;
+  }
+  const cpiMonthlyEl = document.getElementById('summaryCPIMonthly');
+  if (cpiMonthlyEl) {
+    cpiMonthlyEl.textContent = `R ${formatCurrency(summary.monthlyCreditLife)}/mo`;
   }
 
   document.getElementById('summaryMonthly').textContent = `R ${formatCurrency(summary.monthlyPayment)}`;
@@ -579,6 +605,25 @@ window.clearSignature = function() {
 }
 
 // Stage loan application for confirmation step
+// Open NCA pre-agreement quote for the current loan configuration
+window.previewLoanQuote = async function() {
+    try {
+        const applicationId = sessionStorage.getItem('currentApplicationId');
+        if (!applicationId) {
+            // No application yet — show an informational message
+            if (typeof window.showToast === 'function') {
+                window.showToast('Quote Preview', 'Complete step 2 (credit check) first to generate your personalised quote.', 'info');
+            } else {
+                alert('Please complete the credit check step first to generate your personalised quote.');
+            }
+            return;
+        }
+        window.open(`/api/contracts/${applicationId}/preview`, '_blank');
+    } catch (e) {
+        console.error('[previewLoanQuote]', e);
+    }
+};
+
 window.prepareLoanApplication = function() {
   const submitBtn = document.getElementById('submitBtn');
   const termsCheckbox = document.getElementById('termsCheckbox');

@@ -935,51 +935,41 @@ async function handlePopupDeclarationsSave(e) {
   const suburbArea = document.getElementById('popup_suburb_area')?.value.trim() || null;
   const cellTelNo = document.getElementById('popup_cell_tel_no')?.value.trim() || null;
 
-  const incomeSalaryRaw = document.getElementById('popup_income_salary')?.value?.trim() || '';
-  const incomeOtherRaw = document.getElementById('popup_income_other')?.value?.trim() || '';
-  const expenseHousingRaw = document.getElementById('popup_expense_housing')?.value?.trim() || '';
-  const expenseSchoolRaw = document.getElementById('popup_expense_school')?.value?.trim() || '';
-  const expenseMaintenanceRaw = document.getElementById('popup_expense_maintenance')?.value?.trim() || '';
-  const expensePetrolRaw = document.getElementById('popup_expense_petrol')?.value?.trim() || '';
-  const expenseGroceriesRaw = document.getElementById('popup_expense_groceries')?.value?.trim() || '';
-  const expenseOtherRaw = document.getElementById('popup_expense_other')?.value?.trim() || '';
+  // Purpose of loan
+  const loanPurpose = document.getElementById('popup_loan_purpose')?.value?.trim() || '';
 
+  // Income only — expenses removed per business decision
   const incomeSalary = parseFloat(document.getElementById('popup_income_salary')?.value) || 0;
-  const incomeOther = parseFloat(document.getElementById('popup_income_other')?.value) || 0;
-  const expenseHousing = parseFloat(document.getElementById('popup_expense_housing')?.value) || 0;
-  const expenseSchool = parseFloat(document.getElementById('popup_expense_school')?.value) || 0;
-  const expenseMaintenance = parseFloat(document.getElementById('popup_expense_maintenance')?.value) || 0;
-  const expensePetrol = parseFloat(document.getElementById('popup_expense_petrol')?.value) || 0;
-  const expenseGroceries = parseFloat(document.getElementById('popup_expense_groceries')?.value) || 0;
-  const expenseOther = parseFloat(document.getElementById('popup_expense_other')?.value) || 0;
+  const incomeOther  = parseFloat(document.getElementById('popup_income_other')?.value) || 0;
+  const totalIncome  = incomeSalary + incomeOther;
+  const totalExpenses = 0; // expenses not collected
 
-  const totalIncome = incomeSalary + incomeOther;
-  const totalExpenses = expenseHousing + expenseSchool + expenseMaintenance + expensePetrol + expenseGroceries + expenseOther;
+  // Next of Kin
+  const nokName         = document.getElementById('popup_nok_name')?.value?.trim() || '';
+  const nokPhone        = document.getElementById('popup_nok_phone')?.value?.trim() || '';
+  const nokRelationship = document.getElementById('popup_nok_relationship')?.value?.trim() || '';
 
   clearPopupRequiredMarkers();
 
   const requiredChecks = [
-    { valid: !!identityNumber, element: document.getElementById('popup_identity_number') },
-    { valid: !!firstName, element: document.getElementById('popup_first_name') },
-    { valid: !!lastName, element: document.getElementById('popup_last_name') },
-    { valid: !!gender, element: document.getElementById('popup_gender') },
-    { valid: !!dateOfBirth, element: document.getElementById('popup_date_of_birth') },
-    { valid: !!streetAddress, element: document.getElementById('popup_address') },
-    { valid: !!postalCode, element: document.getElementById('popup_postal_code') },
-    { valid: incomeSalaryRaw !== '', element: document.getElementById('popup_income_salary') },
-    { valid: incomeOtherRaw !== '', element: document.getElementById('popup_income_other') },
-    { valid: expenseHousingRaw !== '', element: document.getElementById('popup_expense_housing') },
-    { valid: expenseSchoolRaw !== '', element: document.getElementById('popup_expense_school') },
-    { valid: expenseMaintenanceRaw !== '', element: document.getElementById('popup_expense_maintenance') },
-    { valid: expensePetrolRaw !== '', element: document.getElementById('popup_expense_petrol') },
-    { valid: expenseGroceriesRaw !== '', element: document.getElementById('popup_expense_groceries') },
-    { valid: expenseOtherRaw !== '', element: document.getElementById('popup_expense_other') },
-    { valid: !!hdStatus, element: document.querySelector('input[name="popup_hd_status"]') },
-    { valid: !!homeOwnership, element: document.querySelector('input[name="popup_home_ownership"]') },
-    { valid: !!maritalStatus, element: document.querySelector('input[name="popup_marital_status"]') },
+    { valid: !!identityNumber,  element: document.getElementById('popup_identity_number') },
+    { valid: !!firstName,       element: document.getElementById('popup_first_name') },
+    { valid: !!lastName,        element: document.getElementById('popup_last_name') },
+    { valid: !!gender,          element: document.getElementById('popup_gender') },
+    { valid: !!dateOfBirth,     element: document.getElementById('popup_date_of_birth') },
+    { valid: !!streetAddress,   element: document.getElementById('popup_address') },
+    { valid: !!postalCode,      element: document.getElementById('popup_postal_code') },
+    { valid: !!loanPurpose,     element: document.getElementById('popup_loan_purpose') },
+    { valid: incomeSalary > 0,  element: document.getElementById('popup_income_salary') },
+    { valid: !!nokName,         element: document.getElementById('popup_nok_name') },
+    { valid: !!nokPhone,        element: document.getElementById('popup_nok_phone') },
+    { valid: !!nokRelationship, element: document.getElementById('popup_nok_relationship') },
+    { valid: !!hdStatus,        element: document.querySelector('input[name="popup_hd_status"]') },
+    { valid: !!homeOwnership,   element: document.querySelector('input[name="popup_home_ownership"]') },
+    { valid: !!maritalStatus,   element: document.querySelector('input[name="popup_marital_status"]') },
     { valid: !!highestQualification, element: document.getElementById('popup_highest_qualification') },
     { valid: !!document.querySelector('input[name="popup_referral"]:checked'), element: document.querySelector('input[name="popup_referral"]') },
-    { valid: !referralProvided || !!referralName, element: document.getElementById('popup_referral_name') },
+    { valid: !referralProvided || !!referralName,  element: document.getElementById('popup_referral_name') },
     { valid: !referralProvided || !!referralPhone, element: document.getElementById('popup_referral_phone') },
     { valid: acceptedStd, element: document.getElementById('popup_std_conditions') }
   ];
@@ -1035,19 +1025,26 @@ async function handlePopupDeclarationsSave(e) {
     }
 
     const profilePayload = {
-        first_name: firstName,
-        last_name: lastName,
-      identity_number: identityNumber,
+        first_name:       firstName,
+        last_name:        lastName,
+        identity_number:  identityNumber,
         gender,
-        date_of_birth: dateOfBirth,
-        address: streetAddress,
-        postal_code: postalCode,
-        suburb_area: suburbArea,
-        cell_tel_no: cellTelNo,
-        contact_number: cellTelNo || null,
-        full_name: [firstName, lastName].filter(Boolean).join(' ') || null,
-      updated_at: new Date().toISOString()
+        date_of_birth:    dateOfBirth,
+        address:          streetAddress,
+        postal_code:      postalCode,
+        suburb_area:      suburbArea,
+        cell_tel_no:      cellTelNo,
+        contact_number:   cellTelNo || null,
+        full_name:        [firstName, lastName].filter(Boolean).join(' ') || null,
+        // Next of Kin
+        nok_name:         nokName         || null,
+        nok_phone:        nokPhone        || null,
+        nok_relationship: nokRelationship || null,
+        updated_at: new Date().toISOString()
     };
+
+    // Store loan purpose in sessionStorage so confirmation.js can attach it
+    if (loanPurpose) sessionStorage.setItem('pendingLoanPurpose', loanPurpose);
 
     const { error: profileErr } = await supabase
       .from('profiles')

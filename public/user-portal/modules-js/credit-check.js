@@ -773,7 +773,7 @@ function _resetCircleButton(button) {
   button.classList.remove('is-loading');
 }
 
-function _showCreditResultPopup(score, riskType) {
+function _showCreditResultPopup(score, riskType, eligibility = null) {
   const popup = document.getElementById('credit-result-popup');
   if (!popup) return;
 
@@ -782,30 +782,89 @@ function _showCreditResultPopup(score, riskType) {
   const descEl   = document.getElementById('cr-risk-desc');
   const bannerEl = popup.querySelector('.cr-banner');
   const ringEl   = popup.querySelector('.cr-score-ring');
+  const continueBtn = popup.querySelector('.cr-continue-btn');
 
   if (scoreEl) scoreEl.textContent = score || '---';
 
-  // Determine risk level class
-  const riskUpper = String(riskType || '').toUpperCase();
+  // Use band from rules engine if available, else fall back to riskType
+  const band       = eligibility?.band;
+  const decision   = eligibility?.decision;
+  const isDeclined = decision === 'declined';
+
   let riskClass = 'risk-high';
-  let riskLabel = riskType || 'Unknown';
+  let riskLabel = band?.label || riskType || 'Unknown';
   let riskDesc  = 'Your credit profile requires further review before proceeding.';
 
-  if (riskUpper === 'LOW' || score > 650) {
-    riskClass = 'risk-low';
-    riskDesc  = 'Excellent! Your credit profile looks great. You qualify for preferential rates.';
-  } else if (riskUpper === 'MEDIUM' || score > 400) {
-    riskClass = 'risk-medium';
-    riskDesc  = 'Your credit profile is acceptable. Proceed to select your loan amount.';
+  if (band) {
+    if (band.risk_level === 'low')      { riskClass = 'risk-low';    riskDesc = `Great news! You qualify for up to R${Number(band.max_loan_amount).toLocaleString()} at ${band.interest_rate_pa}% p.a.`; }
+    else if (band.risk_level === 'medium') { riskClass = 'risk-medium'; riskDesc = `You qualify for up to R${Number(band.max_loan_amount).toLocaleString()} at ${band.interest_rate_pa}% p.a.`; }
+    else if (band.risk_level === 'high')   { riskClass = 'risk-high';   riskDesc = `You may qualify for up to R${Number(band.max_loan_amount).toLocaleString()}. A review is required.`; }
+    else { riskClass = 'risk-high'; riskDesc = 'Unfortunately your application does not meet our current lending criteria.'; }
+  } else {
+    const riskUpper = String(riskType || '').toUpperCase();
+    if (riskUpper === 'LOW' || score > 650)    { riskClass = 'risk-low';    riskDesc = 'Excellent! Your credit profile looks great. You qualify for preferential rates.'; }
+    else if (riskUpper === 'MEDIUM' || score > 400) { riskClass = 'risk-medium'; riskDesc = 'Your credit profile is acceptable. Proceed to select your loan amount.'; }
   }
 
   if (badgeEl) {
-    badgeEl.className = `cr-risk-badge ${riskClass}`;
+    badgeEl.className   = `cr-risk-badge ${riskClass}`;
     badgeEl.textContent = riskLabel;
   }
   if (descEl)   descEl.textContent = riskDesc;
-  if (bannerEl) { bannerEl.className = `cr-banner ${riskClass}`; }
-  if (ringEl)   { ringEl.className   = `cr-score-ring ${riskClass}`; }
+  if (bannerEl) bannerEl.className  = `cr-banner ${riskClass}`;
+  if (ringEl)   ringEl.className    = `cr-score-ring ${riskClass}`;
+
+  // Show band details card if available
+  let bandHtml = '';
+  if (band && !isDeclined) {
+    const term = eligibility?.first_loan_restriction
+      ? `<span style="color:#f59e0b;font-weight:700">${band.effective_max_term_months || band.max_term_months} mo ⭐ 1st loan</span>`
+      : `${band.max_term_months} months`;
+    bandHtml = `
+      <div style="background:#f8f9fa;border-radius:12px;padding:14px 16px;margin:12px 0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">
+        <div><div style="font-size:11px;color:#8E8E93;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Max Loan</div>
+             <div style="font-size:16px;font-weight:700;color:#0F172A">R${Number(band.max_loan_amount).toLocaleString()}</div></div>
+        <div><div style="font-size:11px;color:#8E8E93;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Rate p.a.</div>
+             <div style="font-size:16px;font-weight:700;color:#0F172A">${band.interest_rate_pa}%</div></div>
+        <div><div style="font-size:11px;color:#8E8E93;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Max Term</div>
+             <div style="font-size:16px;font-weight:700;color:#0F172A">${term}</div></div>
+      </div>
+      ${eligibility?.first_loan_restriction ? `<p style="font-size:12px;color:#f59e0b;text-align:center;margin:0 0 8px">${eligibility.first_loan_restriction}</p>` : ''}
+    `;
+  }
+
+  // Inject band card before the continue button
+  let bandCard = popup.querySelector('#cr-band-card');
+  if (!bandCard) {
+    bandCard = document.createElement('div');
+    bandCard.id = 'cr-band-card';
+    continueBtn?.parentNode?.insertBefore(bandCard, continueBtn);
+  }
+  bandCard.innerHTML = bandHtml;
+
+  // If hard declined, replace continue button with decline message
+  if (isDeclined && continueBtn) {
+    const declineReasons = eligibility?.failures?.filter(f => f.action === 'decline') || [];
+    continueBtn.style.display = 'none';
+    let declineCard = popup.querySelector('#cr-decline-msg');
+    if (!declineCard) {
+      declineCard = document.createElement('div');
+      declineCard.id = 'cr-decline-msg';
+      continueBtn.parentNode.insertBefore(declineCard, continueBtn);
+    }
+    declineCard.innerHTML = `
+      <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:16px;margin:8px 0;text-align:left;">
+        <div style="font-weight:700;color:#dc2626;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+          <i class="fas fa-times-circle"></i> Application Declined
+        </div>
+        ${declineReasons.map(f => `<p style="font-size:13px;color:#374151;margin:4px 0">• ${f.reason || f.label}</p>`).join('')}
+        <p style="font-size:12px;color:#6b7280;margin-top:8px;">Please contact support if you believe this is incorrect.</p>
+      </div>`;
+  } else if (continueBtn) {
+    continueBtn.style.display = '';
+    const declineCard = popup.querySelector('#cr-decline-msg');
+    if (declineCard) declineCard.innerHTML = '';
+  }
 
   popup.style.display = 'flex';
 }
@@ -956,6 +1015,22 @@ window.startCreditCheckSilent = async function(button) {
       sessionStorage.setItem('creditCheckPassed', 'true');
       sessionStorage.setItem('creditData',        JSON.stringify(creditData));
 
+      // ── Run credit rules engine evaluation ──────────────────────
+      let eligibility = null;
+      try {
+        const evalRes = await fetch(`/api/applications/${applicationId}/evaluate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` }
+        });
+        if (evalRes.ok) {
+          eligibility = await evalRes.json();
+          sessionStorage.setItem('creditEligibility', JSON.stringify(eligibility));
+        }
+      } catch (e) {
+        console.warn('[credit-check] Rules evaluation failed (non-blocking):', e.message);
+      }
+      // ────────────────────────────────────────────────────────────
+
       // Flip button to "done" state
       isProcessing = false;
       if (spinner) spinner.style.display = 'none';
@@ -966,8 +1041,8 @@ window.startCreditCheckSilent = async function(button) {
       button.classList.remove('is-loading');
       button.classList.add('is-done');
 
-      // Show the result popup
-      _showCreditResultPopup(score, riskType);
+      // Show the result popup — with band info if available
+      _showCreditResultPopup(score, riskType, eligibility);
 
     } else {
       await supabase

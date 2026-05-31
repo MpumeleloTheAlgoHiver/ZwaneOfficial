@@ -10,13 +10,22 @@ let currentUploadDocType = null;
 let cachedCreditChecks = [];
 let cachedDocMap = {};
 
-// Extracted from Dashboard Logic
+// Risk → hex colours (no CSS vars — SVG stroke needs real hex)
 const SCORE_RISK_COLORS = {
-    'very low risk': '#10b981',
-    'low risk': '#22c55e',
-    'medium risk': 'var(--color-primary)', 
-    'high risk': '#ef4444',
-    'very high risk': '#dc2626'
+    'very low risk': '#10B981',
+    'low risk':      '#22C55E',
+    'medium risk':   '#E7762E',
+    'high risk':     '#F97316',
+    'very high risk':'#EF4444'
+};
+
+// Glow rgba versions for CSS filter drop-shadow
+const SCORE_RISK_GLOWS = {
+    'very low risk': 'rgba(16, 185, 129, 0.55)',
+    'low risk':      'rgba(34, 197, 94,  0.55)',
+    'medium risk':   'rgba(231, 118, 46, 0.55)',
+    'high risk':     'rgba(249, 115, 22, 0.55)',
+    'very high risk':'rgba(239, 68,  68, 0.55)'
 };
 
 const METRICS_CONFIG = [
@@ -114,27 +123,139 @@ async function fetchCreditChecks() {
     return data || [];
 }
 
-// Minimalist Design Renderer
-function renderCreditSummary(rows) {
-    const latest = rows?.[0] || null;
-    
-    setTextContent('creditScoreValue', latest?.credit_score ?? '—');
-    
-    const riskEl = document.getElementById('creditRiskValue');
-    if (riskEl) {
-        const riskText = latest?.risk_category || latest?.score_band || 'Pending';
-        riskEl.textContent = riskText;
-        
-        // Apply color mapping
-        const riskLabel = riskText.toLowerCase();
-        riskEl.style.backgroundColor = SCORE_RISK_COLORS[riskLabel] || 'var(--color-primary)';
+// ── Gauge animation helpers ───────────────────────────────────────
+
+/** Draw SVG tick-mark lines around the gauge arc (135° → 405°, 30 intervals) */
+function drawGaugeTicks() {
+    const ticksEl = document.getElementById('gaugeTicks');
+    if (!ticksEl) return;
+
+    const cx = 100, cy = 100;
+    const COUNT = 30; // 30 gaps = 31 ticks over 270°
+
+    let markup = '';
+    for (let i = 0; i <= COUNT; i++) {
+        const angleDeg  = 135 + i * (270 / COUNT);
+        const angleRad  = angleDeg * Math.PI / 180;
+        const isMajor   = i % 5 === 0;
+        const rOuter    = isMajor ? 95 : 93;
+        const rInner    = isMajor ? 88 : 90;
+        const opacity   = isMajor ? 0.18 : 0.09;
+        const sw        = isMajor ? 1.8 : 1;
+
+        const x1 = (cx + rOuter * Math.cos(angleRad)).toFixed(2);
+        const y1 = (cy + rOuter * Math.sin(angleRad)).toFixed(2);
+        const x2 = (cx + rInner * Math.cos(angleRad)).toFixed(2);
+        const y2 = (cy + rInner * Math.sin(angleRad)).toFixed(2);
+
+        markup += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" `
+                + `stroke="rgba(15,23,42,${opacity})" stroke-width="${sw}" stroke-linecap="round"/>`;
+    }
+    ticksEl.innerHTML = markup;
+}
+
+/**
+ * Animate the SVG arc fill and glow to the target percentage of the gauge.
+ * @param {number} score   Numeric credit score (300–999)
+ * @param {string} color   Hex colour for the fill
+ * @param {string} glow    rgba() string for the drop-shadow glow
+ */
+function animateGauge(score, color, glow) {
+    const MIN = 300, MAX = 999;
+    const MAX_ARC = 377;        // circumference fraction for 270°
+    const CIRC    = 502.65;     // 2π × 80
+
+    const fraction   = Math.max(0, Math.min(1, (score - MIN) / (MAX - MIN)));
+    const fillAmount = fraction * MAX_ARC;
+
+    const arcEl  = document.getElementById('gaugeArc');
+    const glowEl = document.getElementById('gaugeGlow');
+
+    if (arcEl) {
+        arcEl.style.stroke = color;
+        arcEl.style.setProperty('--gauge-glow-color', glow);
+        arcEl.classList.remove('pulse-complete', 'has-value');
+
+        // Kick off in next tick so CSS transition picks up the change
+        requestAnimationFrame(() => {
+            arcEl.style.strokeDasharray = `${fillAmount} ${CIRC}`;
+            arcEl.classList.add('has-value');
+
+            // Completion pulse once arc finishes drawing (~1.9 s transition)
+            setTimeout(() => {
+                arcEl.classList.add('pulse-complete');
+                setTimeout(() => arcEl.classList.remove('pulse-complete'), 800);
+            }, 1950);
+        });
     }
 
-    // Only display the Reason now
-    const recReason = latest?.recommendation_reason || 'Upload a credit report to see detailed insights.';
-    setTextContent('creditReasonValue', recReason);
-    
-    setTextContent('creditCheckedAt', latest?.checked_at ? `Updated: ${formatDate(latest.checked_at)}` : 'No record');
+    if (glowEl) {
+        glowEl.style.stroke = color;
+        requestAnimationFrame(() => {
+            glowEl.style.strokeDasharray = `${fillAmount} ${CIRC}`;
+        });
+    }
+}
+
+/**
+ * Animate the score number counting up from 0 → target.
+ * @param {number} target Numeric score value
+ */
+function animateCountUp(target) {
+    const el = document.getElementById('creditScoreValue');
+    if (!el || typeof target !== 'number') return;
+
+    const DURATION = 1700;   // ms, slightly shorter than arc fill
+    const start    = performance.now();
+
+    function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+
+    function tick(now) {
+        const progress = Math.min((now - start) / DURATION, 1);
+        el.textContent  = Math.round(easeOutCubic(progress) * target);
+        if (progress < 1) requestAnimationFrame(tick);
+        else el.textContent = target;
+    }
+
+    el.textContent = '0';
+    requestAnimationFrame(tick);
+}
+
+// ── Main renderer ─────────────────────────────────────────────────
+
+function renderCreditSummary(rows) {
+    const latest   = rows?.[0] || null;
+    const score    = latest?.credit_score;
+    const riskText = latest?.risk_category || latest?.score_band || 'Pending';
+    const riskKey  = riskText.toLowerCase();
+    const color    = SCORE_RISK_COLORS[riskKey] || '#E7762E';
+    const glow     = SCORE_RISK_GLOWS[riskKey]  || 'rgba(231,118,46,0.55)';
+
+    // ── Risk badge ───────────────────────────────────────────────
+    const riskEl = document.getElementById('creditRiskValue');
+    if (riskEl) {
+        riskEl.textContent        = riskText;
+        riskEl.style.background   = color;
+        riskEl.style.boxShadow    = `0 4px 16px ${glow}`;
+        riskEl.style.color        = '#fff';
+    }
+
+    // ── Score number + gauge animation ──────────────────────────
+    if (typeof score === 'number') {
+        // Small delay so the card entrance animation runs first
+        setTimeout(() => {
+            animateCountUp(score);
+            animateGauge(score, color, glow);
+        }, 120);
+    } else {
+        setTextContent('creditScoreValue', '—');
+    }
+
+    // ── Footer reason ────────────────────────────────────────────
+    const reason = latest?.recommendation_reason || 'Upload a credit report to see detailed insights.';
+    setTextContent('creditReasonValue', reason);
+    setTextContent('creditCheckedAt', latest?.checked_at
+        ? `Updated: ${formatDate(latest.checked_at)}` : 'No record');
 
     renderMetricsGrid(latest);
 }
@@ -362,6 +483,8 @@ function setTextContent(elementId, value) {
 }
 
 function bootTranscriptsPage() {
+    drawGaugeTicks(); // render tick marks into SVG before data loads
+
     const refreshBtn = document.getElementById('refreshTranscriptsBtn');
     if (refreshBtn) {
         refreshBtn.addEventListener('click', () => initTranscriptsPage(true));
