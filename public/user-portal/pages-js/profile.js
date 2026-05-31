@@ -269,22 +269,7 @@ function renderProfileTab() {
           </div>
           <div class="form-group">
             <label for="cell_tel_no">Cell Phone Number</label>
-            <div style="display:flex;gap:8px;align-items:flex-end;">
-              <input type="text" id="cell_tel_no" value="${currentUserProfile.cell_tel_no || currentUserProfile.contact_number || ''}" placeholder="e.g. 0821234567" maxlength="10" style="flex:1">
-              <button type="button" onclick="window.sendPhoneOTP()" id="btn-send-otp"
-                style="white-space:nowrap;padding:10px 14px;border:none;border-radius:10px;background:var(--color-primary);color:white;font-size:12px;font-weight:700;cursor:pointer;">
-                Verify SMS
-              </button>
-            </div>
-            <div id="otp-verify-row" style="display:none;margin-top:8px;display:none;gap:8px;align-items:center;">
-              <input type="text" id="otp-input" placeholder="Enter 6-digit code" maxlength="6"
-                style="flex:1;padding:10px;border:1.5px solid var(--color-primary);border-radius:10px;font-size:14px;letter-spacing:4px;text-align:center;">
-              <button type="button" onclick="window.verifyPhoneOTP()"
-                style="padding:10px 14px;border:none;border-radius:10px;background:#10b981;color:white;font-size:12px;font-weight:700;cursor:pointer;">
-                Confirm
-              </button>
-            </div>
-            <div id="otp-status" style="font-size:12px;margin-top:4px;"></div>
+            <input type="text" id="cell_tel_no" value="${currentUserProfile.cell_tel_no || currentUserProfile.contact_number || ''}" placeholder="e.g. 0821234567" maxlength="10">
           </div>
           <div class="form-group">
             <label for="user_id">User ID</label>
