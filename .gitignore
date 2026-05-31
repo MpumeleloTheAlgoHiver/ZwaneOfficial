@@ -20,3 +20,11 @@ Thumbs.db
 
 # Superpowers Brainstorm
 .superpowers/
+
+# Sensitive scratch files
+scratch/
+.env
+*.pgp
+*.asc
+*private*key*
+*pgp_key*
