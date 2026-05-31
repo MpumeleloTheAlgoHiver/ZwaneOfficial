@@ -1,4 +1,35 @@
 {
+  "version": 2,
+  "buildCommand": "npm run build",
+  "builds": [
+    {
+      "src": "server.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "public/**",
+          "services/**",
+          "config/**"
+        ]
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "server.js"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/notifications",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/flag-defaults",
+      "schedule": "0 */6 * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",

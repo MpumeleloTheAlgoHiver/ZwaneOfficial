@@ -3567,13 +3567,49 @@ app.post('/api/messaging/webhook', (req, res) => {
     }
 });
 
-// --- 8. Start Server ---
-app.listen(PORT, () => {
-    const companyNameForLog = cachedSystemSettings?.data?.company_name || DEFAULT_SYSTEM_SETTINGS.company_name;
-    console.log(`🚀 ${companyNameForLog} server running on http://localhost:${PORT}`);
-    console.log(`📁 Serving admin files from: ${adminDistPath}`);
-    console.log(`📁 Serving public files from: ${path.join(__dirname, 'public')}`);
-    
-    // Start notification scheduler
-    startNotificationScheduler();
+// ── Vercel Cron endpoints (replaces setInterval for serverless) ───
+// Called by Vercel Cron every 6 hours instead of setInterval
+app.get('/api/cron/notifications', async (req, res) => {
+    if (process.env.VERCEL && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET || ''}`) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    try {
+        const sched = require('./services/notificationScheduler');
+        await Promise.allSettled([
+            sched.checkPaymentDueNotifications?.(),
+            sched.checkEditWindowNotifications?.(),
+            sched.updateLoanPaymentDates?.()
+        ]);
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+app.get('/api/cron/flag-defaults', async (req, res) => {
+    if (process.env.VERCEL && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET || ''}`) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    try {
+        const sched = require('./services/notificationScheduler');
+        await sched.flagDefaultedLoans?.();
+        res.json({ ok: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- 8. Start Server ---
+// On Vercel, the module is imported directly — no listen() needed.
+// Locally, listen() starts the server and the scheduler.
+if (process.env.VERCEL) {
+    // Vercel serverless: export the app, skip listen + scheduler
+    console.log('🚀 Running on Vercel serverless');
+} else {
+    app.listen(PORT, () => {
+        const companyNameForLog = cachedSystemSettings?.data?.company_name || DEFAULT_SYSTEM_SETTINGS.company_name;
+        console.log(`🚀 ${companyNameForLog} server running on http://localhost:${PORT}`);
+        console.log(`📁 Serving admin files from: ${adminDistPath}`);
+        console.log(`📁 Serving public files from: ${path.join(__dirname, 'public')}`);
+        startNotificationScheduler();
+    });
+}
+
+// Export for Vercel serverless handler
+module.exports = app;

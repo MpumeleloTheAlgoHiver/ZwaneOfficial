@@ -256,5 +256,6 @@ module.exports = {
   startNotificationScheduler,
   checkPaymentDueNotifications,
   checkEditWindowNotifications,
-  updateLoanPaymentDates
+  updateLoanPaymentDates,
+  flagDefaultedLoans
 };
