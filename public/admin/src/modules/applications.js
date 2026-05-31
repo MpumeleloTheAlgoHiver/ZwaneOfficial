@@ -14,22 +14,22 @@ import { formatCurrency, formatDate } from '../shared/utils.js';
 const USER_PORTAL_URL = 'https://zw-express-6ulf9yybu-mps-projects-81dea2b0.vercel.app';
 
 const ALL_STATUSES = [
-  'STARTED', 
-  'BUREAU_CHECKING', 
-  'BUREAU_OK', 
-  'BUREAU_REFER', 
+  'STARTED',
+  'BUREAU_CHECKING',
+  'BUREAU_OK',
+  'BUREAU_REFER',
   'BUREAU_DECLINE',
-  'BANK_LINKING', 
-  'AFFORD_OK', 
-  'AFFORD_REFER', 
-  'AFFORD_FAIL', 
+  'BANK_LINKING',
+  'AFFORD_OK',
+  'AFFORD_REFER',
+  'AFFORD_FAIL',
   'OFFERED',
-  'OFFER_ACCEPTED', 
-  'CONTRACT_SIGN', 
-  'DEBICHECK_AUTH', 
-  'READY_TO_DISBURSE',
-  'DISBURSED', 
-  'DECLINED', 
+  'OFFER_ACCEPTED',
+  'CONTRACT_SIGN',
+  'DEBICHECK_AUTH',
+  'APPROVED',
+  'DISBURSED',
+  'DECLINED',
   'ERROR'
 ];
 
@@ -118,7 +118,7 @@ function showToast(message, type = 'success') {
 const getBadgeColor = (status) => {
   switch (status) {
     case 'DISBURSED': 
-    case 'READY_TO_DISBURSE': 
+    case 'APPROVED': 
     case 'AFFORD_OK': 
     case 'BUREAU_OK': 
         return 'bg-green-100 text-green-800';

@@ -1,11 +1,14 @@
 import { initLayout } from '../shared/layout.js';
 import { formatCurrency, formatDate } from '../shared/utils.js';
-import { 
-  fetchApplicationDetail, 
-  updateApplicationStatus, 
-  createPayout, 
-  deletePayout, 
-  updateApplicationNotes 
+import {
+  fetchApplicationDetail,
+  updateApplicationStatus,
+  createPayout,
+  createDisbursement,
+  getDisbursementsByApplication,
+  getCashSendConfig,
+  deletePayout,
+  updateApplicationNotes
 } from '../services/dataService.js';
 import { supabase } from '../services/supabaseClient.js'; 
 import { 
@@ -37,7 +40,7 @@ const ALL_STATUS_OPTIONS = [
     { value: 'AFFORD_REFER', label: 'Affordability Refer' },
     { value: 'OFFERED', label: 'Step 4: Contract Sent' },
     { value: 'OFFER_ACCEPTED', label: 'Contract Signed' },
-    { value: 'READY_TO_DISBURSE', label: 'Step 6: Queue Disburse' },
+    { value: 'APPROVED', label: 'Step 6: Queue Disburse' },
     { value: 'DECLINED', label: 'Declined' }
 ];
 
@@ -358,7 +361,7 @@ const pageTemplate = `
 const getBadgeColor = (status) => {
   if (!status) return 'bg-gray-100 text-gray-800 border border-gray-200';
   switch (status) {
-    case 'READY_TO_DISBURSE': 
+    case 'APPROVED': 
     case 'approved': 
     case 'DISBURSED':
     case 'AFFORD_OK':
@@ -1090,47 +1093,51 @@ const closeModal = () => {
   actionToConfirm = null;
 };
 
-// Final Approval
+// Final Approval with Disbursement
 const approveApplication = async () => {
   const { data: { user } } = await supabase.auth.getUser();
 
-  // 1. GUARD: Check if a payout already exists to prevent database duplication
-  const { data: existingPayout } = await supabase
-    .from('payouts')
-    .select('id')
-    .eq('application_id', currentApplication.id)
-    .maybeSingle();
-
-  if (existingPayout) {
-    showFeedback('A payout record already exists for this application.', 'error');
+  // 1. Check if disbursement exists
+  const { data: existingDisbursements } = await getDisbursementsByApplication(currentApplication.id);
+  if (existingDisbursements && existingDisbursements.length > 0) {
+    showFeedback('Disbursement already exists for this application.', 'error');
     closeModal();
-    return; // STOP: Do not create a duplicate record
+    return;
   }
 
-  // 2. The status update calculates financial columns in the background
-  const { data: updatedApp, error } = await updateApplicationStatus(currentApplication.id, 'READY_TO_DISBURSE');
-  
+  // 2. Update application status
+  const { data: updatedApp, error } = await updateApplicationStatus(currentApplication.id, 'APPROVED');
+
   if (error) {
     showFeedback(error.message, 'error');
     closeModal();
     return;
   }
 
-  // 3. Create the Payout record using the calculated amount
-  const payoutData = {
-    application_id: currentApplication.id,
-    user_id: currentApplication.user_id,
+  // 3. Get CashSend config for fee display
+  const { data: cashsendConfig } = await getCashSendConfig();
+  const bankAccountId = currentApplication.bank_account?.id || null;
+
+  // 4. Create disbursement using new API
+  const disbursementData = {
+    applicationId: currentApplication.id,
+    userId: currentApplication.user_id,
     amount: updatedApp.amount,
-    status: 'pending_disbursement'
+    bankAccountId: bankAccountId,
+    createdBy: user.id
   };
 
-  const { error: payoutError } = await createPayout(payoutData);
-  
-  if (payoutError) {
-    showFeedback("Status updated but payout creation failed: " + payoutError.message, 'error');
+  const { data: disbursement, error: disbursementError } = await createDisbursement(disbursementData);
+
+  if (disbursementError) {
+    showFeedback("Status updated but disbursement creation failed: " + disbursementError.message, 'error');
   } else {
-    showFeedback('Application approved & financial values locked.', 'success');
-    loadApplicationData(); 
+    let message = 'Application approved & disbursement created.';
+    if (disbursement.payout_method === 'cashsend' && disbursement.cashsend_fee) {
+      message += ` CashSend fee: R${disbursement.cashsend_fee.toFixed(2)}`;
+    }
+    showFeedback(message, 'success');
+    loadApplicationData();
   }
   closeModal();
 };
@@ -1844,6 +1851,69 @@ const closeCreditLifeContractModal = () => {
 };
 
 
+const renderDisbursementSection = async (app) => {
+  const container = document.getElementById('action-buttons-container');
+  if (!container) return;
+
+  try {
+    const { data: disbursements } = await getDisbursementsByApplication(app.id);
+    const { data: cashsendConfig } = await getCashSendConfig();
+
+    if (!disbursements || disbursements.length === 0) {
+      container.innerHTML = `
+        <div class="p-4 bg-yellow-50 border border-yellow-100 rounded-xl text-center">
+          <p class="text-sm font-bold text-yellow-800">Disbursement Not Found</p>
+        </div>
+      `;
+      return;
+    }
+
+    const disb = disbursements[0];
+    let feeInfo = '';
+    if (disb.payout_method === 'cashsend' && disb.cashsend_fee) {
+      feeInfo = `
+        <div class="rounded-lg bg-orange-50 border border-orange-200 p-3 mt-3">
+          <p class="text-xs font-bold text-orange-700 uppercase mb-2">CashSend Fees</p>
+          <p class="text-sm text-orange-800">R${disb.cashsend_fee.toFixed(2)}</p>
+        </div>
+      `;
+    }
+
+    container.innerHTML = `
+      <div class="space-y-3">
+        <div class="p-4 bg-green-50 border border-green-100 rounded-xl">
+          <p class="text-xs font-bold text-green-700 uppercase mb-2">Disbursement Details</p>
+          <div class="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p class="text-xs text-green-600">Amount</p>
+              <p class="font-bold text-green-900">R${disb.amount.toFixed(2)}</p>
+            </div>
+            <div>
+              <p class="text-xs text-green-600">Payout Method</p>
+              <p class="font-bold text-green-900 capitalize">${disb.payout_method}</p>
+            </div>
+            <div>
+              <p class="text-xs text-green-600">Status</p>
+              <p class="font-bold text-green-900 capitalize">${disb.status}</p>
+            </div>
+            <div>
+              <p class="text-xs text-green-600">Date</p>
+              <p class="font-bold text-green-900">${formatDate(disb.created_at)}</p>
+            </div>
+          </div>
+        </div>
+        ${feeInfo}
+        <button onclick="handleDisbursementExport(${app.id})" class="w-full py-3 bg-gray-900 text-white text-sm font-bold rounded-xl hover:bg-black transition-colors">
+          <i class="fa-solid fa-file-csv mr-2"></i> Export CSV
+        </button>
+      </div>
+    `;
+  } catch (error) {
+    console.error('Error rendering disbursement section:', error);
+    container.innerHTML = `<div class="p-4 bg-red-50 border border-red-100 rounded-xl text-center"><p class="text-sm font-bold text-red-800">Error loading disbursement</p></div>`;
+  }
+};
+
 const renderSidePanel = (app) => {
   if (!app) return;
   const status = app.status || 'pending';
@@ -1916,6 +1986,32 @@ const renderSidePanel = (app) => {
         </div>
       </div>
     </div>
+
+    <div class="mt-4">
+      <label class="text-[10px] text-gray-400 uppercase font-bold tracking-widest mb-1 block">Admin Override: Loan Term</label>
+      <div class="flex gap-2 items-end">
+        <div class="flex-1">
+          <input
+            type="number"
+            id="admin-loan-term-override"
+            min="1"
+            max="36"
+            value="${term}"
+            class="w-full px-3 py-2 border border-blue-300 rounded-lg bg-blue-50 text-sm font-bold"
+            placeholder="Months"
+          />
+          <small class="text-blue-600 mt-1 block">Leave loan term open for admin review</small>
+        </div>
+        <button
+          type="button"
+          id="admin-update-loan-term-btn"
+          class="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700"
+          onclick="handleAdminLoanTermOverride(${app.id})"
+        >
+          <i class="fa-solid fa-check"></i> Set
+        </button>
+      </div>
+    </div>
   `;
 
   // --- 5. STATUS BADGE & MANUAL OVERRIDE ---
@@ -1947,7 +2043,7 @@ const renderSidePanel = (app) => {
       if (status === 'OFFERED') {
           alertEl.textContent = "Contract Sent. Waiting for user to sign.";
           alertEl.classList.add('bg-purple-50', 'text-purple-700', 'block');
-      } else if (status === 'READY_TO_DISBURSE') {
+      } else if (status === 'APPROVED') {
           alertEl.textContent = "Application is queued for disbursement.";
           alertEl.classList.add('bg-green-50', 'text-green-700', 'block');
       }
@@ -1989,8 +2085,8 @@ const renderSidePanel = (app) => {
           // Confirmation modal for approval
           document.getElementById('btn-approve-contract').onclick = () => openModal('Approve', 'Mark contract as valid and ready for payout?', approveApplication);
       }
-      else if (status === 'READY_TO_DISBURSE') {
-          actionsContainer.innerHTML = `<div class="p-4 bg-green-50 border border-green-100 rounded-xl text-center"><p class="text-sm font-bold text-green-800">Queued for Payout</p></div>`;
+      else if (status === 'APPROVED') {
+          renderDisbursementSection(currentApplication);
       }
       else if (status === 'DISBURSED') {
           actionsContainer.innerHTML = `<div class="p-4 bg-gray-50 border border-gray-100 rounded-xl text-center"><p class="text-sm font-bold text-gray-600">Loan Active / Completed</p></div>`;
@@ -2059,6 +2155,68 @@ const loadApplicationData = async () => {
   } catch (error) {
       console.error("Integration Error:", error);
       showFeedback("Failed to load full application data.", "error");
+  }
+};
+
+// Global function for admin loan term override
+window.handleAdminLoanTermOverride = async (applicationId) => {
+  const input = document.getElementById('admin-loan-term-override');
+  const newTerm = parseInt(input.value);
+
+  if (!newTerm || newTerm < 1 || newTerm > 36) {
+    showFeedback('Please enter a valid loan term (1-36 months)', 'error');
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('loan_applications')
+      .update({ term_months: newTerm })
+      .eq('id', applicationId)
+      .select();
+
+    if (error) throw error;
+
+    showFeedback(`✅ Loan term updated to ${newTerm} month${newTerm > 1 ? 's' : ''}`, 'success');
+    await loadApplicationData();
+  } catch (error) {
+    console.error('Error updating loan term:', error);
+    showFeedback(`❌ Error: ${error.message}`, 'error');
+  }
+};
+
+// Global function for disbursement CSV export
+window.handleDisbursementExport = async (applicationId) => {
+  try {
+    const response = await fetch('/api/disbursements/payout-csv', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        applicationIds: [applicationId],
+        method: 'all'
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      showFeedback(error.error || 'Failed to generate CSV', 'error');
+      return;
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `disbursement-${applicationId}-${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    showFeedback('Disbursement CSV exported successfully', 'success');
+  } catch (error) {
+    console.error('Error exporting CSV:', error);
+    showFeedback(error.message || 'Failed to export CSV', 'error');
   }
 };
 

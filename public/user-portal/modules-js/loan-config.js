@@ -35,7 +35,7 @@ window.closeModule = function() {
 let loanConfig = {
   amount: 5000,
   period: 1,
-  interestRate: 0.20, // 20% annual simple interest
+  interestRate: 0.05, // 5% annual simple interest (first loan of year)
   hasCreditLifeInsurance: false,
   creditLifeContract: {
     accepted: false,
@@ -45,10 +45,11 @@ let loanConfig = {
     contractText: ''
   },
   signature: null,
-  maxAllowedPeriod: 1, // Will be updated based on loan history
+  maxAllowedPeriod: 1, // 1st-time applicants: 1 month; 3+ loans: 6 months; online: 6 months
   completedOneMonthLoans: 0,
   maxLoanAmount: 10000, // Will be calculated dynamically based on affordability
-  affordabilityRatio: null // Max monthly payment from financial profile
+  affordabilityRatio: null, // Max monthly payment from financial profile
+  loanCountAllTime: 0 // Total loan count to determine 5% or regular rate
 };
 
 function getDefaultCreditLifeContract() {
@@ -82,42 +83,57 @@ function hydrateLoanConfigFromPendingStorage() {
   }
 }
 
-// Check user's loan history to determine max allowed period
+// Check user's loan history to determine max allowed period and interest rate
 async function checkLoanHistory() {
   try {
     const { supabase } = await import('/Services/supabaseClient.js');
     const { data: { session } } = await supabase.auth.getSession();
-    
+
     if (!session) return;
 
-    // Count completed 1-month loans with 'active' status
-    const { data, error } = await supabase
-      .from('loans')
-      .select('id')
+    // Count all loans ever (all time)
+    const { data: allLoans, error: allLoansError } = await supabase
+      .from('loan_applications')
+      .select('id, created_at')
       .eq('user_id', session.user.id)
-      .eq('term_months', 1)
-      .eq('status', 'active');
+      .in('status', ['OFFERED', 'OFFER_ACCEPTED', 'CONTRACT_SIGN', 'DEBICHECK_AUTH', 'APPROVED', 'DISBURSED']);
 
-    if (error) {
-      console.error('Error checking loan history:', error);
+    if (allLoansError) {
+      console.error('Error checking loan history:', allLoansError);
       return;
     }
 
-    const count = data?.length || 0;
-    loanConfig.completedOneMonthLoans = count;
+    const allLoanCount = allLoans?.length || 0;
+    loanConfig.loanCountAllTime = allLoanCount;
 
-    // Set interest rate: 20% for first loan, 18% for subsequent loans
-    if (count === 0) {
-      loanConfig.interestRate = 0.20; // 20% annual for first loan
+    // Set interest rate: 5% for first loan of the year (if it's their very first or Jan 1+)
+    // Otherwise standard rate based on existing logic
+    if (allLoanCount === 0) {
+      loanConfig.interestRate = 0.05; // 5% for first-time applicant
     } else {
-      loanConfig.interestRate = 0.18; // 18% annual for all loans after first
+      const currentYear = new Date().getFullYear();
+      const loanThisYear = allLoans.filter(loan => {
+        const loanYear = new Date(loan.created_at).getFullYear();
+        return loanYear === currentYear;
+      });
+
+      if (loanThisYear.length === 0) {
+        loanConfig.interestRate = 0.05; // 5% for first loan of this year
+      } else {
+        loanConfig.interestRate = 0.05; // Standard rate (5% base + 15% fee = 20% total)
+      }
     }
 
-    // If user has 3 or more 1-month loans, unlock all periods
-    if (count >= 3) {
-      loanConfig.maxAllowedPeriod = 24;
+    // Term limits:
+    // - 1st-time applicants (0 loans): max 1 month
+    // - More than 3 loans: max 6 months
+    // - Online applications: max 6 months (default, can be overridden by admin)
+    if (allLoanCount === 0) {
+      loanConfig.maxAllowedPeriod = 1; // 1st-time: 1 month max
+    } else if (allLoanCount >= 3) {
+      loanConfig.maxAllowedPeriod = 6; // 3+ loans: 6 months max (changed from 24)
     } else {
-      loanConfig.maxAllowedPeriod = 1;
+      loanConfig.maxAllowedPeriod = 6; // 1-2 loans: 6 months max (online limit)
     }
 
     // Update slider max
@@ -134,7 +150,7 @@ async function checkLoanHistory() {
       }
     }
 
-    console.log(` User has ${count} completed loans. Interest rate: ${(loanConfig.interestRate * 100).toFixed(0)}%. Max period: ${loanConfig.maxAllowedPeriod} months`);
+    console.log(`User has ${allLoanCount} total loans. Interest rate: ${(loanConfig.interestRate * 100).toFixed(0)}%. Max term allowed: ${loanConfig.maxAllowedPeriod} months.`);
   } catch (error) {
     console.error('Error checking loan history:', error);
   }
@@ -579,38 +595,38 @@ function getLoanSummary() {
   const amount = Math.max(0, Number(loanConfig.amount) || 0);
   const period = Math.max(1, Number(loanConfig.period) || 1);
   const interestRate = Number(loanConfig.interestRate) || 0;
-  const MONTHLY_FEE = 60; // R60 admin fee per month
-  const INITIATION_FEE_RATE = 0.15; // 15% of loan amount per month
-  const CREDIT_LIFE_RATE = 0.0045; // 0.45% of loan amount
-  // Admin fee charged per month (repayment date is scheduled by admin after review)
-  const totalMonthlyFees = MONTHLY_FEE * period;
-  
+
+  // Fee structure: 5% interest + 15% fee = 20% total cost
+  const MONTHLY_SERVICE_FEE = 60; // R60 admin fee per month (prorated first month, then R60)
+  const FEE_RATE = 0.15; // 15% of loan amount per month (initiation/admin fee)
+  const CREDIT_LIFE_RATE = 0.0045; // 0.45% CPI (credit protection insurance)
+
   // Simple interest calculation: I = P × R × T
   // Total interest = principal × annual rate × (months / 12)
   const totalInterest = amount * interestRate * (period / 12);
-  
-  // Calculate initiation fee: 15% of loan amount per month (no cap)
-  const initiationFeePerMonth = amount * INITIATION_FEE_RATE;
-  
-  // Total initiation fees (charged every month)
-  const totalInitiationFees = initiationFeePerMonth * period;
 
-  // Optional Credit Life insurance (Aspis)
+  // Calculate fee: 15% of loan amount per month
+  const feePerMonth = amount * FEE_RATE;
+  const totalFees = feePerMonth * period;
+
+  // Service fee: R60 per month
+  const totalServiceFees = MONTHLY_SERVICE_FEE * period;
+
+  // Optional Credit Life insurance (0.45% of principal, prorated by period if enabled)
   const totalCreditLife = loanConfig.hasCreditLifeInsurance
     ? amount * CREDIT_LIFE_RATE
     : 0;
   const creditLifeMonthly = totalCreditLife / period;
-  
-  // Combined total fees
-  const totalFees = totalMonthlyFees + totalInitiationFees + totalCreditLife;
-  const combinedFees = totalFees;
-  
-  // Total repayment = principal + total interest + all fees
-  const totalRepayment = amount + totalInterest + combinedFees;
-  
-  // Monthly payment = (principal + total interest + total fees) / number of months
+
+  // Combined total all costs
+  const totalAllCosts = totalInterest + totalFees + totalServiceFees + totalCreditLife;
+
+  // Total repayment = principal + total interest + all fees + credit life
+  const totalRepayment = amount + totalAllCosts;
+
+  // Monthly payment = (principal + total interest + all fees + credit life) / number of months
   const monthlyPayment = totalRepayment / period;
-  
+
   // Monthly interest portion (for display purposes)
   const monthlyInterest = totalInterest / period;
 
@@ -619,10 +635,10 @@ function getLoanSummary() {
     totalRepayment,
     monthlyPayment,
     totalFees,
-    monthlyFee: MONTHLY_FEE,
-    initiationFee: initiationFeePerMonth,
-    totalMonthlyFees,
-    totalInitiationFees,
+    monthlyFee: MONTHLY_SERVICE_FEE,
+    initiationFee: feePerMonth,
+    totalMonthlyFees: totalServiceFees,
+    totalInitiationFees: totalFees,
     monthlyInterest,
     creditLifeMonthly,
     totalCreditLife

@@ -285,11 +285,11 @@ function populateApplications() {
         const hoursSinceCreation = (now - createdAt) / (1000 * 60 * 60);
         const withinTimeWindow = hoursSinceCreation < 2;
         
-        const canEdit = withinTimeWindow && app.status !== 'AFFORD_OK' && app.status !== 'READY_TO_DISBURSE';
-        const canDelete = withinTimeWindow && app.status !== 'READY_TO_DISBURSE';
+        const canEdit = withinTimeWindow && app.status !== 'AFFORD_OK' && app.status !== 'APPROVED';
+        const canDelete = withinTimeWindow && app.status !== 'APPROVED';
         
-        const editLockReason = app.status === 'AFFORD_OK' ? 'Edit locked' : app.status === 'READY_TO_DISBURSE' ? 'Edit locked' : 'Edit locked after 2 hours';
-        const deleteLockReason = app.status === 'READY_TO_DISBURSE' ? 'Delete locked' : 'Delete locked after 2 hours';
+        const editLockReason = app.status === 'AFFORD_OK' ? 'Edit locked' : app.status === 'APPROVED' ? 'Edit locked' : 'Edit locked after 2 hours';
+        const deleteLockReason = app.status === 'APPROVED' ? 'Delete locked' : 'Delete locked after 2 hours';
 
         return `
         <div class="application-item">
@@ -821,7 +821,7 @@ window.editApplication = async function(applicationId) {
             
         if (fetchError || !app) { alert('Application not found'); return; }
         if (app.status === 'AFFORD_OK') { alert('This application cannot be edited. Affordability check has been completed.'); return; }
-        if (app.status === 'READY_TO_DISBURSE') { alert('This application cannot be edited. Application is ready to disburse.'); return; }
+        if (app.status === 'APPROVED') { alert('This application cannot be edited. Application is ready to disburse.'); return; }
         
         const hoursSinceCreation = (new Date() - new Date(app.created_at)) / (1000 * 60 * 60);
         if (hoursSinceCreation >= 2) { alert('This application can no longer be edited. Edit window expired after 2 hours.'); return; }
@@ -888,7 +888,7 @@ window.deleteApplication = async function(applicationId) {
         
         const { data: app, error: fetchError } = await supabase.from('loan_applications').select('created_at, status').eq('id', applicationId).eq('user_id', session.user.id).single();
         if (fetchError || !app) { alert('Application not found'); return; }
-        if (app.status === 'READY_TO_DISBURSE') { alert('This application cannot be deleted. Application is ready to disburse.'); return; }
+        if (app.status === 'APPROVED') { alert('This application cannot be deleted. Application is ready to disburse.'); return; }
         
         const hoursSinceCreation = (new Date() - new Date(app.created_at)) / (1000 * 60 * 60);
         if (hoursSinceCreation >= 2) { alert('This application can no longer be deleted. Delete window expired after 2 hours.'); return; }

@@ -54,6 +54,14 @@ const kyc = require(path.join(__dirname, 'public', 'user-portal', 'Services', 'k
 const truid = require('./services/truidService');
 const creditCheckService = require('./services/creditCheckService');
 const sureSystemsService = require('./services/sureSystemsService');
+const disbursementService = require('./services/disbursementService');
+const experianService = require('./services/experianService');
+const defaultService = require('./services/defaultService');
+const feeService = require('./services/feeService');
+const capitecService = require('./services/capitecService');
+const analyticsService = require('./services/analyticsService');
+const auditService = require('./services/auditService');
+const exportService = require('./services/exportService');
 const { supabase, supabaseService } = require('./config/supabaseServer');
 const { startNotificationScheduler } = require('./services/notificationScheduler');
 
@@ -2006,6 +2014,879 @@ app.get('/admin/sacrra', (req, res) => {
     sendAdminPage('sacrra.html', res);
 });
 
+// --- Experian & Affordability API routes ---
+app.post('/api/experian/assess-affordability', async (req, res) => {
+    try {
+        const { userId, financialProfile } = req.body;
+
+        if (!userId || !financialProfile) {
+            return res.status(400).json({ error: 'userId and financialProfile are required' });
+        }
+
+        const { data, error } = await experianService.assessAffordability(userId, financialProfile);
+
+        if (error) {
+            return res.status(400).json({ error });
+        }
+
+        res.json({ success: true, assessment: data });
+    } catch (error) {
+        console.error('Error assessing affordability:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/experian/affordability-status/:userId', async (req, res) => {
+    try {
+        const { data, error } = await experianService.getAffordabilityStatus(req.params.userId);
+
+        if (error) {
+            return res.status(500).json({ error: error.message });
+        }
+
+        res.json({ success: true, status: data });
+    } catch (error) {
+        console.error('Error fetching affordability status:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/experian/profile/:idNumber', async (req, res) => {
+    try {
+        const { data, error } = await experianService.getExperianProfile(req.params.idNumber);
+
+        if (error) {
+            return res.status(400).json({ error });
+        }
+
+        res.json({ success: true, profile: data });
+    } catch (error) {
+        console.error('Error fetching Experian profile:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/experian/decline-reason/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        // Get user's financial profile and affordability status
+        const { data: profiles, error: profileError } = await supabaseService
+            .from('financial_profiles')
+            .select('monthly_income, debt_obligations, decline_reason, show_decline_reason')
+            .eq('user_id', userId)
+            .single();
+
+        if (profileError || !profiles) {
+            return res.status(404).json({ error: 'Financial profile not found' });
+        }
+
+        if (!profiles.decline_reason || !profiles.show_decline_reason) {
+            return res.json({ success: true, eligible: true });
+        }
+
+        // Get loan application for context
+        const { data: application } = await supabaseService
+            .from('loan_applications')
+            .select('amount, term_months, requested_amount')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        const reason = profiles.decline_reason;
+        const income = profiles.monthly_income || 0;
+        const debts = (profiles.debt_obligations || []).reduce((sum, d) => sum + (d.monthly_payment || 0), 0);
+
+        // Format response based on decline reason
+        let response = {
+            success: true,
+            eligible: false,
+            reason,
+            message: '',
+            recommendation: '',
+            details: {}
+        };
+
+        if (reason === 'Income below minimum threshold') {
+            response.message = `Your monthly income (R${income.toLocaleString('en-ZA', { maximumFractionDigits: 2 })}) is below the minimum requirement of R3,000.`;
+            response.recommendation = 'Your income needs to increase to at least R3,000 per month. Please reapply when your income reaches this threshold.';
+            response.details = { required: 3000, current: income, shortfall: 3000 - income };
+        } else if (reason === 'Monthly debt obligations exceed 50% of income') {
+            const ratio = ((debts / income) * 100).toFixed(1);
+            response.message = `Your existing debt payments (R${debts.toLocaleString('en-ZA', { maximumFractionDigits: 2 })}/month) are ${ratio}% of your income, exceeding the 50% limit.`;
+            response.recommendation = `Reduce your debt obligations or increase your income. Your maximum allowable debt is R${(income * 0.5).toLocaleString('en-ZA', { maximumFractionDigits: 2 })}/month.`;
+            response.details = { current: debts, maximum: income * 0.5, ratio, income };
+        } else if (reason === 'No remaining payment capacity after existing obligations') {
+            const maxPayment = income * 0.2;
+            response.message = `After existing obligations, you have no capacity for additional loan payments.`;
+            response.recommendation = `You need to reduce existing debt payments or increase your income to qualify. Maximum available capacity: R${Math.max(0, (maxPayment - debts)).toLocaleString('en-ZA', { maximumFractionDigits: 2 })}/month.`;
+            response.details = { income, existingDebts: debts, maxAllowedPayment: maxPayment };
+        } else if (reason === 'Unable to retrieve Experian data') {
+            response.message = 'We were unable to retrieve your credit information from Experian. Please verify your ID number and try again.';
+            response.recommendation = 'Contact support if the issue persists.';
+        }
+
+        res.json(response);
+    } catch (error) {
+        console.error('Error fetching decline reason:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- Service Fee Calculation API routes ---
+app.post('/api/fees/calculate-prorated', (req, res) => {
+    try {
+        const { start_date } = req.body;
+
+        if (!start_date) {
+            return res.status(400).json({ error: 'start_date is required' });
+        }
+
+        const proratedFee = feeService.calculateProratedFee(new Date(start_date), true);
+        const nextMonthFee = feeService.MONTHLY_SERVICE_FEE;
+
+        res.json({
+            success: true,
+            prorated_first_month: proratedFee,
+            next_month_onwards: nextMonthFee,
+            monthly_rate: feeService.MONTHLY_SERVICE_FEE
+        });
+    } catch (error) {
+        console.error('Error calculating prorated fee:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/fees/calculate-total-service-fees', (req, res) => {
+    try {
+        const { start_date, term_months } = req.body;
+
+        if (!start_date || !term_months) {
+            return res.status(400).json({ error: 'start_date and term_months are required' });
+        }
+
+        const totalFees = feeService.calculateTotalServiceFees(new Date(start_date), term_months);
+
+        res.json({
+            success: true,
+            total_service_fees: totalFees,
+            monthly_rate: feeService.MONTHLY_SERVICE_FEE
+        });
+    } catch (error) {
+        console.error('Error calculating total service fees:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/fees/service-fee-schedule', (req, res) => {
+    try {
+        const { start_date, term_months } = req.body;
+
+        if (!start_date || !term_months) {
+            return res.status(400).json({ error: 'start_date and term_months are required' });
+        }
+
+        const schedule = feeService.generateServiceFeeSchedule(new Date(start_date), term_months);
+
+        res.json({
+            success: true,
+            schedule: schedule,
+            total_fees: schedule.reduce((sum, item) => sum + item.amount, 0)
+        });
+    } catch (error) {
+        console.error('Error generating service fee schedule:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- Loan Default Management API routes ---
+app.post('/api/loans/:loanId/mark-default', async (req, res) => {
+    try {
+        const { reason, userId } = req.body;
+        const { loanId } = req.params;
+
+        const result = await defaultService.markLoanInDefault(loanId, reason);
+
+        if (!result.success) {
+            return res.status(400).json({ error: result.error });
+        }
+
+        // Log audit event
+        if (userId) {
+            const ipAddress = req.ip || req.connection.remoteAddress;
+            const userAgent = req.get('user-agent');
+            await auditService.logLoanStateChange(parseInt(loanId), userId, result.previousStatus, 'DEFAULT', {
+                reason,
+                metadata: {
+                    ipAddress,
+                    userAgent,
+                    defaultAmount: result.defaultAmount
+                }
+            });
+        }
+
+        res.json({ success: true, default: result });
+    } catch (error) {
+        console.error('Error marking loan in default:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/loans/:loanId/clear-default', async (req, res) => {
+    try {
+        const { userId } = req.body;
+        const { loanId } = req.params;
+        const result = await defaultService.clearDefault(loanId);
+
+        if (!result.success) {
+            return res.status(400).json({ error: result.error });
+        }
+
+        // Log audit event
+        if (userId) {
+            const ipAddress = req.ip || req.connection.remoteAddress;
+            const userAgent = req.get('user-agent');
+            await auditService.logLoanStateChange(parseInt(loanId), userId, 'DEFAULT', result.newStatus, {
+                reason: 'Default cleared',
+                metadata: {
+                    ipAddress,
+                    userAgent
+                }
+            });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error clearing default:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/loans/defaults', async (req, res) => {
+    try {
+        const { user_id, days } = req.query;
+        const filters = {};
+        if (user_id) filters.user_id = user_id;
+        if (days) filters.days_in_default = parseInt(days);
+
+        const { data, error } = await defaultService.getDefaultLoans(filters);
+
+        if (error) {
+            return res.status(400).json({ error });
+        }
+
+        res.json({ success: true, defaults: data });
+    } catch (error) {
+        console.error('Error fetching defaults:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/loans/default-metrics', async (req, res) => {
+    try {
+        const { data, error } = await defaultService.getDefaultMetrics();
+
+        if (error) {
+            return res.status(400).json({ error });
+        }
+
+        res.json({ success: true, metrics: data });
+    } catch (error) {
+        console.error('Error fetching default metrics:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- Capitec API routes ---
+app.post('/api/capitec/initiate-transfer', async (req, res) => {
+    try {
+        const { recipientAccount, recipientBank, amount, reference, recipientName } = req.body;
+
+        if (!recipientAccount || !recipientBank || !amount || !reference) {
+            return res.status(400).json({ error: 'Missing required transfer fields' });
+        }
+
+        const { data, error } = await capitecService.initiateTransfer({
+            recipient_account: recipientAccount,
+            recipient_bank: recipientBank,
+            amount,
+            reference,
+            recipient_name: recipientName
+        });
+
+        if (error) {
+            return res.status(400).json({ error });
+        }
+
+        res.json({ success: true, transfer: data });
+    } catch (error) {
+        console.error('Error initiating Capitec transfer:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/capitec/transfer-status/:transactionId', async (req, res) => {
+    try {
+        const { data, error } = await capitecService.getTransferStatus(req.params.transactionId);
+
+        if (error) {
+            return res.status(400).json({ error });
+        }
+
+        res.json({ success: true, status: data });
+    } catch (error) {
+        console.error('Error fetching transfer status:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/capitec/batch-transfer', async (req, res) => {
+    try {
+        const { transfers } = req.body;
+
+        if (!transfers || !Array.isArray(transfers) || transfers.length === 0) {
+            return res.status(400).json({ error: 'transfers array is required' });
+        }
+
+        const { data, error } = await capitecService.createBatchTransfer(transfers);
+
+        if (error) {
+            return res.status(400).json({ error });
+        }
+
+        res.json({ success: true, batch: data });
+    } catch (error) {
+        console.error('Error creating batch transfer:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/capitec/disbursement/:disbursementId/initiate', async (req, res) => {
+    try {
+        const { disbursementId } = req.params;
+
+        const { data: disbursement, error: fetchError } = await supabaseService
+            .from('disbursements')
+            .select('*')
+            .eq('id', disbursementId)
+            .single();
+
+        if (fetchError || !disbursement) {
+            return res.status(404).json({ error: 'Disbursement not found' });
+        }
+
+        const { data: bankAccount } = await supabaseService
+            .from('bank_accounts')
+            .select('*')
+            .eq('id', disbursement.bank_account_id)
+            .single();
+
+        if (!bankAccount) {
+            return res.status(400).json({ error: 'Bank account not found' });
+        }
+
+        const transferData = {
+            recipientAccount: bankAccount.account_number,
+            recipientBank: bankAccount.bank_code || 'STANDARD',
+            amount: disbursement.amount,
+            reference: disbursement.id.toString(),
+            recipientName: bankAccount.account_holder_name
+        };
+
+        const { data: capitecData, error: capitecError } = await capitecService.initiateTransfer(transferData);
+
+        if (capitecError) {
+            return res.status(400).json({ error: capitecError });
+        }
+
+        await capitecService.updateDisbursementCapitecStatus(disbursementId, capitecData);
+
+        res.json({ success: true, transfer: capitecData });
+    } catch (error) {
+        console.error('Error initiating disbursement transfer:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- Analytics & Reporting API routes ---
+app.get('/api/analytics/dashboard', async (req, res) => {
+    try {
+        const { start_date, end_date } = req.query;
+        const metrics = await analyticsService.getDashboardMetrics(start_date, end_date);
+
+        if (!metrics) {
+            return res.status(500).json({ error: 'Failed to calculate metrics' });
+        }
+
+        res.json({ success: true, metrics });
+    } catch (error) {
+        console.error('Error fetching dashboard metrics:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/analytics/payments', async (req, res) => {
+    try {
+        const { start_date, end_date } = req.query;
+        const report = await analyticsService.getPaymentReport(start_date, end_date);
+
+        res.json({
+            success: true,
+            payments: report.payments,
+            summary: report.summary
+        });
+    } catch (error) {
+        console.error('Error generating payment report:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/analytics/financial', async (req, res) => {
+    try {
+        const { start_date, end_date } = req.query;
+        const report = await analyticsService.getFinancialReport(start_date, end_date);
+
+        res.json({ success: true, report });
+    } catch (error) {
+        console.error('Error generating financial report:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/analytics/clients', async (req, res) => {
+    try {
+        const metrics = await analyticsService.getClientMetrics();
+
+        res.json({ success: true, metrics });
+    } catch (error) {
+        console.error('Error fetching client metrics:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/analytics/products', async (req, res) => {
+    try {
+        const metrics = await analyticsService.getProductMetrics();
+
+        res.json({ success: true, metrics });
+    } catch (error) {
+        console.error('Error fetching product metrics:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- Data Export API routes ---
+app.post('/api/export/dashboard', async (req, res) => {
+    try {
+        const { start_date, end_date, format } = req.body;
+        const { userId } = req.body;
+
+        const { csv, batchId } = await exportService.exportDashboardMetrics(
+            start_date,
+            end_date,
+            format || 'csv'
+        );
+
+        // Log audit event
+        if (userId) {
+            await auditService.logAdminAction(userId, 'export', 'dashboard_metrics', {
+                metadata: {
+                    batchId,
+                    format: format || 'csv',
+                    startDate: start_date,
+                    endDate: end_date
+                }
+            });
+        }
+
+        res.set('Content-Type', 'text/csv');
+        res.set('Content-Disposition', `attachment; filename="dashboard-${batchId}.csv"`);
+        res.send(csv);
+    } catch (error) {
+        console.error('Error exporting dashboard:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/export/analytics', async (req, res) => {
+    try {
+        const { start_date, end_date, format, userId } = req.body;
+
+        const { csv, batchId } = await exportService.exportAnalyticsData(
+            start_date,
+            end_date,
+            format || 'csv'
+        );
+
+        // Log audit event
+        if (userId) {
+            await auditService.logAdminAction(userId, 'export', 'analytics_data', {
+                metadata: {
+                    batchId,
+                    format: format || 'csv',
+                    startDate: start_date,
+                    endDate: end_date
+                }
+            });
+        }
+
+        res.set('Content-Type', 'text/csv');
+        res.set('Content-Disposition', `attachment; filename="analytics-${batchId}.csv"`);
+        res.send(csv);
+    } catch (error) {
+        console.error('Error exporting analytics:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/export/financials', async (req, res) => {
+    try {
+        const { start_date, end_date, format, userId } = req.body;
+
+        const { csv, batchId } = await exportService.exportFinancialsData(
+            start_date,
+            end_date,
+            format || 'csv'
+        );
+
+        // Log audit event
+        if (userId) {
+            await auditService.logAdminAction(userId, 'export', 'financials_statement', {
+                metadata: {
+                    batchId,
+                    format: format || 'csv',
+                    startDate: start_date,
+                    endDate: end_date
+                }
+            });
+        }
+
+        res.set('Content-Type', 'text/csv');
+        res.set('Content-Disposition', `attachment; filename="financials-${batchId}.csv"`);
+        res.send(csv);
+    } catch (error) {
+        console.error('Error exporting financials:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/export/audit-trail', async (req, res) => {
+    try {
+        const { start_date, end_date, format, userId } = req.body;
+
+        const { csv, batchId } = await exportService.exportAuditTrail(
+            start_date,
+            end_date,
+            format || 'csv'
+        );
+
+        // Log audit event
+        if (userId) {
+            await auditService.logAdminAction(userId, 'export', 'audit_trail', {
+                metadata: {
+                    batchId,
+                    format: format || 'csv',
+                    startDate: start_date,
+                    endDate: end_date
+                }
+            });
+        }
+
+        res.set('Content-Type', 'text/csv');
+        res.set('Content-Disposition', `attachment; filename="audit-trail-${batchId}.csv"`);
+        res.send(csv);
+    } catch (error) {
+        console.error('Error exporting audit trail:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/export/payments', async (req, res) => {
+    try {
+        const { start_date, end_date, format, userId } = req.body;
+
+        const { csv, batchId } = await exportService.exportPaymentHistory(
+            start_date,
+            end_date,
+            format || 'csv'
+        );
+
+        // Log audit event
+        if (userId) {
+            await auditService.logAdminAction(userId, 'export', 'payment_history', {
+                metadata: {
+                    batchId,
+                    format: format || 'csv',
+                    startDate: start_date,
+                    endDate: end_date
+                }
+            });
+        }
+
+        res.set('Content-Type', 'text/csv');
+        res.set('Content-Disposition', `attachment; filename="payments-${batchId}.csv"`);
+        res.send(csv);
+    } catch (error) {
+        console.error('Error exporting payments:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- Audit Trail API routes ---
+app.get('/api/audit/trail', async (req, res) => {
+    try {
+        const filters = {};
+        if (req.query.user_id) filters.user_id = req.query.user_id;
+        if (req.query.entity_type) filters.entity_type = req.query.entity_type;
+        if (req.query.entity_id) filters.entity_id = parseInt(req.query.entity_id);
+        if (req.query.action) filters.action = req.query.action;
+        if (req.query.start_date) filters.start_date = req.query.start_date;
+        if (req.query.end_date) filters.end_date = req.query.end_date;
+        if (req.query.limit) filters.limit = parseInt(req.query.limit);
+
+        const result = await auditService.getAuditTrail(filters);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error fetching audit trail:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/audit/loan-state/:loanId', async (req, res) => {
+    try {
+        const { loanId } = req.params;
+        const result = await auditService.getLoanStateHistory(parseInt(loanId));
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error fetching loan state history:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/audit/user-actions/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const limit = req.query.limit ? parseInt(req.query.limit) : 50;
+        const result = await auditService.getUserActionHistory(userId, limit);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error fetching user action history:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/audit/recent', async (req, res) => {
+    try {
+        const days = req.query.days ? parseInt(req.query.days) : 7;
+        const result = await auditService.getRecentAuditActivity(days);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error fetching recent audit activity:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/audit/event', async (req, res) => {
+    try {
+        const { userId, entityType, entityId, action, data } = req.body;
+
+        if (!userId || !entityType || !entityId || !action) {
+            return res.status(400).json({ error: 'Missing required fields: userId, entityType, entityId, action' });
+        }
+
+        const ipAddress = req.ip || req.connection.remoteAddress;
+        const userAgent = req.get('user-agent');
+
+        const metadata = data?.metadata || {};
+        metadata.ipAddress = ipAddress;
+        metadata.userAgent = userAgent;
+
+        const result = await auditService.logAuditEvent(userId, entityType, entityId, action, {
+            ...data,
+            metadata
+        });
+
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error logging audit event:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- Disbursement & Payout API routes ---
+app.post('/api/disbursements/create', async (req, res) => {
+    try {
+        const { applicationId, userId, amount, payoutMethod, bankAccountId, thirdPartyName, thirdPartyAccount, thirdPartyBank, createdBy } = req.body;
+
+        if (!applicationId || !userId || !amount) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        const disbursement = await disbursementService.createDisbursement({
+            applicationId,
+            userId,
+            amount,
+            payoutMethod,
+            bankAccountId,
+            thirdPartyName,
+            thirdPartyAccount,
+            thirdPartyBank,
+            createdBy
+        });
+
+        // Log audit event for disbursement creation
+        const ipAddress = req.ip || req.connection.remoteAddress;
+        const userAgent = req.get('user-agent');
+        await auditService.logFinancialTransaction(parseInt(applicationId), 'disbursement', amount, {
+            referenceNumber: disbursement.id,
+            status: disbursement.status,
+            metadata: {
+                payoutMethod,
+                createdBy,
+                ipAddress,
+                userAgent
+            }
+        });
+
+        res.json({ success: true, disbursement });
+    } catch (error) {
+        console.error('Error creating disbursement:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/disbursements/:disbursementId', async (req, res) => {
+    try {
+        const disbursement = await disbursementService.getDisbursement(req.params.disbursementId);
+        res.json({ success: true, disbursement });
+    } catch (error) {
+        console.error('Error fetching disbursement:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/disbursements/application/:applicationId', async (req, res) => {
+    try {
+        const disbursements = await disbursementService.getDisbursementsByApplicationId(req.params.applicationId);
+        res.json({ success: true, disbursements });
+    } catch (error) {
+        console.error('Error fetching disbursements:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/disbursements/:disbursementId/update-status', async (req, res) => {
+    try {
+        const { status, details, userId } = req.body;
+        if (!status) {
+            return res.status(400).json({ error: 'Status is required' });
+        }
+
+        const disbursement = await disbursementService.updateDisbursementStatus(
+            req.params.disbursementId,
+            status,
+            details
+        );
+
+        // Log audit event for status update
+        if (userId && disbursement) {
+            const ipAddress = req.ip || req.connection.remoteAddress;
+            const userAgent = req.get('user-agent');
+            await auditService.logUserAction(userId, 'update_disbursement_status', 'disbursement', parseInt(req.params.disbursementId), {
+                actionDetails: { previousStatus: disbursement.previous_status, newStatus: status, details },
+                metadata: {
+                    ipAddress,
+                    userAgent
+                }
+            });
+        }
+
+        res.json({ success: true, disbursement });
+    } catch (error) {
+        console.error('Error updating disbursement status:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/disbursements/payout-csv', async (req, res) => {
+    try {
+        const { applicationIds, method, exportedBy, userId } = req.body;
+
+        if (!applicationIds || !Array.isArray(applicationIds) || applicationIds.length === 0) {
+            return res.status(400).json({ error: 'applicationIds array is required' });
+        }
+
+        const disbursements = [];
+        for (const appId of applicationIds) {
+            const appDisbursements = await disbursementService.getDisbursementsByApplicationId(appId);
+            disbursements.push(...appDisbursements);
+        }
+
+        if (disbursements.length === 0) {
+            return res.status(400).json({ error: 'No disbursements found for the specified applications' });
+        }
+
+        const batchId = disbursementService.generateBatchId();
+        const { export: exportRecord, csv } = await disbursementService.createCSVExport(
+            batchId,
+            method || 'all',
+            disbursements,
+            exportedBy
+        );
+
+        // Log audit event for CSV export
+        if (userId) {
+            const ipAddress = req.ip || req.connection.remoteAddress;
+            const userAgent = req.get('user-agent');
+            await auditService.logUserAction(userId, 'export', 'disbursement', parseInt(applicationIds[0]), {
+                actionDetails: {
+                    batchId,
+                    method: method || 'all',
+                    count: disbursements.length,
+                    exportedBy
+                },
+                metadata: {
+                    ipAddress,
+                    userAgent
+                }
+            });
+        }
+
+        res.set('Content-Type', 'text/csv');
+        res.set('Content-Disposition', `attachment; filename="payout-${batchId}.csv"`);
+        res.send(csv);
+    } catch (error) {
+        console.error('Error generating payout CSV:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/disbursements/verify-csv', async (req, res) => {
+    try {
+        const { batchId, csvContent } = req.body;
+
+        if (!batchId || !csvContent) {
+            return res.status(400).json({ error: 'batchId and csvContent are required' });
+        }
+
+        const integrity = await disbursementService.verifyCSVIntegrity(batchId, csvContent);
+        res.json({ success: true, ...integrity });
+    } catch (error) {
+        console.error('Error verifying CSV:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/disbursements/config/cashsend', async (req, res) => {
+    try {
+        const config = await disbursementService.getCashSendConfig();
+        res.json({ success: true, config });
+    } catch (error) {
+        console.error('Error fetching CashSend config:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // --- 8. Start Server ---
 app.listen(PORT, () => {

@@ -708,6 +708,11 @@ async function handleBankFormSubmit() {
       if (!checkError && existingApp && ['BUREAU_OK', 'BUREAU_CHECKING'].includes(existingApp.status)) {
         // Update existing application from credit check step
         console.log('✅ Updating existing application:', applicationId);
+
+        // Generate client reference if not already set
+        const userIdShort = session.user.id.substring(0, 8).toUpperCase();
+        const clientReference = `C${userIdShort}`;
+
         const { data: updatedApp, error: updateError } = await supabase
           .from('loan_applications')
           .update({
@@ -717,6 +722,7 @@ async function handleBankFormSubmit() {
             status: 'STARTED',
             bank_account_id: bankAccountId,
             has_credit_life_insurance: Boolean(pendingLoanConfig?.hasCreditLifeInsurance),
+            client_reference: clientReference,
             ...offerFields,
             offer_details: {
               interest_rate: pendingLoanConfig.interestRate,
@@ -757,6 +763,11 @@ async function handleBankFormSubmit() {
     if (!applicationId) {
       // Create new application
       console.log('📝 Creating new application');
+
+      // Generate client reference from user ID (format: C + user_id first 8 chars)
+      const userIdShort = session.user.id.substring(0, 8).toUpperCase();
+      const clientReference = `C${userIdShort}`;
+
       const applicationData = {
         user_id: session.user.id,
         amount: Number(pendingLoanConfig.amount),
@@ -765,6 +776,7 @@ async function handleBankFormSubmit() {
         status: 'STARTED',
         bank_account_id: bankAccountId,
         has_credit_life_insurance: Boolean(pendingLoanConfig?.hasCreditLifeInsurance),
+        client_reference: clientReference,
         ...offerFields,
         offer_details: {
           interest_rate: pendingLoanConfig.interestRate,
@@ -794,8 +806,33 @@ async function handleBankFormSubmit() {
       if (createError) {
         throw createError;
       }
-      
-      newApplication = createdApp;
+
+      // Generate loan_reference: ClientNumber-LoanNumber (e.g., C12345678-L001)
+      if (createdApp?.id && clientReference) {
+        const loanNumber = String(createdApp.id).padStart(6, '0');
+        const loanReference = `${clientReference}-L${loanNumber}`;
+        const agreementNumber = `AGR${createdApp.id}`;
+
+        const { data: updatedApp, error: refError } = await supabase
+          .from('loan_applications')
+          .update({
+            loan_reference: loanReference,
+            agreement_number: agreementNumber
+          })
+          .eq('id', createdApp.id)
+          .eq('user_id', session.user.id)
+          .select()
+          .single();
+
+        if (!refError) {
+          newApplication = updatedApp;
+        } else {
+          console.warn('Failed to update loan reference:', refError);
+          newApplication = createdApp;
+        }
+      } else {
+        newApplication = createdApp;
+      }
     }
 
     const creditLifeArtifact = await uploadCreditLifeContractArtifact(supabase, session, newApplication, summary);

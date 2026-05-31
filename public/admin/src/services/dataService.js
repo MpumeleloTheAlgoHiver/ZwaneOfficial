@@ -42,7 +42,7 @@ async function ensureLoanFromApplication(application) {
   }
 
   // 2. Extract calculations from the application's "Offer" columns
-  // These were locked in during the 'READY_TO_DISBURSE' status update
+  // These were locked in during the 'APPROVED' status update
   const totalRepayment = Number(application.offer_total_repayment || 0);
   const startDate = new Date().toISOString();
   
@@ -307,8 +307,8 @@ export async function updateApplicationStatus(applicationId, newStatus) {
 
     let updatePayload = { status: newStatus };
 
-    // When approving (READY_TO_DISBURSE), calculate and store the "Truth"
-    if (['READY_TO_DISBURSE', 'DISBURSED', 'OFFER_ACCEPTED'].includes(newStatus)) {
+    // When approving (APPROVED), calculate and store the "Truth"
+    if (['APPROVED', 'DISBURSED', 'OFFER_ACCEPTED'].includes(newStatus)) {
       const { count: historyCount } = await supabase
         .from('loans')
         .select('*', { count: 'exact', head: true })
@@ -585,6 +585,72 @@ export async function deletePayout(applicationId) {
 }
 
 // =================================================================
+// == DISBURSEMENTS
+// =================================================================
+export async function createDisbursement(disbursementData) {
+  try {
+    const response = await fetch('/api/disbursements/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(disbursementData)
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to create disbursement');
+    return { data: result.disbursement, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+export async function getDisbursement(disbursementId) {
+  try {
+    const response = await fetch(`/api/disbursements/${disbursementId}`);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to fetch disbursement');
+    return { data: result.disbursement, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+export async function getDisbursementsByApplication(applicationId) {
+  try {
+    const response = await fetch(`/api/disbursements/application/${applicationId}`);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to fetch disbursements');
+    return { data: result.disbursements, error: null };
+  } catch (error) {
+    return { data: [], error };
+  }
+}
+
+export async function updateDisbursementStatus(disbursementId, status, details = {}) {
+  try {
+    const response = await fetch(`/api/disbursements/${disbursementId}/update-status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, details })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to update disbursement');
+    return { data: result.disbursement, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+export async function getCashSendConfig() {
+  try {
+    const response = await fetch('/api/disbursements/config/cashsend');
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to fetch CashSend config');
+    return { data: result.config, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+// =================================================================
 // == SETTINGS & ADMIN
 // =================================================================
 export async function updateMyProfile(profileData) {
@@ -717,7 +783,7 @@ export async function syncApplicationToLoans(applicationId) {
       .single();
     if (appError) throw appError;
 
-    if (app.status !== 'OFFERED' && app.status !== 'DISBURSED' && app.status !== 'READY_TO_DISBURSE') {
+    if (app.status !== 'OFFERED' && app.status !== 'DISBURSED' && app.status !== 'APPROVED') {
         // Just log or ignore
     }
 
