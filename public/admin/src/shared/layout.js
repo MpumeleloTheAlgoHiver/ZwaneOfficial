@@ -273,8 +273,9 @@ function renderSidebarNav(role) {
 
       ${isAdmin ? `
         ${navSection('Configuration')}
-        ${navLink('/admin/credit-rules', 'rule', 'Credit Rules')}
-        ${navLink('/admin/cash-ledger', 'account_balance_wallet', 'Cash Ledger')}
+        ${navLink('/admin/credit-rules',  'rule',                    'Credit Rules')}
+        ${navLink('/admin/cash-ledger',   'account_balance_wallet',  'Cash Ledger')}
+        ${navLink('/admin/loan-book',     'menu_book',               'Loan Book')}
       ` : ''}
 
       ${isSuperAdmin ? `

@@ -2018,6 +2018,10 @@ app.get('/admin/cash-ledger', (req, res) => {
     sendAdminPage('cash-ledger.html', res);
 });
 
+app.get('/admin/loan-book', (req, res) => {
+    sendAdminPage('loan-book.html', res);
+});
+
 app.get('/admin/settings', (req, res) => {
     sendAdminPage('settings.html', res);
 });
