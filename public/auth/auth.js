@@ -289,119 +289,298 @@ function render() {
     `;
 
     authContainer.innerHTML = `
-    ${animationStyles}
-    
-    <div class="relative min-h-screen w-full lg:fixed lg:inset-0 lg:h-screen lg:overflow-hidden font-sans bg-black">
-        
-        <div class="fixed inset-0 w-full h-full z-0 pointer-events-none overflow-hidden">
-            <div class="animate-ken-burns absolute inset-0 w-full h-full" 
-                 style="background-image: url('${wallpaperAttr}'); 
-                        background-size: cover; 
-                        background-position: center;
-                        transform: scaleX(${wallpaperScaleX});">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
+
+        .auth-root * { box-sizing: border-box; }
+        .auth-root {
+            min-height: 100vh;
+            display: flex;
+            font-family: 'IBM Plex Sans', -apple-system, sans-serif;
+            background: #FDF9F6;
+        }
+
+        /* ── Left panel — brand / wallpaper ───────────────────────── */
+        .auth-left {
+            display: none;
+            position: relative;
+            width: 52%;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+        @media(min-width:900px){ .auth-left { display: flex; flex-direction: column; } }
+
+        .auth-left-bg {
+            position: absolute; inset: 0;
+            background-image: url('${wallpaperAttr}');
+            background-size: cover; background-position: center;
+            animation: kenBurns 40s ease-in-out infinite alternate;
+            transform: scaleX(${wallpaperScaleX});
+        }
+        .auth-left-overlay {
+            position: absolute; inset: 0;
+            background: linear-gradient(160deg, rgba(15,23,42,0.72) 0%, rgba(231,118,46,0.35) 100%);
+        }
+        .auth-left-content {
+            position: relative; z-index: 2;
+            display: flex; flex-direction: column; justify-content: space-between;
+            height: 100%; padding: 48px;
+        }
+        .auth-brand-logo {
+            height: 44px; width: auto; object-fit: contain; object-position: left;
+            filter: brightness(0) invert(1);
+            opacity: 0.95;
+        }
+        .auth-carousel-body { max-width: 440px; }
+        .auth-carousel-tag {
+            display: inline-block;
+            background: rgba(231,118,46,0.25);
+            color: rgba(255,255,255,0.9);
+            border: 1px solid rgba(231,118,46,0.4);
+            font-size: 11px; font-weight: 700; letter-spacing: .1em;
+            text-transform: uppercase;
+            padding: 5px 14px; border-radius: 100px;
+            margin-bottom: 20px;
+        }
+        #carousel-title {
+            font-size: 36px; font-weight: 700;
+            color: #fff; line-height: 1.2;
+            margin: 0 0 16px; letter-spacing: -0.5px;
+        }
+        #carousel-text {
+            font-size: 15px; font-weight: 400;
+            color: rgba(255,255,255,0.75); line-height: 1.7;
+            margin: 0 0 32px;
+        }
+        #carousel-dots { display: flex; gap: 6px; }
+        .carousel-dot {
+            width: 24px; height: 4px; border-radius: 2px;
+            background: rgba(255,255,255,0.3);
+            transition: all .3s ease; cursor: pointer;
+        }
+        .carousel-dot.active {
+            background: var(--color-primary, #E7762E);
+            width: 40px;
+        }
+        .auth-left-footer {
+            font-size: 11px; color: rgba(255,255,255,0.4);
+            font-weight: 500;
+        }
+
+        /* ── Right panel — form ───────────────────────────────────── */
+        .auth-right {
+            flex: 1;
+            display: flex; align-items: center; justify-content: center;
+            padding: 40px 24px;
+            min-height: 100vh;
+        }
+
+        .auth-card {
+            width: 100%; max-width: 420px;
+        }
+
+        /* Mobile logo */
+        .auth-mobile-logo {
+            display: flex; justify-content: center; margin-bottom: 32px;
+        }
+        .auth-mobile-logo img { height: 40px; width: auto; object-fit: contain; }
+        @media(min-width:900px){ .auth-mobile-logo { display: none; } }
+
+        /* Heading */
+        .auth-heading { margin-bottom: 32px; }
+        .auth-heading h2 {
+            font-size: 28px; font-weight: 700;
+            color: #0F172A; letter-spacing: -0.5px;
+            margin: 0 0 6px;
+        }
+        .auth-heading p {
+            font-size: 14px; color: #64748b; margin: 0; font-weight: 400;
+        }
+
+        /* Message banner */
+        .auth-banner {
+            padding: 12px 16px; border-radius: 12px;
+            font-size: 13px; font-weight: 600;
+            margin-bottom: 20px; display: flex; align-items: center; gap: 10px;
+        }
+        .auth-banner.error   { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+        .auth-banner.success { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+
+        /* Field */
+        .auth-field { margin-bottom: 18px; }
+        .auth-field label {
+            display: block;
+            font-size: 12px; font-weight: 700; letter-spacing: .06em;
+            text-transform: uppercase; color: #475569;
+            margin-bottom: 8px;
+        }
+        .auth-field input {
+            width: 100%;
+            padding: 13px 16px;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 14px; font-weight: 400; color: #0F172A;
+            background: #fff;
+            outline: none;
+            transition: border-color .2s, box-shadow .2s;
+            font-family: 'IBM Plex Sans', sans-serif;
+        }
+        .auth-field input::placeholder { color: #94a3b8; }
+        .auth-field input:focus {
+            border-color: var(--color-primary, #E7762E);
+            box-shadow: 0 0 0 3px rgba(231,118,46,0.12);
+        }
+
+        /* Forgot link */
+        .auth-forgot {
+            display: flex; justify-content: flex-end; margin-top: -10px; margin-bottom: 18px;
+        }
+        .auth-forgot button {
+            background: none; border: none; padding: 0; cursor: pointer;
+            font-size: 13px; font-weight: 600; color: var(--color-primary, #E7762E);
+            font-family: inherit;
+        }
+        .auth-forgot button:hover { opacity: 0.75; }
+
+        /* Submit */
+        .auth-submit {
+            width: 100%;
+            padding: 14px;
+            border: none; border-radius: 12px;
+            font-size: 15px; font-weight: 700;
+            color: #fff; cursor: pointer;
+            background: linear-gradient(135deg, var(--color-primary, #E7762E) 0%, #f08840 100%);
+            box-shadow: 0 4px 16px rgba(231,118,46,0.30), 0 1px 3px rgba(0,0,0,0.08);
+            transition: transform .18s ease, box-shadow .18s ease;
+            font-family: inherit;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+        }
+        .auth-submit:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 24px rgba(231,118,46,0.40);
+        }
+        .auth-submit:active { transform: scale(0.98); }
+
+        /* Divider */
+        .auth-divider {
+            display: flex; align-items: center; gap: 14px;
+            margin: 24px 0;
+        }
+        .auth-divider span {
+            font-size: 12px; color: #94a3b8; font-weight: 500; white-space: nowrap;
+        }
+        .auth-divider::before, .auth-divider::after {
+            content: ''; flex: 1; height: 1px; background: #e2e8f0;
+        }
+
+        /* Footer switch */
+        .auth-switch {
+            text-align: center;
+            font-size: 14px; color: #64748b;
+        }
+        .auth-switch button {
+            background: none; border: none; padding: 0; cursor: pointer;
+            font-size: 14px; font-weight: 700;
+            color: var(--color-primary, #E7762E);
+            font-family: inherit; margin-left: 4px;
+        }
+        .auth-switch button:hover { opacity: 0.75; }
+
+        /* Legal */
+        .auth-legal {
+            margin-top: 32px; text-align: center;
+            font-size: 11px; color: #94a3b8; line-height: 1.6;
+        }
+
+        @keyframes kenBurns {
+            0%   { transform: scaleX(${wallpaperScaleX}) scale(1);   }
+            50%  { transform: scaleX(${wallpaperScaleX}) scale(1.08); }
+            100% { transform: scaleX(${wallpaperScaleX}) scale(1);   }
+        }
+    </style>
+
+    <div class="auth-root">
+
+        <!-- Left: Brand panel -->
+        <div class="auth-left">
+            <div class="auth-left-bg"></div>
+            <div class="auth-left-overlay"></div>
+            <div class="auth-left-content">
+                <div>
+                    <img src="${brandLogoAttr}" alt="${companyName}" class="auth-brand-logo">
+                </div>
+                <div class="auth-carousel-body">
+                    <span class="auth-carousel-tag">Registered Credit Provider</span>
+                    <h2 id="carousel-title"></h2>
+                    <p id="carousel-text"></p>
+                    <div id="carousel-dots"></div>
+                </div>
+                <div class="auth-left-footer">
+                    NCR Registered · FSP 53423 · NCRCP13510
+                </div>
             </div>
-            ${overlayEnabled ? `
-            <div class="absolute inset-0 mix-blend-multiply" style="background-color:${overlayColorAttr}; opacity:0.35;"></div>` : ''}
-            <div class="absolute inset-0 bg-black/40"></div>
         </div>
 
-        <div class="hidden lg:flex absolute inset-y-0 left-0 z-10 p-12 flex-col justify-between pointer-events-none w-2/3">
-            <div class="pointer-events-auto">
-                <img src="${brandLogoAttr}" alt="Company logo" class="h-16 w-auto object-contain">
-            </div>
-            <div class="mb-12 max-w-lg pointer-events-auto">
-                <h1 id="carousel-title" class="text-white text-5xl font-bold mb-6 leading-tight transition-opacity duration-300 whitespace-pre-line"></h1>
-                <p id="carousel-text" class="text-white text-lg font-light leading-relaxed mb-8 transition-opacity duration-300"></p>
-                <div id="carousel-dots" class="flex gap-2"></div>
-            </div>
-        </div>
+        <!-- Right: Form panel -->
+        <div class="auth-right">
+            <div class="auth-card">
 
-        <div class="relative z-20 min-h-screen flex flex-col items-center justify-center py-12 
-                    lg:absolute lg:right-0 lg:top-0 lg:h-full lg:w-1/3 lg:bg-white lg:shadow-2xl lg:py-0 lg:block">
-            
-            <div class="w-[90%] max-w-md p-6 rounded-2xl shadow-2xl bg-white/10 backdrop-blur-xl border border-white/20 
-                        lg:w-full lg:max-w-md lg:h-full lg:mx-auto lg:bg-transparent lg:border-0 lg:shadow-none lg:p-12 
-                        flex flex-col justify-center transition-all duration-300">
-                
-                <div class="w-full">
-                    
-                    <div class="lg:hidden mb-6 flex justify-center">
-                        <img src="${brandLogoAttr}" alt="Company logo" class="h-10 w-auto opacity-90 object-contain">
-                    </div>
-
-                    <div class="mb-6 text-center">
-                        <h2 class="text-3xl font-bold text-white lg:text-gray-900 mb-2">${mainHeading}</h2>
-                        <p class="text-gray-200 lg:text-gray-500 text-sm">${subHeading}</p>
-                    </div>
-                    
-                    <form id="auth-form" class="space-y-4">
-                        ${messageBanner}
-
-                        ${viewState === 'signup' ? `
-                        <div>
-                            <label for="full-name" class="block text-xs font-bold text-gray-200 lg:text-gray-700 uppercase mb-1">Full Name</label>
-                            <input id="full-name" name="fullName" type="text" required 
-                                class="w-full px-4 py-3 rounded border border-white/30 bg-white/10 text-white placeholder-gray-300 focus:bg-white/20 focus:ring-1 focus:ring-orange-500 focus:border-orange-500 focus:outline-none transition-all lg:border-gray-300 lg:bg-white lg:text-gray-900 lg:placeholder-gray-400" 
-                                placeholder="eg. John Francisco">
-                        </div>
-                        ` : ''}
-
-                        <div>
-                            <label for="email-address" class="block text-xs font-bold text-gray-200 lg:text-gray-700 uppercase mb-1">Email Address</label>
-                            <input id="email-address" name="email" type="email" autocomplete="email" required 
-                                class="w-full px-4 py-3 rounded border border-white/30 bg-white/10 text-white placeholder-gray-300 focus:bg-white/20 focus:ring-1 focus:ring-orange-500 focus:border-orange-500 focus:outline-none transition-all lg:border-gray-300 lg:bg-white lg:text-gray-900 lg:placeholder-gray-400" 
-                                placeholder="info@example.com">
-                        </div>
-
-                        ${viewState !== 'forgot' ? `
-                        <div>
-                            <label for="password" class="block text-xs font-bold text-gray-200 lg:text-gray-700 uppercase mb-1">Password</label>
-                            <div class="relative">
-                                <input id="password" name="password" type="password" autocomplete="current-password" required 
-                                    class="w-full px-4 py-3 rounded border border-white/30 bg-white/10 text-white placeholder-gray-300 focus:bg-white/20 focus:ring-1 focus:ring-orange-500 focus:border-orange-500 focus:outline-none transition-all lg:border-gray-300 lg:bg-white lg:text-gray-900 lg:placeholder-gray-400" 
-                                    placeholder="********">
-                            </div>
-                            ${viewState === 'signup' ? `<p class="mt-1 text-xs text-gray-300 lg:text-gray-500">Must be at least 6 characters.</p>` : ''}
-                        </div>
-                        ` : ''}
-
-                        ${viewState === 'login' ? `
-                        <div class="flex justify-end text-sm">
-                            <button type="button" id="btn-to-forgot" class="text-gray-200 hover:text-white lg:text-gray-500 lg:hover:text-orange-600 transition-colors font-medium">Forgot Password?</button>
-                        </div>
-                        ` : ''}
-
-                        <button type="submit" 
-                            class="w-full flex justify-center py-3 px-4 border border-transparent rounded shadow-sm text-sm font-bold text-white transition-all focus:outline-none focus:ring-2 focus:ring-offset-2"
-                            style="background-color: var(--color-primary, #E7762E);"
-                            onmouseenter="this.style.backgroundColor = 'var(--color-primary-hover, #cf5f20)'"
-                            onmouseleave="this.style.backgroundColor = 'var(--color-primary, #E7762E)'">
-                            <span id="auth-button-content">${buttonText}</span>
-                        </button>
-                    </form>
-
-                    <div class="relative my-6">
-                        <div class="absolute inset-0 flex items-center">
-                            <div class="w-full border-t border-white/20 lg:border-gray-200"></div>
-                        </div>
-                        <div class="relative flex justify-center text-sm">
-                            <span class="px-2 bg-transparent text-gray-300 lg:bg-white lg:text-gray-500">or</span>
-                        </div>
-                    </div>
-
-                    <div class="text-center">
-                        <p class="text-sm text-gray-200 lg:text-gray-600">
-                            ${getFooterText()}
-                        </p>
-                    </div>
+                <!-- Mobile logo -->
+                <div class="auth-mobile-logo">
+                    <img src="${brandLogoAttr}" alt="${companyName}">
                 </div>
 
-                <div class="mt-8 pt-4 text-center border-t border-white/10 lg:border-gray-100 lg:mt-auto">
-                    <p class="text-[10px] text-gray-300 lg:text-sm lg:text-gray-500 leading-tight opacity-70 hover:opacity-100 transition-opacity">
-                        ${companyName} is an authorised financial services provider (FSP 53423) and registered credit provider (NCRCP13510).
-                        <br class="mb-1">
-                        Copyright © 2025 by ${companyName}. All Right Reserved.
-                    </p>
+                <!-- Heading -->
+                <div class="auth-heading">
+                    <h2>${mainHeading}</h2>
+                    <p>${subHeading}</p>
+                </div>
+
+                <!-- Message banner -->
+                ${formMessage.text ? `
+                <div class="auth-banner ${formMessage.type}">
+                    <i class="fas fa-${formMessage.type === 'success' ? 'circle-check' : 'circle-exclamation'}"></i>
+                    ${formMessage.text}
+                </div>` : ''}
+
+                <!-- Form -->
+                <form id="auth-form">
+                    ${viewState === 'signup' ? `
+                    <div class="auth-field">
+                        <label for="full-name">Full Name</label>
+                        <input id="full-name" name="fullName" type="text" required placeholder="John Smith">
+                    </div>` : ''}
+
+                    <div class="auth-field">
+                        <label for="email-address">Email Address</label>
+                        <input id="email-address" name="email" type="email" autocomplete="email" required placeholder="info@example.com">
+                    </div>
+
+                    ${viewState !== 'forgot' ? `
+                    <div class="auth-field">
+                        <label for="password">Password</label>
+                        <input id="password" name="password" type="password" autocomplete="current-password" required placeholder="••••••••">
+                        ${viewState === 'signup' ? '<p style="font-size:12px;color:#94a3b8;margin-top:6px;">Minimum 6 characters.</p>' : ''}
+                    </div>` : ''}
+
+                    ${viewState === 'login' ? `
+                    <div class="auth-forgot">
+                        <button type="button" id="btn-to-forgot">Forgot Password?</button>
+                    </div>` : ''}
+
+                    <button type="submit" class="auth-submit">
+                        <span id="auth-button-content">${buttonText}</span>
+                    </button>
+                </form>
+
+                <div class="auth-divider"><span>or</span></div>
+
+                <div class="auth-switch">${getFooterText()}</div>
+
+                <div class="auth-legal">
+                    ${companyName} is an authorised financial services<br>
+                    provider (FSP 53423) · NCRCP13510<br>
+                    © 2025 ${companyName}. All rights reserved.
                 </div>
 
             </div>
@@ -409,7 +588,7 @@ function render() {
     </div>`;
 
     attachListeners();
-    if(window.innerWidth >= 1024) startCarousel(); 
+    if(window.innerWidth >= 900) startCarousel();
 }
 
 function getFooterText() {
