@@ -1,4 +1,4 @@
-import { DEFAULT_SYSTEM_SETTINGS } from '../../../shared/theme-runtime.js';
+import { DEFAULT_SYSTEM_SETTINGS, normalizeCarouselSlides } from '../../../shared/theme-runtime.js';
 import { supabase } from './supabaseClient.js';
 
 export { DEFAULT_SYSTEM_SETTINGS };
@@ -748,3 +748,29 @@ export const fetchFullUserProfile = async (userId) => {
     const { data: docs } = await supabase.from('document_uploads').select('*').eq('user_id', userId);
     return { profile, loans: loans || [], documents: docs || [] };
 };
+// Fetch disbursements for a specific application
+export async function getDisbursementsByApplication(applicationId) {
+    const { data, error } = await supabase
+        .from('payouts')
+        .select('*')
+        .eq('application_id', applicationId)
+        .order('created_at', { ascending: false });
+    return { data: data || [], error };
+}
+
+// Fetch loan book with tracking fields
+
+// Alias: createDisbursement = createPayout for backward compat
+export const createDisbursement = createPayout;
+
+// CashSend config — returns fee schedule for UI
+export async function getCashSendConfig() {
+    try {
+        const res = await fetch('/api/cashsend/schedule');
+        if (!res.ok) return { data: null, error: 'Failed to fetch CashSend config' };
+        const data = await res.json();
+        return { data, error: null };
+    } catch (err) {
+        return { data: null, error: err.message };
+    }
+}

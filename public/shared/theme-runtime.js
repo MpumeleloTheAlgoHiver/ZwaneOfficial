@@ -117,7 +117,7 @@ const sanitizeSlide = (slide = {}, fallback = {}) => {
   };
 };
 
-const normalizeCarouselSlides = (slides) => {
+export const normalizeCarouselSlides = (slides) => {
   const incoming = Array.isArray(slides) ? slides : [];
   return DEFAULT_CAROUSEL_SLIDES.map((fallback, index) => sanitizeSlide(incoming[index] || {}, fallback));
 };
