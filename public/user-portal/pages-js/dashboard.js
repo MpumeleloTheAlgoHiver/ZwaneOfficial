@@ -35,13 +35,30 @@ const currencyFormatter = new Intl.NumberFormat('en-ZA', { minimumFractionDigits
 const getThemePalette = () => {
     const styles = getComputedStyle(document.documentElement);
     const read = (name, fallback) => (styles.getPropertyValue(name).trim() || fallback);
-    // Convert "R G B" → "R, G, B" so canvas rgba() works
-    const primaryRgbRaw = read('--color-primary-rgb', '231 118 46');
-    const primaryRgb    = primaryRgbRaw.replace(/\s+/g, ', ');
+    const primary = read('--color-primary', '#E7762E');
+
+    // Build a reliable rgba() that canvas accepts
+    // CSS var might be "231 118 46", "231, 118, 46", or missing
+    function primaryAlpha(alpha) {
+        try {
+            const raw = read('--color-primary-rgb', '231 118 46');
+            // Normalise: remove commas, collapse whitespace → "R G B" → "R, G, B"
+            const csv = raw.replace(/,/g, ' ').trim().replace(/\s+/g, ', ');
+            const rgba = `rgba(${csv}, ${alpha})`;
+            // Validate — new OffscreenCanvas test is too heavy; just check pattern
+            if (!/^rgba\(\d+,\s*\d+,\s*\d+,\s*[\d.]+\)$/.test(rgba)) {
+                return `rgba(231, 118, 46, ${alpha})`; // hard fallback
+            }
+            return rgba;
+        } catch (_) {
+            return `rgba(231, 118, 46, ${alpha})`;
+        }
+    }
+
     return {
-        primary: read('--color-primary', '#E7762E'),
+        primary,
         surfaceCard: read('--color-surface-card', '#FFFFFF'),
-        primaryAlpha: (alpha) => `rgba(${primaryRgb}, ${alpha})`
+        primaryAlpha
     };
 };
 
@@ -537,12 +554,14 @@ function applyRepaymentChart(labels = [], data = []) {
 }
 
 function initializeCharts() {
+  try {
     const palette = getThemePalette();
     const repaymentCtx = document.getElementById('repaymentChart');
-    
+
     if (repaymentCtx) {
         const lineCtx = repaymentCtx.getContext('2d');
-        const lineGradient = lineCtx.createLinearGradient(0, 0, 0, repaymentCtx.height);
+        const h = repaymentCtx.clientHeight || repaymentCtx.height || 200;
+        const lineGradient = lineCtx.createLinearGradient(0, 0, 0, h);
         lineGradient.addColorStop(0, palette.primaryAlpha(0.35));
         lineGradient.addColorStop(1, palette.primaryAlpha(0.05));
 
@@ -671,6 +690,9 @@ function initializeCharts() {
         });
         updateLoanBreakdownChart(dashboardData.totalRepaid, dashboardData.currentBalance);
     }
+  } catch (chartErr) {
+    console.warn('[charts] initializeCharts failed:', chartErr.message);
+  }
 }
 
 function updateLoanBreakdownChart(totalRepaid = 0, outstanding = 0) {
