@@ -125,62 +125,57 @@ function initCalculator() {
 
 // Calculate loan
 window.calculateLoan = function(fixedAnnualRate = 0.05) {
-  const principal = parseFloat(document.getElementById('loanAmount').value) || 0;
-  const termMonths = parseInt(document.getElementById('loanTerm').value) || 0;
-  const annualRate = fixedAnnualRate;
+  const principal  = parseFloat(document.getElementById('loanAmount').value) || 0;
+  const termMonths = parseInt(document.getElementById('loanTerm').value)     || 0;
 
-  if (principal <= 0 || termMonths <= 0) {
-    return;
-  }
+  if (principal <= 0 || termMonths <= 0) return;
 
-  // Fee structure matching actual loan config
-  const MONTHLY_FEE = 60; // R60 admin fee per month
-  const INITIATION_FEE_RATE = 0.15; // 15% of loan amount per month
-  
-  // Calculate simple interest: I = P × R × T
-  const totalInterest = principal * annualRate * (termMonths / 12);
-  
-  // Calculate initiation fees (15% of loan amount per month)
-  const initiationFeePerMonth = principal * INITIATION_FEE_RATE;
-  const totalInitiationFees = initiationFeePerMonth * termMonths;
-  
-  // Total admin fees (R60 per month)
-  const totalAdminFees = MONTHLY_FEE * termMonths;
-  
-  // Combined total fees
-  const totalFees = totalAdminFees + totalInitiationFees;
-  
-  // Total repayment = principal + total interest + total fees
-  const totalRepayment = principal + totalInterest + totalFees;
-  
-  // Monthly payment = total repayment / number of months
-  const monthlyPayment = totalRepayment / termMonths;
+  // ── NCA-Compliant Fee Structure ────────────────────────────────
+  // These match loan-config.js exactly
+  const INTEREST_RATE_MONTHLY = 0.05;   // 5% per month (not per year)
+  const INITIATION_FEE_RATE   = 0.15;   // 15% of principal — one-time
+  const SERVICE_FEE_MONTHLY   = 60;     // R60/month
+  const CPI_RATE_MONTHLY      = 0.0045; // 0.45%/month Credit Protection Insurance
+  const VAT_RATE              = 0.15;   // 15% VAT on initiation + service fees
 
-  // Update display
-  document.getElementById('monthlyPayment').textContent = formatCurrency(monthlyPayment);
-  document.getElementById('totalInterest').textContent = formatCurrency(totalInterest);
-  document.getElementById('totalRepayment').textContent = formatCurrency(totalRepayment);
+  // Calculations
+  const totalInterest      = principal * INTEREST_RATE_MONTHLY * termMonths;
+  const totalInitiation    = principal * INITIATION_FEE_RATE;          // once-off
+  const totalServiceFees   = SERVICE_FEE_MONTHLY * termMonths;
+  const totalCPI           = principal * CPI_RATE_MONTHLY * termMonths;
+  const vatAmount          = (totalInitiation + totalServiceFees) * VAT_RATE;
+  const totalCostOfCredit  = totalInterest + totalInitiation + totalServiceFees + totalCPI + vatAmount;
+  const totalRepayment     = principal + totalCostOfCredit;
+  const monthlyPayment     = totalRepayment / termMonths;
+
+  // Display
+  document.getElementById('monthlyPayment').textContent  = formatCurrency(monthlyPayment);
+  document.getElementById('totalInterest').textContent   = formatCurrency(totalInterest);
+  document.getElementById('totalRepayment').textContent  = formatCurrency(totalRepayment);
   document.getElementById('principalAmount').textContent = formatCurrency(principal);
-  document.getElementById('interestAmount').textContent = formatCurrency(totalInterest + totalFees);
-  
-  // Update breakdown info text with selected rate
+  document.getElementById('interestAmount').textContent  = formatCurrency(totalCostOfCredit);
+
+  // Breakdown info text
   const breakdownInfo = document.getElementById('breakdownInfo');
   if (breakdownInfo) {
-    const ratePercent = (annualRate * 100).toFixed(0);
-    breakdownInfo.innerHTML = `<i class="fas fa-info-circle"></i> Includes: Interest (${ratePercent}% annual) + Admin fees (R60/month) + Initiation fees (15%/month)`;
+    breakdownInfo.innerHTML = `
+      <i class="fas fa-info-circle"></i>
+      Interest: 5%/month · Service fee: R60/month · Initiation: 15% (once-off) ·
+      CPI: 0.45%/month · VAT: 15% on fees`;
   }
 
-  // Store calculation for apply button
+  // Interest rate input shows monthly rate
+  const rateInput = document.getElementById('interestRate');
+  if (rateInput) rateInput.value = '5% per month';
+
+  // Store for apply button
   window.loanCalculation = {
-    principal,
-    termMonths,
-    annualRate: annualRate * 100,
-    monthlyPayment,
-    totalRepayment,
-    totalInterest,
-    totalFees,
-    totalAdminFees,
-    totalInitiationFees
+    principal, termMonths,
+    interestRateMonthly: INTEREST_RATE_MONTHLY * 100,
+    monthlyPayment, totalRepayment,
+    totalInterest, totalInitiation,
+    totalServiceFees, totalCPI, vatAmount,
+    totalCostOfCredit
   };
 };
 
