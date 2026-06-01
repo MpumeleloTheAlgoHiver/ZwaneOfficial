@@ -10,7 +10,7 @@ require('dotenv').config();
 // The frontend uses VITE_SUPABASE_* names; mirror them onto the legacy SUPABASE_* names
 // (and vice versa) so older modules that read process.env.SUPABASE_* keep working.
 const _FALLBACK_SUPABASE_URL = "https://jmnjkxfxenrudpvjprcu.supabase.co";
-const _FALLBACK_SUPABASE_ANON_KEY = "REMOVED_ANON_KEY";
+const _FALLBACK_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptbmpreGZ4ZW5ydWRwdmpwcmN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUxODkzNzUsImV4cCI6MjA4MDc2NTM3NX0.X4ZdxzHF0b9GnHklObpIHqnhWvtKjdZnLoah0EVTvHs";
 const _resolvedUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || _FALLBACK_SUPABASE_URL;
 const _resolvedAnon = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || _FALLBACK_SUPABASE_ANON_KEY;
 process.env.SUPABASE_URL = _resolvedUrl;

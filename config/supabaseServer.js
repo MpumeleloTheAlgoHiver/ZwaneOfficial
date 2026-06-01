@@ -3,7 +3,7 @@ const { createClient } = require('@supabase/supabase-js');
 // Supabase credentials. Mirrors the frontend fallback in public/Services/supabaseClient.js
 // so backend and frontend stay aligned even if env vars are misconfigured.
 const FALLBACK_SUPABASE_URL = "https://jmnjkxfxenrudpvjprcu.supabase.co";
-const FALLBACK_SUPABASE_ANON_KEY = "REMOVED_ANON_KEY";
+const FALLBACK_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptbmpreGZ4ZW5ydWRwdmpwcmN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUxODkzNzUsImV4cCI6MjA4MDc2NTM3NX0.X4ZdxzHF0b9GnHklObpIHqnhWvtKjdZnLoah0EVTvHs";
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || FALLBACK_SUPABASE_URL;
 const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || FALLBACK_SUPABASE_ANON_KEY;
