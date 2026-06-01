@@ -21,29 +21,44 @@ let roleFilter = 'all';
 
 const LIST_VIEW_HTML = `
 <div id="view-list" class="flex flex-col h-full animate-fade-in">
-  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4 shrink-0">
+
+  <!-- Header -->
+  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-5 gap-4 shrink-0">
     <div>
-      <h1 class="text-2xl font-headline font-bold text-on-surface tracking-tight">User Directory</h1>
-      <p class="mt-1 text-[11px] font-semibold uppercase tracking-widest text-outline">Manage institutional clients and branch assignments.</p>
+      <h1 class="text-2xl font-headline font-bold text-on-surface tracking-tight">Users</h1>
+      <p class="mt-1 text-[11px] font-semibold uppercase tracking-widest text-outline">Clients · Staff · Admins</p>
     </div>
-    
-    <div class="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-        <select id="role-filter" class="bg-white border border-gray-200 text-gray-700 py-2.5 pl-4 pr-10 rounded-2xl text-sm font-bold focus:ring-[#a04100] shadow-sm">
-            <option value="all">All Roles</option>
-            <option value="client">Clients</option>
-            <option value="staff">Staff</option>
-        </select>
+    <div class="flex items-center gap-3">
+      <button id="btn-invite-staff"
+        class="flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm font-bold text-white shadow-sm transition-all hover:-translate-y-0.5"
+        style="background:var(--color-primary)">
+        <span class="material-symbols-outlined text-[16px]">person_add</span> Invite Staff
+      </button>
+    </div>
+  </div>
 
-        <select id="branch-filter" class="bg-white border border-gray-200 text-gray-700 py-2.5 pl-4 pr-10 rounded-2xl text-sm font-bold focus:ring-[#a04100] w-full sm:w-48 shadow-sm">
-            <option value="all">All Branches</option>
-            <option disabled>Loading...</option>
-        </select>
+  <!-- Tabs: Clients | Staff -->
+  <div class="flex items-center gap-1 mb-5 bg-gray-100 rounded-2xl p-1 w-fit shrink-0">
+    <button id="tab-clients" onclick="window.switchUserTab('clients')"
+      class="user-tab-btn px-5 py-2 rounded-xl text-sm font-bold transition-all bg-white shadow-sm text-on-surface">
+      Clients
+    </button>
+    <button id="tab-staff" onclick="window.switchUserTab('staff')"
+      class="user-tab-btn px-5 py-2 rounded-xl text-sm font-bold transition-all text-outline hover:text-on-surface">
+      Staff &amp; Admins
+    </button>
+  </div>
 
-        <div class="relative w-full sm:w-72">
-            <input type="text" id="user-search" placeholder="Search Identity, Email, ID..." 
-                   class="w-full pl-12 pr-4 py-2.5 border border-gray-200 rounded-2xl focus:ring-[#a04100] text-sm font-bold shadow-sm">
-            <span class="material-symbols-outlined absolute left-4 top-2.5 text-slate-400">search</span>
-        </div>
+  <!-- Filters -->
+  <div class="flex flex-wrap gap-3 mb-5 shrink-0">
+    <select id="branch-filter" class="bg-white border border-gray-200 text-gray-700 py-2 pl-3 pr-8 rounded-xl text-sm font-semibold focus:outline-none shadow-sm">
+      <option value="all">All Branches</option>
+      <option disabled>Loading...</option>
+    </select>
+    <div class="relative flex-1 min-w-[200px]">
+      <input type="text" id="user-search" placeholder="Search name, email, ID number..."
+        class="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none shadow-sm bg-white">
+      <span class="material-symbols-outlined absolute left-3 top-2 text-slate-400 text-[16px]">search</span>
     </div>
   </div>
 
@@ -437,6 +452,112 @@ const applyFilters = (resetPage = true) => {
 
 // --- INIT ---
 
+// ── Invite Staff Modal ──────────────────────────────────────────
+function injectInviteModal(branches) {
+    if (document.getElementById('invite-staff-modal')) return;
+    const modal = document.createElement('div');
+    modal.id = 'invite-staff-modal';
+    modal.className = 'hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4';
+    modal.innerHTML = `
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onclick="event.stopPropagation()">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h3 class="text-lg font-bold text-gray-900">Invite Staff Member</h3>
+            <p class="text-xs text-gray-500 mt-0.5">Creates a login account and profile immediately.</p>
+          </div>
+          <button onclick="document.getElementById('invite-staff-modal').classList.add('hidden')"
+            class="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500">
+            <span class="material-symbols-outlined text-[16px]">close</span>
+          </button>
+        </div>
+
+        <div id="invite-error" class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 font-medium"></div>
+        <div id="invite-success" class="hidden mb-4 p-3 bg-green-50 border border-green-200 rounded-xl text-sm text-green-700 font-medium"></div>
+
+        <form id="invite-form" class="space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <div class="col-span-2">
+              <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Full Name *</label>
+              <input name="full_name" type="text" required placeholder="Jane Smith"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none">
+            </div>
+            <div class="col-span-2">
+              <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Email Address *</label>
+              <input name="email" type="email" required placeholder="jane@company.co.za"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Role *</label>
+              <select name="role" class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-orange-400 outline-none bg-white">
+                <option value="base_admin">Loan Officer</option>
+                <option value="admin">Branch Manager</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Branch</label>
+              <select name="branch_id" class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-orange-400 outline-none bg-white">
+                <option value="">No branch</option>
+                ${branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('')}
+              </select>
+            </div>
+            <div class="col-span-2">
+              <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Temporary Password *</label>
+              <input name="password" type="password" required placeholder="Min 8 characters" minlength="8"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none">
+              <p class="text-xs text-gray-400 mt-1">Staff member should change this on first login.</p>
+            </div>
+          </div>
+          <div class="flex gap-3 pt-2">
+            <button type="button" onclick="document.getElementById('invite-staff-modal').classList.add('hidden')"
+              class="flex-1 border border-gray-200 text-gray-600 font-semibold py-2.5 rounded-xl hover:bg-gray-50 text-sm">Cancel</button>
+            <button type="submit" id="invite-submit-btn"
+              class="flex-1 text-white font-semibold py-2.5 rounded-xl text-sm transition-colors"
+              style="background:var(--color-primary)">Send Invite</button>
+          </div>
+        </form>
+      </div>`;
+
+    document.body.appendChild(modal);
+
+    // Close on backdrop click
+    modal.addEventListener('click', () => modal.classList.add('hidden'));
+
+    // Submit handler
+    document.getElementById('invite-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('invite-submit-btn');
+        const errEl = document.getElementById('invite-error');
+        const okEl  = document.getElementById('invite-success');
+        errEl.classList.add('hidden');
+        okEl.classList.add('hidden');
+        btn.textContent = 'Inviting…'; btn.disabled = true;
+
+        try {
+            const fd = new FormData(e.target);
+            const body = Object.fromEntries(fd);
+            const { data: { session } } = await supabase.auth.getSession();
+            const res = await fetch('/api/admin/invite-staff', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+                body: JSON.stringify(body)
+            });
+            const json = await res.json();
+            if (!res.ok) throw new Error(json.error || 'Failed');
+
+            okEl.textContent = `✓ ${body.full_name} has been invited and can now log in.`;
+            okEl.classList.remove('hidden');
+            e.target.reset();
+            // Refresh user list
+            setTimeout(() => { modal.classList.add('hidden'); window.location.reload(); }, 2000);
+        } catch (err) {
+            errEl.textContent = err.message;
+            errEl.classList.remove('hidden');
+        } finally {
+            btn.textContent = 'Send Invite'; btn.disabled = false;
+        }
+    });
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   await initLayout();
   
@@ -480,8 +601,28 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // Event Listeners
       document.getElementById('user-search').addEventListener('input', () => applyFilters(true));
-      document.getElementById('role-filter').addEventListener('change', () => applyFilters(true));
       document.getElementById('branch-filter').addEventListener('change', () => applyFilters(true));
+
+      // Tab switching
+      window.switchUserTab = (tab) => {
+          roleFilter = tab === 'staff' ? 'staff' : 'client';
+          document.querySelectorAll('.user-tab-btn').forEach(b => {
+              const isActive = b.id === `tab-${tab}`;
+              b.classList.toggle('bg-white', isActive);
+              b.classList.toggle('shadow-sm', isActive);
+              b.classList.toggle('text-on-surface', isActive);
+              b.classList.toggle('text-outline', !isActive);
+          });
+          applyFilters(true);
+      };
+      // Default to clients tab
+      window.switchUserTab('clients');
+
+      // Invite staff modal
+      injectInviteModal(branchesResult.data || []);
+      document.getElementById('btn-invite-staff')?.addEventListener('click', () => {
+          document.getElementById('invite-staff-modal')?.classList.remove('hidden');
+      });
 
   } catch (err) {
       console.error(err);

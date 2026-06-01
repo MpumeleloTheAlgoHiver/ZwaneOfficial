@@ -3567,6 +3567,76 @@ app.post('/api/messaging/webhook', (req, res) => {
     }
 });
 
+// POST /api/admin/invite-staff — create a staff/admin user account
+// Only super_admin can create admin/base_admin; admin can create base_admin only
+app.post('/api/admin/invite-staff', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization || '';
+        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+        const { data: { user }, error: authErr } = await supabaseService.auth.getUser(token);
+        if (authErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+
+        const callerRole = user.app_metadata?.role || user.user_metadata?.role || 'borrower';
+        if (!['super_admin', 'admin'].includes(callerRole)) {
+            return res.status(403).json({ error: 'Only admins can invite staff' });
+        }
+
+        const { email, full_name, role, branch_id, password } = req.body;
+        if (!email || !full_name || !role || !password) {
+            return res.status(400).json({ error: 'email, full_name, role and password are required' });
+        }
+
+        // Admins can only create base_admin; super_admin can create admin or base_admin
+        const allowedRoles = callerRole === 'super_admin' ? ['admin', 'base_admin'] : ['base_admin'];
+        if (!allowedRoles.includes(role)) {
+            return res.status(403).json({ error: `You can only create: ${allowedRoles.join(', ')}` });
+        }
+
+        // Create the auth user via service role
+        const { data: newUser, error: createErr } = await supabaseService.auth.admin.createUser({
+            email,
+            password,
+            email_confirm: true,
+            app_metadata: { role },
+            user_metadata:  { full_name, role }
+        });
+
+        if (createErr) {
+            if (createErr.message?.includes('already registered')) {
+                return res.status(409).json({ error: 'An account with this email already exists.' });
+            }
+            throw createErr;
+        }
+
+        // Upsert profile row
+        await supabaseService.from('profiles').upsert({
+            id:         newUser.user.id,
+            full_name,
+            email,
+            role,
+            branch_id:  branch_id || null,
+            updated_at: new Date().toISOString()
+        }, { onConflict: 'id' });
+
+        // Audit
+        await writeAudit({
+            entityType: 'user', entityId: newUser.user.id,
+            action: 'staff_invited',
+            description: `Staff member ${full_name} (${role}) invited by ${user.email}`
+        });
+
+        res.status(201).json({
+            success: true,
+            user: { id: newUser.user.id, email, full_name, role }
+        });
+    } catch (err) {
+        console.error('[invite-staff]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ── Vercel Cron endpoints (replaces setInterval for serverless) ───
 // Called by Vercel Cron every 6 hours instead of setInterval
 app.get('/api/cron/notifications', async (req, res) => {
