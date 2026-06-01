@@ -624,26 +624,26 @@ async function refreshDocumentStatuses(showSpinner = false) {
 
     // Ensure we have data before trying to save
     if (truidResponse) {
-      const supabase = await getSupabaseClient();
-      
-      // We save the WHOLE truidResponse into 'collection_payload' 
-      // This ensures 100% of the data is collected.
-      const { error: upsertError } = await supabase
-        .from('truid_collections')
-        .upsert({
-          user_id: activeUserId,
-          collection_id: truidResponse.collectionId || truidResponse.id, // Fallback ID
-          status: truidResponse.status,
-          normalized_status: truidResponse.normalizedStatus || truidResponse.status,
-          verified: !!truidResponse.verified,
-          // --- ALL INFO COLLECTED HERE ---
-          collection_payload: truidResponse, 
-          summary_payload: truidResponse.summary || {}, 
-          // -------------------------------
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'collection_id' });
+      try {
+        const supabase = await getSupabaseClient();
+        const { error: upsertError } = await supabase
+          .from('truid_collections')
+          .upsert({
+            user_id: activeUserId,
+            collection_id: truidResponse.collectionId || truidResponse.id,
+            status: truidResponse.status,
+            normalized_status: truidResponse.normalizedStatus || truidResponse.status,
+            verified: !!truidResponse.verified,
+            collection_payload: truidResponse,
+            summary_payload: truidResponse.summary || {},
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'collection_id' });
 
-      if (upsertError) console.error('Supabase Sync Error:', upsertError);
+        // 400 likely means truid_collections table doesn't exist yet — non-blocking
+        if (upsertError && upsertError.code !== '42P01') {
+          console.warn('[TruID] Sync warning:', upsertError.message);
+        }
+      } catch (_) { /* table may not exist yet — non-blocking */ }
     }
 
     const bankStatementReady = bankStatementExists || !!truidResponse?.verified;
@@ -784,7 +784,7 @@ async function loadPopupPrefillData() {
   const userId = session.user.id;
   const [profileResult, financialResult, declarationResult] = await Promise.all([
     supabase.from('profiles').select('identity_number').eq('id', userId).maybeSingle(),
-    supabase.from('financial_profiles').select('monthly_income, monthly_expenses, parsed_data').eq('user_id', userId).maybeSingle(),
+    supabase.from('financial_profiles').select('monthly_income, affordability_ratio, parsed_data').eq('user_id', userId).maybeSingle(),
     supabase.from('declarations').select('*').eq('user_id', userId).maybeSingle()
   ]);
 
@@ -1080,22 +1080,12 @@ async function handlePopupDeclarationsSave(e) {
     const financialPayload = {
       user_id: userId,
       monthly_income: totalIncome,
-      monthly_expenses: totalExpenses,
-      debt_to_income_ratio: null,
       affordability_ratio: affordabilityRatio,
       max_loan_amount: maxLoanAmount,
       parsed_data: {
         income: {
           salary: incomeSalary,
           other_monthly_earnings: incomeOther
-        },
-        expenses: {
-          housing_rent: expenseHousing,
-          school: expenseSchool,
-          maintenance: expenseMaintenance,
-          petrol: expensePetrol,
-          groceries: expenseGroceries,
-          other: expenseOther
         }
       }
     };

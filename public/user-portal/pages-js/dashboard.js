@@ -35,11 +35,13 @@ const currencyFormatter = new Intl.NumberFormat('en-ZA', { minimumFractionDigits
 const getThemePalette = () => {
     const styles = getComputedStyle(document.documentElement);
     const read = (name, fallback) => (styles.getPropertyValue(name).trim() || fallback);
-    const primaryRgb = read('--color-primary-rgb', '231 118 46');
+    // Convert "R G B" → "R, G, B" so canvas rgba() works
+    const primaryRgbRaw = read('--color-primary-rgb', '231 118 46');
+    const primaryRgb    = primaryRgbRaw.replace(/\s+/g, ', ');
     return {
         primary: read('--color-primary', '#E7762E'),
         surfaceCard: read('--color-surface-card', '#FFFFFF'),
-        primaryAlpha: (alpha) => `rgb(${primaryRgb} / ${alpha})`
+        primaryAlpha: (alpha) => `rgba(${primaryRgb}, ${alpha})`
     };
 };
 
