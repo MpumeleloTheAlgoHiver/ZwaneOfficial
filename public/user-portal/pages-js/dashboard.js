@@ -232,80 +232,211 @@ function getPaginationHtml(totalItems) {
 // ==========================================
 // 5. UI RENDERING: LISTS (DESKTOP & MOBILE)
 // ==========================================
+// ── Helpers for improved loan cards ──────────────────────────────
+function getLoanHealth(loan) {
+    const days = loan.rawDaysUntilDue;
+    const s    = (loan.rawStatus || '').toUpperCase();
+    if (s === 'IN_DEFAULT')  return { label: 'In Default',    color: '#dc2626', bg: 'rgba(220,38,38,0.10)',   icon: 'fa-circle-exclamation' };
+    if (s === 'IN_ARREARS')  return { label: 'In Arrears',    color: '#ef4444', bg: 'rgba(239,68,68,0.10)',   icon: 'fa-triangle-exclamation' };
+    if (days !== null && days < 0)  return { label: 'Overdue',       color: '#ef4444', bg: 'rgba(239,68,68,0.10)',   icon: 'fa-triangle-exclamation' };
+    if (days !== null && days === 0) return { label: 'Due Today',    color: '#f59e0b', bg: 'rgba(245,158,11,0.12)',  icon: 'fa-bell' };
+    if (days !== null && days <= 3)  return { label: `${days}d left`, color: '#f59e0b', bg: 'rgba(245,158,11,0.12)',  icon: 'fa-clock' };
+    if (days !== null && days <= 7)  return { label: `${days} days`,  color: '#3b82f6', bg: 'rgba(59,130,246,0.10)',  icon: 'fa-calendar' };
+    return { label: 'On Track', color: '#10b981', bg: 'rgba(16,185,129,0.10)', icon: 'fa-circle-check' };
+}
+
+function getCountdownText(loan) {
+    const days = loan.rawDaysUntilDue;
+    if (days === null) return null;
+    if (days < 0)  return { text: `${Math.abs(days)} days overdue`, urgent: true };
+    if (days === 0) return { text: 'Due today!', urgent: true };
+    if (days === 1) return { text: 'Due tomorrow', urgent: true };
+    if (days <= 7)  return { text: `Due in ${days} days`, urgent: false };
+    return { text: `Due in ${days} days`, urgent: false };
+}
+
+function buildRingProgress(pct, size = 56) {
+    const r = (size / 2) - 5;
+    const circ = 2 * Math.PI * r;
+    const fill = (pct / 100) * circ;
+    return `
+      <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="transform:rotate(-90deg);flex-shrink:0">
+        <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="#f0f0f0" stroke-width="4"/>
+        <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--color-primary,#E7762E)" stroke-width="4"
+          stroke-dasharray="${fill} ${circ}" stroke-linecap="round"
+          style="transition:stroke-dasharray 1.2s cubic-bezier(0.22,1,0.36,1)"/>
+      </svg>
+      <span style="position:absolute;font-size:10px;font-weight:800;color:var(--text-main)">${pct}%</span>`;
+}
+
+function buildLoanCard(loan, isMobile = false) {
+    const progress = loan.rawTotal > 0
+        ? Math.max(0, Math.min(100, Math.round(((loan.rawTotal - loan.rawRemaining) / loan.rawTotal) * 100)))
+        : 0;
+    const health    = getLoanHealth(loan);
+    const countdown = getCountdownText(loan);
+    const urgentBorder = (health.color === '#ef4444' || health.color === '#f59e0b')
+        ? `border-left: 3px solid ${health.color};` : '';
+
+    // Feature 5: Statement download button
+    const stmtBtn = `
+      <button onclick="window.downloadLoanStatement('${loan.rawId || loan.id}')"
+        style="display:flex;align-items:center;gap:6px;background:none;border:1px solid rgba(0,0,0,0.1);
+               border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;color:var(--text-muted);
+               cursor:pointer;transition:all 0.2s;margin-top:12px;width:100%;"
+        onmouseover="this.style.borderColor='var(--color-primary)';this.style.color='var(--color-primary)'"
+        onmouseout="this.style.borderColor='rgba(0,0,0,0.1)';this.style.color='var(--text-muted)'">
+        <i class="fas fa-file-lines" style="font-size:11px"></i> Download Statement
+      </button>`;
+
+    // Feature 1: Payment countdown banner
+    const countdownBanner = countdown ? `
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:10px;
+                  background:${countdown.urgent ? 'rgba(245,158,11,0.08)' : 'rgba(16,185,129,0.06)'};
+                  margin-bottom:12px;border:1px solid ${countdown.urgent ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.15)'}">
+        <i class="fas fa-${countdown.urgent ? 'bell' : 'calendar-check'}"
+           style="font-size:12px;color:${countdown.urgent ? '#f59e0b' : '#10b981'}"></i>
+        <span style="font-size:12px;font-weight:700;color:${countdown.urgent ? '#92400e' : '#065f46'}">
+          ${countdown.text} · ${loan.nextPayment}
+        </span>
+      </div>` : '';
+
+    if (isMobile) {
+        return `
+        <div class="loan-card-hifi" style="${urgentBorder}">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <span style="font-size:13px;font-weight:600;color:var(--text-muted)">${loan.id}</span>
+            <!-- Feature 2: Health badge -->
+            <span style="background:${health.bg};color:${health.color};padding:5px 10px;border-radius:100px;
+                         font-size:11px;font-weight:700;display:flex;align-items:center;gap:5px;">
+              <i class="fas ${health.icon}" style="font-size:9px"></i>${health.label}
+            </span>
+          </div>
+
+          <div style="font-size:30px;font-weight:800;color:var(--text-main);letter-spacing:-1px;margin-bottom:4px">${loan.amount}</div>
+          <div style="font-size:12px;color:var(--text-muted);font-weight:600;margin-bottom:14px">${loan.remaining} remaining</div>
+
+          ${countdownBanner}
+
+          <!-- Feature 4: Ring progress -->
+          <div style="display:flex;align-items:center;gap:16px;margin-bottom:14px">
+            <div style="position:relative;display:flex;align-items:center;justify-content:center;width:56px;height:56px">
+              ${buildRingProgress(progress)}
+            </div>
+            <div style="flex:1">
+              <div style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Repaid</div>
+              <div style="font-size:16px;font-weight:800;color:var(--text-main)">${formatCurrency(loan.rawTotal - loan.rawRemaining)}</div>
+              <div style="font-size:11px;color:var(--text-muted)">of ${loan.amount}</div>
+            </div>
+            <div style="flex:1;text-align:right">
+              <div style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Rate</div>
+              <div style="font-size:16px;font-weight:800;color:var(--text-main)">${loan.interestRate}</div>
+              <div style="font-size:11px;color:var(--text-muted)">per month</div>
+            </div>
+          </div>
+
+          ${stmtBtn}
+        </div>`;
+    }
+
+    // Desktop card
+    return `
+    <div class="loan-card" style="${urgentBorder}">
+      <div class="loan-header">
+        <span class="loan-id">${loan.id}</span>
+        <!-- Feature 2: Health badge -->
+        <span style="background:${health.bg};color:${health.color};padding:5px 12px;border-radius:100px;
+                     font-size:11px;font-weight:700;display:flex;align-items:center;gap:5px;">
+          <i class="fas ${health.icon}" style="font-size:9px"></i>${health.label}
+        </span>
+      </div>
+
+      <div class="loan-amount">${loan.amount}</div>
+
+      ${countdownBanner}
+
+      <div class="loan-details-grid">
+        <div class="loan-detail"><div class="loan-detail-label">Remaining</div><div class="loan-detail-value">${loan.remaining}</div></div>
+        <div class="loan-detail"><div class="loan-detail-label">Next Payment</div><div class="loan-detail-value">${loan.nextPayment}</div></div>
+        <div class="loan-detail"><div class="loan-detail-label">Due Date</div><div class="loan-detail-value">${loan.dueDate}</div></div>
+        <div class="loan-detail"><div class="loan-detail-label">Interest Rate</div><div class="loan-detail-value">${loan.interestRate}</div></div>
+      </div>
+
+      <!-- Feature 4: Ring progress -->
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 0 4px">
+        <div style="position:relative;display:flex;align-items:center;justify-content:center;width:52px;height:52px;flex-shrink:0">
+          ${buildRingProgress(progress, 52)}
+        </div>
+        <div style="flex:1">
+          <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">
+            <span>Repayment Progress</span><span>${progress}%</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${progress}%"></div></div>
+        </div>
+      </div>
+
+      ${stmtBtn}
+    </div>`;
+}
+
+// Feature 3: Empty state with CTA
+function buildEmptyState(isMobile = false) {
+    return `
+    <div style="text-align:center;padding:${isMobile ? '40px 20px' : '60px 20px'};${isMobile ? '' : 'grid-column:1/-1;'}">
+      <div style="width:72px;height:72px;background:rgba(231,118,46,0.08);border-radius:50%;
+                  display:flex;align-items:center;justify-content:center;margin:0 auto 16px">
+        <i class="fas fa-file-contract" style="font-size:28px;color:var(--color-primary)"></i>
+      </div>
+      <h3 style="font-size:18px;font-weight:700;color:var(--text-main);margin:0 0 8px">No active loans</h3>
+      <p style="font-size:14px;color:var(--text-muted);margin:0 0 20px;line-height:1.5">
+        Ready to apply? Get a decision in minutes.
+      </p>
+      <button onclick="${isMobile ? "if(typeof loadPage==='function')loadPage('apply-loan');else window.location.href='/user-portal/?page=apply-loan'" : "createNewApplication()"}"
+        style="background:linear-gradient(135deg,var(--color-primary),#f08840);color:white;border:none;
+               padding:14px 28px;border-radius:14px;font-size:14px;font-weight:700;cursor:pointer;
+               box-shadow:0 4px 16px rgba(231,118,46,0.3)">
+        Apply for a Loan <i class="fas fa-arrow-right" style="margin-left:8px"></i>
+      </button>
+    </div>`;
+}
+
 function populateActiveLoans() {
     const allActive = dashboardData.loans.filter(l => l.status === 'Active' || l.status === 'Offered');
-    
-    const startIdx = (currentLoansPage - 1) * LOANS_PER_PAGE;
+    const startIdx       = (currentLoansPage - 1) * LOANS_PER_PAGE;
     const activePaginated = allActive.slice(startIdx, startIdx + LOANS_PER_PAGE);
-    const paginationHtml = getPaginationHtml(allActive.length);
+    const paginationHtml  = getPaginationHtml(allActive.length);
 
-    // Desktop Updates
+    // Desktop
     const desktopGrid = document.getElementById('activeLoansGrid');
     if (desktopGrid) {
-        if (allActive.length === 0) {
-            desktopGrid.innerHTML = '<div style="color: var(--text-muted); text-align: center; padding: 40px; grid-column: 1/-1;">No active loans found.</div>';
-        } else {
-            desktopGrid.innerHTML = activePaginated.map(loan => {
-                const progress = loan.rawTotal > 0 ? Math.max(0, Math.min(100, Math.round(((loan.rawTotal - loan.rawRemaining) / loan.rawTotal) * 100))) : 0;
-                return `
-                    <div class="loan-card">
-                        <div class="loan-header"><span class="loan-id">${loan.id}</span><span class="loan-status">${loan.status}</span></div>
-                        <div class="loan-amount">${loan.amount}</div>
-                        <div class="loan-details-grid">
-                            <div class="loan-detail"><div class="loan-detail-label">Remaining</div><div class="loan-detail-value">${loan.remaining}</div></div>
-                            <div class="loan-detail"><div class="loan-detail-label">Next Payment</div><div class="loan-detail-value">${loan.nextPayment}</div></div>
-                            <div class="loan-detail"><div class="loan-detail-label">Due Date</div><div class="loan-detail-value">${loan.dueDate}</div></div>
-                            <div class="loan-detail"><div class="loan-detail-label">Interest Rate</div><div class="loan-detail-value">${loan.interestRate}</div></div>
-                        </div>
-                        <div class="progress-section">
-                            <div class="progress-header"><span class="progress-label">Repayment Progress</span><span class="progress-percentage">${progress}%</span></div>
-                            <div class="progress-bar"><div class="progress-fill" style="width: ${progress}%"></div></div>
-                        </div>
-                    </div>`;
-            }).join('');
-            
-            const wrapper = document.getElementById('activeLoansGridWrapper');
-            if(wrapper) {
-                const oldPg = wrapper.querySelector('.pagination-controls');
-                if(oldPg) oldPg.remove();
-                wrapper.insertAdjacentHTML('beforeend', paginationHtml);
-            }
+        desktopGrid.innerHTML = allActive.length === 0
+            ? buildEmptyState(false)
+            : activePaginated.map(l => buildLoanCard(l, false)).join('') ;
+
+        const wrapper = document.getElementById('activeLoansGridWrapper');
+        if (wrapper) {
+            const oldPg = wrapper.querySelector('.pagination-controls');
+            if (oldPg) oldPg.remove();
+            if (allActive.length > 0) wrapper.insertAdjacentHTML('beforeend', paginationHtml);
         }
     }
 
-    // Mobile Updates
+    // Mobile
     const mobileGrid = document.getElementById('activeLoansGridMobile');
     if (mobileGrid) {
-        if (allActive.length === 0) {
-            mobileGrid.innerHTML = '<div class="empty-loans-state">You have no active loans right now.</div>';
-        } else {
-            mobileGrid.innerHTML = activePaginated.map(loan => {
-                const progress = loan.rawTotal > 0 ? Math.max(0, Math.min(100, Math.round(((loan.rawTotal - loan.rawRemaining) / loan.rawTotal) * 100))) : 0;
-                return `
-                    <div class="loan-card-hifi">
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 12px; align-items: center;">
-                            <span style="font-size: 13px; font-weight: 600; color: var(--text-muted);">${loan.id}</span>
-                            <span style="background: rgba(231,118,46,0.1); color: var(--color-primary); padding: 6px 12px; border-radius: 100px; font-size: 11px; font-weight: 700; text-transform: uppercase;">${loan.status}</span>
-                        </div>
-                        <div style="font-size: 32px; font-weight: 700; color: var(--text-main); margin-bottom: 20px; letter-spacing: -1px;">${loan.amount}</div>
-                        
-                        <div class="loan-hifi-details">
-                            <div class="detail-item"><span class="label">Remaining</span><span class="val">${loan.remaining}</span></div>
-                            <div class="detail-item"><span class="label">Next Due</span><span class="val">${loan.nextPayment}</span></div>
-                            <div class="detail-item"><span class="label">Due Date</span><span class="val">${loan.dueDate}</span></div>
-                            <div class="detail-item"><span class="label">Interest</span><span class="val">${loan.interestRate}</span></div>
-                        </div>
-
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 12px; font-weight: 600; color: var(--text-muted);">
-                            <span>Repayment Progress</span><span>${progress}%</span>
-                        </div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" style="width: ${progress}%;"></div>
-                        </div>
-                    </div>`;
-            }).join('') + paginationHtml; 
-        }
+        mobileGrid.innerHTML = allActive.length === 0
+            ? buildEmptyState(true)
+            : activePaginated.map(l => buildLoanCard(l, true)).join('') + paginationHtml;
     }
+
+    // Animate rings after render
+    requestAnimationFrame(() => {
+        document.querySelectorAll('.loan-card circle:last-child, .loan-card-hifi circle:last-child').forEach(c => {
+            const orig = c.getAttribute('stroke-dasharray');
+            c.setAttribute('stroke-dasharray', `0 ${2 * Math.PI * parseFloat(c.getAttribute('r'))}`);
+            setTimeout(() => c.setAttribute('stroke-dasharray', orig), 50);
+        });
+    });
 }
 
 function populateTransactions() {
@@ -725,16 +856,26 @@ async function loadDashboardData() {
 
             dashboardData.loans = enrichedLoans.map(loan => {
                 const readableStatus = loan.status ? `${loan.status.charAt(0).toUpperCase()}${loan.status.slice(1).toLowerCase()}` : 'Active';
+                const now = new Date();
+                now.setUTCHours(0,0,0,0);
+                const daysUntilDue = loan.dueDateObj
+                    ? Math.round((loan.dueDateObj - now) / (1000*60*60*24))
+                    : null;
+
                 return {
                     id: `LOAN-${loan.id}`,
+                    rawId: loan.id,
                     amount: formatCurrency(loan.totalRepayment || loan.principal),
                     remaining: formatCurrency(loan.outstandingBalance),
                     nextPayment: formatCurrency(loan.nextDueAmount),
-                    dueDate: loan.dueDateObj ? loan.dueDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'TBD',
+                    dueDate: loan.dueDateObj ? loan.dueDateObj.toLocaleDateString('en-ZA', { month: 'short', day: 'numeric' }) : 'TBD',
                     interestRate: `${(loan.normalizedRate * 100).toFixed(2)}%`,
                     status: readableStatus,
                     rawTotal: loan.totalRepayment || loan.principal,
-                    rawRemaining: loan.outstandingBalance
+                    rawRemaining: loan.outstandingBalance,
+                    rawDaysUntilDue: daysUntilDue,
+                    rawMonthlyPayment: loan.nextDueAmount,
+                    rawStatus: loan.status
                 };
             });
         } else {
@@ -754,7 +895,17 @@ async function loadDashboardData() {
         if (nxtAmt) nxtAmt.textContent = formatCurrency(dashboardData.nextPayment.amount);
         if (nxtDt) {
             if (dashboardData.nextPayment.hasUpcoming && dashboardData.nextPayment.date) {
-                nxtDt.textContent = `Due ${formatDueDate(dashboardData.nextPayment.date)}`;
+                const dueDate  = new Date(dashboardData.nextPayment.date);
+                const now      = new Date(); now.setHours(0,0,0,0);
+                const daysLeft = Math.round((dueDate - now) / 86400000);
+                let label = `Due ${formatDueDate(dashboardData.nextPayment.date)}`;
+                let color = '';
+                if (daysLeft < 0)      { label = `${Math.abs(daysLeft)} days overdue`; color = '#ef4444'; }
+                else if (daysLeft === 0){ label = 'Due today!';                          color = '#f59e0b'; }
+                else if (daysLeft === 1){ label = 'Due tomorrow';                        color = '#f59e0b'; }
+                else if (daysLeft <= 5) { label = `Due in ${daysLeft} days`;             color = '#f59e0b'; }
+                nxtDt.textContent = label;
+                if (color) nxtDt.style.color = color;
             } else if (!dashboardData.nextPayment.hasUpcoming && dashboardData.nextPayment.date) {
                 nxtDt.textContent = `Last paid ${formatDueDate(dashboardData.nextPayment.date)}`;
             } else {
@@ -906,6 +1057,37 @@ window.createNewApplication = () => {
         loadPage('apply-loan');
     } else {
         window.location.href = '/user-portal/pages/apply-loan.html';
+    }
+};
+
+window.downloadLoanStatement = async function(loanId) {
+    try {
+        const { supabase } = await import('/Services/supabaseClient.js');
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        // Open the NCA pre-agreement quote as the statement
+        // For active loans we fetch from loan_applications
+        const { data: apps } = await supabase
+            .from('loan_applications')
+            .select('id')
+            .eq('user_id', session.user.id)
+            .in('status', ['DISBURSED','ACTIVE','IN_ARREARS','IN_DEFAULT','OFFER_ACCEPTED'])
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        const appId = apps?.[0]?.id;
+        if (appId) {
+            window.open(`/api/contracts/${appId}/preview`, '_blank');
+        } else {
+            if (typeof window.showToast === 'function') {
+                window.showToast('Statement', 'No loan agreement found. Contact support.', 'info');
+            } else {
+                alert('Statement not available — contact support.');
+            }
+        }
+    } catch (e) {
+        console.error('[statement]', e);
     }
 };
 
