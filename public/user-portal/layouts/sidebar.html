@@ -103,50 +103,7 @@
   </div>
 </nav>
 
-<script>
-// Luma Bar — animated glow indicator
-function lumaNavigate(btn, page) {
-  document.querySelectorAll('.luma-item').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  lumaUpdateGlow();
-  if (typeof loadPage === 'function') loadPage(page);
-  else window.location.href = '/user-portal/?page=' + page;
-}
-
-function lumaMore(btn) {
-  document.querySelectorAll('.luma-item').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  lumaUpdateGlow();
-  const menu = document.getElementById('fullScreenMenu');
-  if (menu) menu.style.display = menu.style.display === 'flex' ? 'none' : 'flex';
-}
-
-function lumaUpdateGlow() {
-  const dock  = document.getElementById('lumaDock');
-  const glow  = document.getElementById('lumaGlow');
-  const active = dock?.querySelector('.luma-item.active');
-  if (!dock || !glow || !active) return;
-  const dockRect   = dock.getBoundingClientRect();
-  const activeRect = active.getBoundingClientRect();
-  const centerX = activeRect.left - dockRect.left + activeRect.width / 2;
-  glow.style.transform = `translateX(${centerX - 32}px)`;
-}
-
-// Sync active state on page change
-window.addEventListener('pageLoaded', e => {
-  const page = e?.detail?.pageName;
-  if (!page) return;
-  document.querySelectorAll('.luma-item[data-page]').forEach(b => {
-    b.classList.toggle('active', b.dataset.page === page);
-  });
-  lumaUpdateGlow();
-});
-
-// Init glow position on load
-document.addEventListener('DOMContentLoaded', () => {
-  setTimeout(lumaUpdateGlow, 100);
-});
-</script>
+<!-- Luma Bar JS lives in script.js (innerHTML doesn't execute scripts) -->
 
 <div id="fullScreenMenu" class="more-menu-overlay">
   <div class="menu-header-wrapper">

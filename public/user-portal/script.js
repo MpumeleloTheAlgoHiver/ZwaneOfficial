@@ -369,14 +369,54 @@ async function loadSidebar() {
     const html = await response.text();
     document.getElementById('sidebar').innerHTML = html;
     hydrateBranding();
-    
-    // Setup logout button after sidebar is loaded (if present in sidebar)
     setupLogout();
-    
+    initLumaBar(); // Wire up mobile nav after HTML is injected
   } catch (error) {
     console.error('Error loading sidebar:', error);
   }
 }
+
+// ── Luma Bar — mobile floating nav ──────────────────────────────
+function lumaUpdateGlow() {
+  const dock   = document.getElementById('lumaDock');
+  const glow   = document.getElementById('lumaGlow');
+  const active = dock?.querySelector('.luma-item.active');
+  if (!dock || !glow || !active) return;
+  const dr = dock.getBoundingClientRect();
+  const ar = active.getBoundingClientRect();
+  glow.style.transform = `translateX(${ar.left - dr.left + ar.width / 2 - 32}px)`;
+}
+
+window.lumaNavigate = function(btn, page) {
+  document.querySelectorAll('.luma-item').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  lumaUpdateGlow();
+  if (typeof loadPage === 'function') loadPage(page);
+  else window.location.href = '/user-portal/?page=' + page;
+};
+
+function initLumaBar() {
+  // Set active item based on current page
+  const currentPage = getPageFromURL() || 'dashboard';
+  document.querySelectorAll('.luma-item[data-page]').forEach(b => {
+    b.classList.toggle('active', b.dataset.page === currentPage);
+  });
+  setTimeout(lumaUpdateGlow, 80);
+
+  // Sync glow when page changes via SPA router
+  window.addEventListener('pageLoaded', e => {
+    const page = e?.detail?.pageName;
+    if (!page) return;
+    document.querySelectorAll('.luma-item[data-page]').forEach(b => {
+      b.classList.toggle('active', b.dataset.page === page);
+    });
+    lumaUpdateGlow();
+  });
+
+  // Re-calculate glow if screen resizes (orientation change)
+  window.addEventListener('resize', lumaUpdateGlow);
+}
+// ─────────────────────────────────────────────────────────────────
 
 // Load Page Logic
 async function loadPage(pageName) {
