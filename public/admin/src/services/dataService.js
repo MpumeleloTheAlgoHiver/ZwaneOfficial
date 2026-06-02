@@ -743,10 +743,20 @@ export const getCurrentAdminProfile = async () => {
 };
 
 export const fetchFullUserProfile = async (userId) => {
-    const { data: profile } = await supabase.from('profiles').select('*, branches(id, name)').eq('id', userId).single();
-    const { data: loans } = await supabase.from('loan_applications').select('*').eq('user_id', userId).order('created_at', { ascending: false });
-    const { data: docs } = await supabase.from('document_uploads').select('*').eq('user_id', userId);
-    return { profile, loans: loans || [], documents: docs || [] };
+    const [profileRes, loansRes, docsRes, finRes] = await Promise.all([
+        supabase.from('profiles').select('*, branches(id, name)').eq('id', userId).maybeSingle(),
+        supabase.from('loan_applications').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        supabase.from('document_uploads').select('*').eq('user_id', userId),
+        supabase.from('financial_profiles').select('monthly_income, affordability_ratio, parsed_data').eq('user_id', userId).maybeSingle()
+    ]);
+
+    const profile = profileRes.data || { id: userId, full_name: 'Unknown User', role: 'borrower' };
+    return {
+        profile,
+        loans:      loansRes.data   || [],
+        documents:  docsRes.data    || [],
+        financials: finRes.data     || {}
+    };
 };
 // Fetch disbursements for a specific application
 export async function getDisbursementsByApplication(applicationId) {

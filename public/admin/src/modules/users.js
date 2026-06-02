@@ -230,10 +230,11 @@ window.openUserDetail = async (userId) => {
     try {
         document.body.style.cursor = 'wait';
         const data = await fetchFullUserProfile(userId);
+        if (!data?.profile) throw new Error('Profile not found for this user.');
         currentUserDetail = data;
 
         const p = data.profile;
-        const isLuhnValid = validateSAID(p.identity_number || p.id_number);
+        const isLuhnValid = validateSAID(p?.identity_number || p?.id_number);
         
         // Inject Premium Profile Card
         const container = document.getElementById('profile-card-container');
