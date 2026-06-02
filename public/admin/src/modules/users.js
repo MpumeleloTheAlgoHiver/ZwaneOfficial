@@ -186,7 +186,7 @@ const DETAIL_VIEW_HTML = `
         
         <div class="flex justify-end gap-3">
             <button onclick="document.getElementById('branch-modal').classList.add('hidden')" class="px-4 py-2 text-sm font-bold text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
-            <button onclick="window.confirmBranchTransfer()" class="px-4 py-2 text-sm font-bold text-white bg-orange-600 hover:bg-orange-700 rounded-lg shadow-sm">Confirm Transfer</button>
+            <button id="btn-confirm-transfer" onclick="window.confirmBranchTransfer()" class="px-4 py-2 text-sm font-bold text-white rounded-lg shadow-sm" style="background:var(--color-primary)">Confirm Transfer</button>
         </div>
     </div>
 </div>
@@ -324,7 +324,7 @@ window.openBranchModal = () => {
 };
 
 window.confirmBranchTransfer = async () => {
-    const btn = document.querySelector('#branch-modal button.bg-orange-600');
+    const btn = document.getElementById('btn-confirm-transfer');
     const newBranchId = document.getElementById('modal-branch-select').value;
     const p = currentUserDetail.profile;
 
@@ -332,7 +332,7 @@ window.confirmBranchTransfer = async () => {
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Moving...';
 
-        const updateValue = (newBranchId === 'online') ? null : newBranchId;
+        const updateValue = (newBranchId === 'online' || !newBranchId) ? null : parseInt(newBranchId, 10);
 
         // 1. Update Profile
         const { error } = await supabase.from('profiles').update({ branch_id: updateValue }).eq('id', p.id);
