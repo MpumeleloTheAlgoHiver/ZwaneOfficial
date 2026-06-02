@@ -423,9 +423,9 @@ const renderUserList = (data) => {
 const applyFilters = (resetPage = true) => {
     if (resetPage) currentPageUsers = 1;
 
-    const term = document.getElementById('user-search').value.toLowerCase();
-    const role = document.getElementById('role-filter').value;
-    const branch = document.getElementById('branch-filter').value;
+    const term   = (document.getElementById('user-search')?.value   || '').toLowerCase();
+    const role   = document.getElementById('role-filter')?.value   || roleFilter || 'client';
+    const branch = document.getElementById('branch-filter')?.value || 'all';
 
     const filtered = allUsers.filter(u => {
         // Search: Name, Email, ID Number, or UUID
@@ -582,22 +582,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       branchSelect.innerHTML = '<option value="all">All Branches</option><option value="online">Online / Unassigned</option>';
       branches.forEach(b => branchSelect.innerHTML += `<option value="${b.id}">${b.name}</option>`);
 
-      // --- ROLE FILTER LOCK ---
-      // Fix: Only Super Admins can see "Staff" or "All"
-      const roleSelect = document.getElementById('role-filter');
-      
-      if (currentAdmin.role !== 'super_admin') {
-          roleSelect.innerHTML = '<option value="client">Clients</option>';
-          roleSelect.value = 'client';
-          roleSelect.disabled = true;
-          roleSelect.classList.add('bg-gray-100', 'text-gray-500', 'cursor-not-allowed');
-          
-          // Apply filter immediately so they don't see staff
-          applyFilters(true);
-      } else {
-          // Super Admins: Show everything by default
-          renderUserList(allUsers);
-      }
+      // Role is now controlled by tabs, not a select dropdown
+      // Default to clients tab on load
+      applyFilters(true);
 
       // Event Listeners
       document.getElementById('user-search').addEventListener('input', () => applyFilters(true));
