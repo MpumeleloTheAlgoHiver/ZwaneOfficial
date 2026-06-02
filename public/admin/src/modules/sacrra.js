@@ -779,7 +779,11 @@ function buildSacrraFileContent(settings) {
     // Alpha fields: LEFT-aligned, space-padded
     // Numeric fields: RIGHT-aligned, zero-padded
     const aL  = (val, len) => String(val || '').replace(/\r?\n/g,'').slice(0, len).padEnd(len, ' ');
-    const nR  = (val, len) => String(Number(val || 0) | 0).slice(-len).padStart(len, '0'); // N fields
+    // nR: right-align zero-pad WITHOUT bitwise | 0 (causes overflow on 13-digit SA IDs)
+    const nR  = (val, len) => {
+        const n = String(val || '').replace(/[^0-9]/g,'') || '0';
+        return n.slice(-len).padStart(len, '0');
+    };
     const dt  = (val) => (val || '00000000').replace(/-/g,'').slice(0,8).padStart(8,'0');
 
     // --- Reporting date ---
@@ -835,7 +839,7 @@ function buildSacrraFileContent(settings) {
         // Build 700-char data record per exact byte positions
         let r = '';
         r += aL(recordType, 1);               // 1:        DATA = 'R'
-        r += nR(saId, 13);                     // 2-14:     SA ID NUMBER (N13)
+        r += saId;                             // 2-14:     SA ID NUMBER (N13) — direct string, no Number() conversion
         r += aL('', 16);                       // 15-30:    NON-SA ID (blank)
         r += aL(m.f11_gender || 'M', 1);       // 31:       GENDER
         r += nR((m.f12_date_of_birth||'').replace(/-/g,'') || '0', 8); // 32-39: DOB
