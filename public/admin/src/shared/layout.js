@@ -4,7 +4,7 @@ import { ensureThemeLoaded, getCompanyName, DEFAULT_SYSTEM_SETTINGS } from './th
 const appShell = document.getElementById('app-shell');
 let userProfile = null;
 let userRole = 'borrower';
-const DEFAULT_BRAND_LOGO = '';
+const DEFAULT_BRAND_LOGO = 'https://static.wixstatic.com/media/f82622_cde1fbd5680141c5b0fccca81fb92ad6~mv2.png';
 
 const escapeAttr = (value = '') => {
   if (!value) return '';
@@ -249,7 +249,7 @@ function renderSidebarNav(role) {
 
       ${isAdmin ? `
         ${navSection('Finance')}
-        ${navLink('/admin/users', 'group', 'Customers')}
+        ${navLink('/admin/users', 'group', 'Users')}
         ${navLink('/admin/mandates.html', 'receipt_long', 'Mandates')}
         <li>
           <button type="button" id="payments-toggle" class="nav-link w-full flex items-center justify-between gap-4 px-4 py-3 rounded-xl transition-all duration-200 text-on-surface-variant hover:bg-surface-variant/50 hover:text-on-surface text-sm font-medium">
@@ -267,15 +267,15 @@ function renderSidebarNav(role) {
       ` : ''}
 
       ${isAdmin ? `
-        ${navSection('Compliance')}
-        ${navLink('/admin/sacrra', 'verified_user', 'SACRRA')}
+        ${navSection('Tools')}
+        ${navLink('/admin/credit-rules',  'rule',                    'Credit Rules')}
+        ${navLink('/admin/loan-book',     'menu_book',               'Loan Book')}
+        ${navLink('/admin/cash-ledger',   'account_balance_wallet',  'Cash Ledger')}
       ` : ''}
 
       ${isAdmin ? `
-        ${navSection('Configuration')}
-        ${navLink('/admin/credit-rules',  'rule',                    'Credit Rules')}
-        ${navLink('/admin/cash-ledger',   'account_balance_wallet',  'Cash Ledger')}
-        ${navLink('/admin/loan-book',     'menu_book',               'Loan Book')}
+        ${navSection('Compliance')}
+        ${navLink('/admin/sacrra', 'verified_user', 'SACRRA')}
       ` : ''}
 
       ${isSuperAdmin ? `

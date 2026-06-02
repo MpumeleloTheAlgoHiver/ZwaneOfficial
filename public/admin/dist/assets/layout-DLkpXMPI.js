@@ -1,4 +1,4 @@
-import{supabase as x}from"./supabaseClient-WTCtVqgB.js";import{e as _,b as k,D as L}from"./theme-CeTh6-N5.js";const h=document.getElementById("app-shell");let v=null;const $="",y=(e="")=>e?e.replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/'/g,"&#39;").replace(/</g,"&lt;").replace(/>/g,"&gt;"):"";async function T(){const{data:{session:e}}=await x.auth.getSession();if(!e)return window.location.replace("/auth/login.html"),null;const a=["base_admin","admin","super_admin","owner"],t=(e.user?.app_metadata?.role||e.user?.user_metadata?.role||"borrower").toLowerCase();if(!a.includes(t))return await x.auth.signOut(),window.location.replace("/auth/login.html"),null;const{data:r}=await x.from("profiles").select("*").eq("id",e.user.id).maybeSingle(),s={id:e.user.id,email:e.user.email,full_name:r?.full_name||e.user?.user_metadata?.full_name||e.user.email,avatar_url:r?.avatar_url||null,...r||{}};v=s;const o=await _();return E(s,t,o),S(),B(),I(t,s.id),{profile:s,role:t}}function M(){return v}window.showToast=(e,a="success")=>{let t=document.getElementById("toast-container");t||(t=document.createElement("div"),t.id="toast-container",t.className="fixed bottom-8 right-8 z-[100] flex flex-col items-end pointer-events-none",document.body.appendChild(t));const n=document.createElement("div"),r=a==="success",s=r?"bg-green-600":"bg-red-600",o=r?"fa-check-circle":"fa-circle-exclamation";n.className=`${s} text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 mb-3 pointer-events-auto animate-fade-in-up border border-white/10`,n.innerHTML=`
+import{supabase as x}from"./supabaseClient-WTCtVqgB.js";import{e as _,b as k,D as L}from"./theme-CeTh6-N5.js";const h=document.getElementById("app-shell");let v=null;const $="https://static.wixstatic.com/media/f82622_cde1fbd5680141c5b0fccca81fb92ad6~mv2.png",y=(e="")=>e?e.replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/'/g,"&#39;").replace(/</g,"&lt;").replace(/>/g,"&gt;"):"";async function M(){const{data:{session:e}}=await x.auth.getSession();if(!e)return window.location.replace("/auth/login.html"),null;const a=["base_admin","admin","super_admin","owner"],t=(e.user?.app_metadata?.role||e.user?.user_metadata?.role||"borrower").toLowerCase();if(!a.includes(t))return await x.auth.signOut(),window.location.replace("/auth/login.html"),null;const{data:r}=await x.from("profiles").select("*").eq("id",e.user.id).maybeSingle(),s={id:e.user.id,email:e.user.email,full_name:r?.full_name||e.user?.user_metadata?.full_name||e.user.email,avatar_url:r?.avatar_url||null,...r||{}};v=s;const o=await _();return E(s,t,o),S(),B(),I(t,s.id),{profile:s,role:t}}function j(){return v}window.showToast=(e,a="success")=>{let t=document.getElementById("toast-container");t||(t=document.createElement("div"),t.id="toast-container",t.className="fixed bottom-8 right-8 z-[100] flex flex-col items-end pointer-events-none",document.body.appendChild(t));const n=document.createElement("div"),r=a==="success",s=r?"bg-green-600":"bg-red-600",o=r?"fa-check-circle":"fa-circle-exclamation";n.className=`${s} text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 mb-3 pointer-events-auto animate-fade-in-up border border-white/10`,n.innerHTML=`
         <i class="fa-solid ${o} text-lg"></i>
         <div class="flex flex-col">
             <span class="text-[10px] font-black uppercase tracking-widest opacity-70">${a}</span>
@@ -117,7 +117,7 @@ import{supabase as x}from"./supabaseClient-WTCtVqgB.js";import{e as _,b as k,D a
 
       ${t?`
         ${g("Finance")}
-        ${p("/admin/users","group","Customers")}
+        ${p("/admin/users","group","Users")}
         ${p("/admin/mandates.html","receipt_long","Mandates")}
         <li>
           <button type="button" id="payments-toggle" class="nav-link w-full flex items-center justify-between gap-4 px-4 py-3 rounded-xl transition-all duration-200 text-on-surface-variant hover:bg-surface-variant/50 hover:text-on-surface text-sm font-medium">
@@ -135,15 +135,15 @@ import{supabase as x}from"./supabaseClient-WTCtVqgB.js";import{e as _,b as k,D a
       `:""}
 
       ${t?`
-        ${g("Compliance")}
-        ${p("/admin/sacrra","verified_user","SACRRA")}
+        ${g("Tools")}
+        ${p("/admin/credit-rules","rule","Credit Rules")}
+        ${p("/admin/loan-book","menu_book","Loan Book")}
+        ${p("/admin/cash-ledger","account_balance_wallet","Cash Ledger")}
       `:""}
 
       ${t?`
-        ${g("Configuration")}
-        ${p("/admin/credit-rules","rule","Credit Rules")}
-        ${p("/admin/cash-ledger","account_balance_wallet","Cash Ledger")}
-        ${p("/admin/loan-book","menu_book","Loan Book")}
+        ${g("Compliance")}
+        ${p("/admin/sacrra","verified_user","SACRRA")}
       `:""}
 
       ${n?`
@@ -177,4 +177,4 @@ import{supabase as x}from"./supabaseClient-WTCtVqgB.js";import{e as _,b as k,D a
                         <i class="fa-solid fa-xmark text-xs"></i>
                     </button>
                 </div>
-            `}).join(""),n.querySelectorAll(".dismiss-notif").forEach(c=>{c.addEventListener("click",async l=>{const f=l.currentTarget.closest("[data-id]").dataset.id,{error:b}=await x.rpc("mark_notification_read_single",{p_notif_id:parseInt(f)});b||await o()})})},m=u=>{const i=Math.floor((new Date-new Date(u))/1e3);return i<60?"Just now":i<3600?`${Math.floor(i/60)}m ago`:i<86400?`${Math.floor(i/3600)}h ago`:`${Math.floor(i/86400)}d ago`};await o(),x.channel("admin_notif_channel").on("postgres_changes",{event:"INSERT",schema:"public",table:"admin_notifications"},()=>o()).subscribe(),r&&r.addEventListener("click",async()=>{const{error:u}=await x.rpc("mark_notifications_read",{p_target_role:e});u||await o()})}export{M as g,T as i};
+            `}).join(""),n.querySelectorAll(".dismiss-notif").forEach(c=>{c.addEventListener("click",async l=>{const f=l.currentTarget.closest("[data-id]").dataset.id,{error:b}=await x.rpc("mark_notification_read_single",{p_notif_id:parseInt(f)});b||await o()})})},m=u=>{const i=Math.floor((new Date-new Date(u))/1e3);return i<60?"Just now":i<3600?`${Math.floor(i/60)}m ago`:i<86400?`${Math.floor(i/3600)}h ago`:`${Math.floor(i/86400)}d ago`};await o(),x.channel("admin_notif_channel").on("postgres_changes",{event:"INSERT",schema:"public",table:"admin_notifications"},()=>o()).subscribe(),r&&r.addEventListener("click",async()=>{const{error:u}=await x.rpc("mark_notifications_read",{p_target_role:e});u||await o()})}export{j as g,M as i};
