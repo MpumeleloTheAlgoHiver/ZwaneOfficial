@@ -775,92 +775,136 @@ function deriveTitle(gender) {
 
 // ── Build the fixed-width 700-char file content ───────────────────────
 function buildSacrraFileContent(settings) {
-    // Support backdating: if admin selected a past month, use that period end
-    const backdateInput = document.getElementById('sacrra-backdate-month')?.value; // 'YYYY-MM'
+    // Spec: SACRRA Layout 700v2 v2.8 — exact byte positions
+    // Alpha fields: LEFT-aligned, space-padded
+    // Numeric fields: RIGHT-aligned, zero-padded
+    const aL  = (val, len) => String(val || '').replace(/\r?\n/g,'').slice(0, len).padEnd(len, ' ');
+    const nR  = (val, len) => String(Number(val || 0) | 0).slice(-len).padStart(len, '0'); // N fields
+    const dt  = (val) => (val || '00000000').replace(/-/g,'').slice(0,8).padStart(8,'0');
+
+    // --- Reporting date ---
+    const backdateInput = document.getElementById('sacrra-backdate-month')?.value;
     let reportingDate;
-    if (backdateInput && backdateInput.length === 7) {
+    if (backdateInput?.length === 7) {
         const [yr, mo] = backdateInput.split('-').map(Number);
-        reportingDate  = new Date(yr, mo, 0); // last day of selected month
-        console.log(`[SACRRA] Backdated submission for ${backdateInput}`);
+        reportingDate = new Date(yr, mo, 0);
     } else {
-        reportingDate = new Date(); // current date, last day calculated below
+        reportingDate = new Date();
     }
+    const lastDay      = new Date(reportingDate.getFullYear(), reportingDate.getMonth() + 1, 0);
+    const monthEnd     = dt(lastDay.toISOString().slice(0,10).replace(/-/g,''));
+    const creationDate = dt(new Date().toISOString().slice(0,10).replace(/-/g,''));
 
-    const now      = reportingDate;
-    const lastDay  = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    const monthEnd = lastDay.toISOString().slice(0, 10).replace(/-/g, '');
-    const dateStr  = now.toISOString().slice(0, 10).replace(/-/g, '');
-    const srn      = (sacrraState.members[0]?.f02_supplier_ref || 'ZFS001').trim().slice(0, 6).padEnd(6, ' ');
+    // Supplier Reference Number — 10 chars, RIGHT-aligned (issued by SACRRA)
+    const srn = (sacrraState.members[0]?.f02_supplier_ref || '').trim().padStart(10, ' ').slice(-10);
 
-    // Header Layout 700 v2:
-    // Pos 1:     H (header)
-    // Pos 2-7:   SRN (6 chars)
-    // Pos 8-15:  Reporting date YYYYMMDD (8 chars)
-    // Pos 16:    Submission type: M=Monthly, D=Daily, I=Initial (1 char)
-    // Pos 17-25: Member/Institution number (9 chars, right-justified, zero-padded)
-    // Pos 26+:   Spaces to 700
-    const submissionType = settings.type === 'DAILY' ? 'D' : 'M';
-    const memberNumber   = String(sacrraState.members[0]?.f02_supplier_ref || '').replace(/\s/g, '') || '000001';
-    const memberPadded   = memberNumber.padStart(9, '0').slice(0, 9);
-    let content = ('H' + srn + monthEnd + submissionType + memberPadded).padEnd(700, ' ') + '\r\n';
+    // Trading name from system settings (60 chars, LEFT-aligned)
+    const tradingName = aL(
+        document.querySelector('[data-company-name]')?.textContent ||
+        document.title.replace(/[|\-].*$/,'').trim() ||
+        'ZWANE FINANCIAL SERVICES',
+        60
+    );
+
+    // ── HEADER (700 chars) ────────────────────────────────────────────────
+    // Pos 1:     H
+    // Pos 2-11:  SRN (A10, right-aligned)
+    // Pos 12-19: MONTH END DATE (N8, CCYYMMDD)
+    // Pos 20-21: VERSION NUMBER (N2) = "06" for Layout 700v2
+    // Pos 22-29: FILE CREATION DATE (N8, CCYYMMDD)
+    // Pos 30-89: TRADING NAME/BRAND NAME (A60)
+    // Pos 90-700: FILLER spaces
+    let content = ('H' + srn + monthEnd + '06' + creationDate + tradingName).padEnd(700, ' ').slice(0,700) + '\r\n';
 
     sacrraState.members.forEach(m => {
-        const recordType = settings.type === 'DAILY' ? settings.prefix : (m.f01_record_type || 'R');
-        const statusCode = (m.f50_status_code || 'L').trim().slice(0, 1);
-        const accountNo  = (m.f40_account_number || m.internal_id || '').replace(/\s/g, '');
-        // Account type: P = personal loan (all terms), never 'M' which is non-standard
-        const accountType = (m.f03_account_type || 'P').slice(0, 1) === 'M' ? 'P' : (m.f03_account_type || 'P');
-        const gender     = (m.f11_gender || 'M').slice(0, 1).toUpperCase();
-        const title      = deriveTitle(gender);
+        const recordType  = settings.type === 'DAILY' ? (settings.prefix || 'R') : 'R';
+        const statusCode  = aL(m.f50_status_code || 'L', 2);
+        const accountType = aL(m.f03_account_type || 'P', 2);
 
-        // Financial fields: zero out for closed/positive statuses
-        const isPositive = ['C', 'E', 'P', 'T'].includes(statusCode);
-        const balance    = isPositive ? '000000000000' : zeroPad((m.f44_current_balance || '0').replace(/\D/g, ''), 12);
-        const instalment = isPositive ? '000000000000' : zeroPad((m.f45_installment    || '0').replace(/\D/g, ''), 12);
-        const arrears    = isPositive ? '000000000000' : zeroPad((m.f49_arrears_amount  || '0').replace(/\D/g, ''), 12);
-        const mthsArr    = isPositive ? '00' : zeroPad(m.f53_months_in_arrears, 2);
+        const isPositive  = ['C','E','P','T','V','G','K','M','S'].includes((m.f50_status_code||'').trim());
+        const saId        = (m.f10_id_number || '').replace(/\D/g,'').padStart(13,'0').slice(0,13);
+        const accountNo   = aL(m.f40_account_number || m.internal_id || '', 25);
 
-        let line = '';
-        line += recordType.slice(0, 1);                                      // 1:      Record type
-        line += pad(accountNo, 20);                                          // 2–21:   Account number
-        line += pad(m.f02_supplier_ref, 6);                                  // 22–27:  SRN
-        line += accountType.slice(0, 1);                                     // 28:     Account type (P)
-        line += statusCode;                                                  // 29:     Status code
-        line += pad(m.f51_status_date || dateStr, 8);                        // 30–37:  Status date YYYYMMDD
-        line += pad(m.f43_date_opened || '00000000', 8);                     // 38–45:  Date opened YYYYMMDD
-        line += zeroPad((m.f41_opening_balance || '0').replace(/\D/g, ''), 12); // 46–57: Opening balance (cents)
-        line += balance;                                                     // 58–69:  Current balance
-        line += instalment;                                                  // 70–81:  Instalment
-        line += arrears;                                                     // 82–93:  Arrears
-        line += mthsArr;                                                     // 94–95:  Months in arrears
-        line += pad(m.f46_first_payment_date || '00000000', 8);              // 96–103: First payment date
-        line += pad((m.f10_id_number || '').trim(), 13);                     // 104–116: SA ID (13 digits)
-        line += '  ';                                                        // 117–118: Non-SA ID type (blank)
-        line += pad('', 20);                                                 // 119–138: Non-SA ID number
-        line += gender;                                                      // 139:    Gender (M/F)
-        line += pad(m.f12_date_of_birth || '00000000', 8);                   // 140–147: DOB YYYYMMDD
-        line += pad(title, 5);                                               // 148–152: Title (MR/MS derived)
-        line += pad((m.f06_surname    || '').toUpperCase(), 30);             // 153–182: Surname
-        line += pad((m.f07_first_names || '').toUpperCase(), 30);            // 183–212: First names
-        line += pad((m.f09_middle_names || '').toUpperCase(), 15);           // 213–227: Middle names
-        line += pad(m.f13_address_1, 30);                                    // 228–257: Address 1
-        line += pad(m.f14_address_2, 30);                                    // 258–287: Address 2
-        line += pad(m.f15_city, 30);                                         // 288–317: City/Suburb
-        line += pad(m.f16_province || '', 30);                               // 318–347: Province
-        line += pad(m.f17_postal, 10);                                       // 348–357: Postal code
-        line += pad(m.f31_mobile, 15);                                       // 358–372: Mobile
-        line += pad(m.f32_work, 15);                                         // 373–387: Work phone
-        line += pad(m.f35_employer, 50);                                     // 388–437: Employer
-        line += pad(m.f36_occupation, 30);                                   // 438–467: Occupation
+        // Financial (N9, whole rands, zero for positive/closed)
+        const openBal     = nR(isPositive ? 0 : (m.f41_opening_balance || '0').replace(/\D/g,''), 9);
+        const currBal     = nR(isPositive ? 0 : (m.f44_current_balance || '0').replace(/\D/g,''), 9);
+        const amtOverdue  = nR(isPositive ? 0 : (m.f49_arrears_amount  || '0').replace(/\D/g,''), 9);
+        const instalment  = nR(isPositive ? 0 : (m.f45_installment     || '0').replace(/\D/g,''), 9);
+        const mthsArr     = isPositive ? '00' : zeroPad(m.f53_months_in_arrears || 0, 2);
 
-        content += line.padEnd(700, ' ').slice(0, 700) + '\r\n';
+        // Build 700-char data record per exact byte positions
+        let r = '';
+        r += aL(recordType, 1);               // 1:        DATA = 'R'
+        r += nR(saId, 13);                     // 2-14:     SA ID NUMBER (N13)
+        r += aL('', 16);                       // 15-30:    NON-SA ID (blank)
+        r += aL(m.f11_gender || 'M', 1);       // 31:       GENDER
+        r += nR((m.f12_date_of_birth||'').replace(/-/g,'') || '0', 8); // 32-39: DOB
+        r += aL('', 8);                        // 40-47:    BRANCH CODE (blank — use sub-acct)
+        r += aL(accountNo, 25);                // 48-72:    ACCOUNT NO
+        r += aL('', 4);                        // 73-76:    SUB-ACCOUNT NO
+        r += aL((m.f06_surname || '').toUpperCase(), 25);   // 77-101:  SURNAME
+        r += aL(deriveTitle(m.f11_gender), 5); // 102-106:  TITLE
+        r += aL((m.f07_first_names || '').toUpperCase(), 14); // 107-120: FORENAME 1
+        r += aL('', 14);                       // 121-134:  FORENAME 2
+        r += aL('', 14);                       // 135-148:  FORENAME 3
+        r += aL(m.f13_address_1 || '', 25);    // 149-173:  RES ADDRESS 1
+        r += aL(m.f14_address_2 || '', 25);    // 174-198:  RES ADDRESS 2
+        r += aL(m.f15_city || '', 25);         // 199-223:  RES ADDRESS 3 (suburb/city)
+        r += aL(m.f16_province || '', 25);     // 224-248:  RES ADDRESS 4 (province)
+        r += aL(m.f17_postal || '', 6);        // 249-254:  POSTAL CODE (residential)
+        r += aL('O', 1);                       // 255:      OWNER/TENANT
+        r += aL('', 25);                       // 256-280:  POSTAL ADDRESS 1
+        r += aL('', 25);                       // 281-305:  POSTAL ADDRESS 2
+        r += aL('', 25);                       // 306-330:  POSTAL ADDRESS 3
+        r += aL('', 25);                       // 331-355:  POSTAL ADDRESS 4
+        r += aL('', 6);                        // 356-361:  POSTAL CODE (postal)
+        r += aL('', 2);                        // 362-363:  OWNERSHIP TYPE
+        r += aL('04', 2);                      // 364-365:  LOAN REASON CODE (04=Personal)
+        r += aL('01', 2);                      // 366-367:  PAYMENT TYPE (01=Debit order)
+        r += aL(accountType, 2);               // 368-369:  TYPE OF ACCOUNT
+        r += nR((m.f43_date_opened||'').replace(/-/g,'') || '0', 8); // 370-377: DATE OPENED
+        r += nR('0', 8);                       // 378-385:  DEFERRED PAYMENT DATE
+        r += nR((m.f46_first_payment_date||'').replace(/-/g,'') || '0', 8); // 386-393: DATE LAST PAYMENT
+        r += openBal;                          // 394-402:  OPENING BALANCE (N9)
+        r += currBal;                          // 403-411:  CURRENT BALANCE (N9)
+        r += aL(isPositive ? 'P' : 'D', 1);   // 412:      CURRENT BALANCE INDICATOR
+        r += amtOverdue;                       // 413-421:  AMOUNT OVERDUE (N9)
+        r += instalment;                       // 422-430:  INSTALMENT (N9)
+        r += mthsArr;                          // 431-432:  MONTHS IN ARREARS (N2)
+        r += statusCode;                       // 433-434:  STATUS CODE (A2)
+        r += nR('01', 2);                      // 435-436:  REPAYMENT FREQUENCY (01=Monthly)
+        r += nR(m.f42_terms || m.term_months || '1', 4); // 437-440: TERMS
+        r += nR((m.f51_status_date||'').replace(/-/g,'') || '0', 8); // 441-448: STATUS DATE
+        r += aL('', 8);                        // 449-456:  OLD SUPPLIER BRANCH CODE
+        r += aL('', 25);                       // 457-481:  OLD ACCOUNT NUMBER
+        r += aL('', 4);                        // 482-485:  OLD SUB-ACCOUNT
+        r += aL('', 10);                       // 486-495:  OLD SUPPLIER REFERENCE
+        r += aL('', 16);                       // 496-511:  HOME TELEPHONE
+        r += aL(m.f31_mobile || '', 16);       // 512-527:  CELLULAR TELEPHONE
+        r += aL(m.f32_work || '', 16);         // 528-543:  WORK TELEPHONE
+        r += aL(m.f35_employer || '', 60);     // 544-603:  EMPLOYER DETAIL
+        r += nR('0', 9);                       // 604-612:  INCOME (N9)
+        r += aL('', 1);                        // 613:      INCOME FREQUENCY
+        r += aL('', 20);                       // 614-633:  OCCUPATION
+        r += aL('', 60);                       // 634-693:  THIRD PARTY NAME
+        r += nR('0', 2);                       // 694-695:  ACCOUNT SOLD TO THIRD PARTY
+        r += nR('1', 3);                       // 696-698:  NO OF PARTICIPANTS
+        r += aL('', 2);                        // 699-700:  FILLER
+
+        if (r.length !== 700) console.warn('[SACRRA] Record length', r.length, 'expected 700 for', m.internal_id);
+        content += r + '\r\n';
     });
 
-    // Trailer: T + zero-padded record count (10) + spaces to 700
-    content += ('T' + zeroPad(sacrraState.members.length, 10)).padEnd(700, ' ') + '\r\n';
+    // ── TRAILER (700 chars) ───────────────────────────────────────────────
+    // Pos 1:     T
+    // Pos 2-10:  NUMBER OF RECORDS (N9) — includes header + data + trailer
+    // Pos 11-700: FILLER spaces
+    const totalRecords = sacrraState.members.length + 2; // +header +trailer
+    content += ('T' + String(totalRecords).padStart(9, '0')).padEnd(700, ' ').slice(0,700) + '\r\n';
 
     return content;
 }
+
 
 window.generateSacrraFile = async () => {
     if (sacrraState.members.length === 0) return alert("No data found.");
