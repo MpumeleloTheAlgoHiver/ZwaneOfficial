@@ -57,15 +57,7 @@
   
   /* Logo */
   .navbar-desktop .navbar-logo {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    min-width: 180px;
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: #000000;
-    letter-spacing: 2px;
+    display: none; /* Logo lives in the sidebar, not the navbar */
   }
   
   .navbar-desktop .logo-icon {
