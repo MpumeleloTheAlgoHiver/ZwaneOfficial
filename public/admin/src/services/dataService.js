@@ -151,7 +151,7 @@ export async function fetchPipelineApplications() {
 export async function fetchLoanApplications() {
   return supabase
     .from('loan_applications')
-    .select('*, profiles:user_id(full_name, client_number, identity_number, nok_name, nok_phone, nok_relationship)')
+    .select('*, profiles:user_id(full_name, client_number, identity_number)')
     .order('created_at', { ascending: false });
 }
 
@@ -747,7 +747,7 @@ export const fetchFullUserProfile = async (userId) => {
         supabase.from('profiles').select('*, branches(id, name)').eq('id', userId).maybeSingle(),
         supabase.from('loan_applications').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
         supabase.from('document_uploads').select('*').eq('user_id', userId),
-        supabase.from('financial_profiles').select('monthly_income, affordability_ratio, parsed_data').eq('user_id', userId).maybeSingle()
+        supabase.from('financial_profiles').select('*').eq('user_id', userId).maybeSingle()
     ]);
 
     const profile = profileRes.data || { id: userId, full_name: 'Unknown User', role: 'borrower' };
