@@ -34,53 +34,47 @@ export async function init(container) {
         : `<div class="text-base font-black text-slate-900 uppercase tracking-tight mb-2">${companyName}</div>`;
 
     container.innerHTML = `
-        <div id="sacrra-portal" class="flex min-h-screen bg-[#f5f3ff] font-sans text-slate-800">
-            <aside id="sacrra-sidebar" class="fixed left-0 top-0 h-full w-[280px] z-40 bg-white border-r border-slate-200 shadow-[20px_0_40px_rgba(0,0,0,0.02)] flex flex-col py-8">
-                <div class="px-8 mb-10">
+        <div id="sacrra-portal" class="flex min-h-screen font-sans text-slate-800" style="background:#f8f9fa">
+            <aside id="sacrra-sidebar" class="fixed left-0 top-0 h-full w-[260px] z-40 bg-white border-r border-gray-100 flex flex-col">
+                <!-- Logo -->
+                <div class="px-6 py-5 border-b border-gray-100">
                     ${logoMarkup}
-                    <div class="flex items-center gap-2 px-1">
-                        <span class="w-2 h-2 rounded-full" style="background-color:var(--color-primary)"></span>
-                        <p class="text-[10px] font-black uppercase tracking-[0.2em]" style="color:var(--color-primary)">Compliance Engine</p>
+                    <div class="flex items-center gap-2 mt-1">
+                        <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-gray-400">SACRRA Compliance Engine</p>
                     </div>
                 </div>
 
-                <div class="px-4 mb-8">
-                    <button onclick="window.location.href='/admin/dashboard'" class="w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-slate-500 hover:bg-slate-50 transition-all group">
-                        <span class="material-symbols-outlined group-hover:text-slate-900">home</span>
-                        <span class="font-black text-xs uppercase tracking-widest group-hover:text-slate-900">Return Home</span>
-                    </button>
-                </div>
+                <!-- Nav items -->
+                <nav id="sacrra-nav" class="flex-1 px-4 py-4 overflow-y-auto"></nav>
 
-                <nav id="sacrra-nav" class="flex-1 px-4 space-y-2"></nav>
-                <div class="px-6 pt-6 border-t border-slate-100 mt-auto">
-                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/60">
-                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">System Status</p>
-                        <div class="flex items-center gap-2">
-                            <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                            <span class="text-xs font-bold text-slate-700">700v2 Engine Live</span>
-                        </div>
+                <!-- Footer -->
+                <div class="px-4 py-4 border-t border-gray-100">
+                    <div class="flex items-center gap-2 px-3 py-2">
+                        <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                        <span class="text-xs font-semibold text-gray-500">Layout 700v2 Engine Live</span>
                     </div>
                 </div>
             </aside>
 
-            <main class="flex-1 ml-[280px] min-h-screen flex flex-col">
-                <header class="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 px-10 py-6 flex justify-between items-center">
+            <main class="flex-1 ml-[260px] min-h-screen flex flex-col">
+                <header class="sticky top-0 z-30 bg-white border-b border-gray-100 px-8 py-4 flex justify-between items-center">
                     <div id="sacrra-header-title">
-                        <h2 class="text-2xl font-black text-slate-900 tracking-tight">Compliance Dashboard</h2>
-                        <p class="text-sm font-medium text-slate-500">Fixed-Width Formatting Engine</p>
+                        <h2 class="text-xl font-bold text-gray-900">Compliance Dashboard</h2>
+                        <p class="text-xs text-gray-400 mt-0.5">SACRRA Layout 700v2 · Fixed-Width Format</p>
                     </div>
-                    <div class="flex items-center gap-4">
-                        <button onclick="window.refreshSacrraData()" class="p-3 bg-slate-50 text-slate-600 hover:bg-white hover:shadow-md rounded-xl transition-all">
-                            <span class="material-symbols-outlined ${sacrraState.loading ? 'animate-spin' : ''}">refresh</span>
+                    <div class="flex items-center gap-3">
+                        <button onclick="window.refreshSacrraData()" class="p-2.5 bg-gray-50 text-gray-500 hover:bg-gray-100 rounded-xl transition-all">
+                            <span class="material-symbols-outlined text-[18px] ${sacrraState.loading ? 'animate-spin' : ''}">refresh</span>
                         </button>
-                        <button onclick="window.showExportModal()" class="flex items-center gap-2 px-6 py-3 bg-[#a04100] text-white rounded-xl font-bold shadow-lg shadow-orange-700/20 hover:translate-y-[-2px] transition-all">
-                            <span class="material-symbols-outlined text-lg">ios_share</span>
+                        <button onclick="window.showExportModal()" class="flex items-center gap-2 px-5 py-2.5 text-white rounded-xl font-bold text-sm transition-all hover:-translate-y-0.5" style="background:var(--color-primary)">
+                            <span class="material-symbols-outlined text-[18px]">ios_share</span>
                             Generate Compliance File
                         </button>
                     </div>
                 </header>
 
-                <div id="sacrra-canvas" class="p-10 flex-1"></div>
+                <div id="sacrra-canvas" class="p-8 flex-1"></div>
             </main>
         </div>
 
@@ -282,24 +276,20 @@ function renderView() {
     if (!nav || !canvas) return;
 
     nav.innerHTML = `
-        <div class="px-6 mb-10">
-            <div class="flex items-center gap-3 mb-8">
-                <div class="w-10 h-10 bg-[#a04100] rounded-xl flex items-center justify-center text-white shadow-lg shadow-orange-900/20">
-                    <span class="material-symbols-outlined fill-1">account_balance</span>
-                </div>
-                <div>
-                    <h1 class="text-sm font-black text-slate-900 uppercase tracking-tighter" id="sacrra-company-name"></h1>
-                    <p class="text-[9px] font-bold uppercase tracking-widest" style="color:var(--color-primary)">Compliance Engine</p>
-                </div>
-            </div>
-            <a href="index.html" class="w-full flex items-center gap-4 px-6 py-3 bg-slate-900 text-white rounded-xl shadow-xl shadow-slate-900/20 hover:scale-[1.02] transition-all mb-4">
-                <span class="material-symbols-outlined text-sm">home</span>
-                <span class="font-black text-[10px] uppercase tracking-widest">Return Home</span>
-            </a>
+        <!-- Nav items -->
+        <div class="space-y-1 mb-6">
+            ${renderNavItem('overview', 'dashboard', 'Dashboard')}
+            ${renderNavItem('pipeline', 'account_tree', 'Submissions')}
+            ${renderNavItem('parser', 'error', 'Rejections')}
         </div>
-        ${renderNavItem('overview', 'dashboard', 'Dashboard')}
-        ${renderNavItem('pipeline', 'account_tree', 'Submissions')}
-        ${renderNavItem('parser', 'error', 'Rejections')}
+        <!-- Back to admin -->
+        <div class="border-t border-slate-100 pt-4">
+            <button onclick="window.location.href='/admin/dashboard'" 
+                class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-all text-xs font-semibold">
+                <span class="material-symbols-outlined text-[18px]">arrow_back</span>
+                Back to Admin
+            </button>
+        </div>
     `;
 
     // Populate company name from theme (avoids hardcoding)
