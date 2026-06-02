@@ -23,12 +23,7 @@
 
 /* Sidebar Header/Branding */
 .sidebar-heading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 64px;
-  background: var(--color-surface-card);
-  border-bottom: 1px solid var(--color-border);
+  display: none; /* Logo is already in the navbar — no duplicate needed */
 }
 
 .sidebar-logo-text {
