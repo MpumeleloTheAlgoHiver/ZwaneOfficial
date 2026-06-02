@@ -158,7 +158,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Only flag as error if there are recent failures (within last 7 days) with no successes
     if (failed > 0 && success === 0 && daysSinceLastAttempt <= 7) {
       return {
-        text: 'SureSystems: Activation Errors',
+        text: 'SureSystems: UAT Credentials Rejected (401) — Contact SureDebit',
         color: '#ef4444',
         dot: 'bg-red-500'
       };
