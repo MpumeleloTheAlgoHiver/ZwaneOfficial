@@ -792,8 +792,17 @@ function buildSacrraFileContent(settings) {
     const dateStr  = now.toISOString().slice(0, 10).replace(/-/g, '');
     const srn      = (sacrraState.members[0]?.f02_supplier_ref || 'ZFS001').trim().slice(0, 6).padEnd(6, ' ');
 
-    // Header: H + SRN(6) + monthEnd(8) + 'L702' + spaces to 700
-    let content = ('H' + srn + monthEnd + 'L702').padEnd(700, ' ') + '\r\n';
+    // Header Layout 700 v2:
+    // Pos 1:     H (header)
+    // Pos 2-7:   SRN (6 chars)
+    // Pos 8-15:  Reporting date YYYYMMDD (8 chars)
+    // Pos 16:    Submission type: M=Monthly, D=Daily, I=Initial (1 char)
+    // Pos 17-25: Member/Institution number (9 chars, right-justified, zero-padded)
+    // Pos 26+:   Spaces to 700
+    const submissionType = settings.type === 'DAILY' ? 'D' : 'M';
+    const memberNumber   = String(sacrraState.members[0]?.f02_supplier_ref || '').replace(/\s/g, '') || '000001';
+    const memberPadded   = memberNumber.padStart(9, '0').slice(0, 9);
+    let content = ('H' + srn + monthEnd + submissionType + memberPadded).padEnd(700, ' ') + '\r\n';
 
     sacrraState.members.forEach(m => {
         const recordType = settings.type === 'DAILY' ? settings.prefix : (m.f01_record_type || 'R');
