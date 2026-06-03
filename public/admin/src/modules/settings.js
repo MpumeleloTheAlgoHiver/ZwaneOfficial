@@ -846,6 +846,69 @@ async function renderSystemSettingsTab() {
                 </div>
             </section>
 
+            <!-- ── Banking Details ───────────────────────────────────── -->
+            <section class="glass-card p-8 rounded-2xl">
+                <h4 class="text-lg font-headline font-bold text-on-surface mb-1 border-b border-outline-variant/10 pb-2 flex items-center gap-2">
+                    <span class="material-symbols-outlined text-[20px]" style="color:var(--color-primary)">account_balance</span>
+                    Company Banking Details
+                </h4>
+                <p class="text-xs text-gray-400 mb-5">Displayed to clients when they make a manual EFT payment or settle a loan.</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Bank Name</label>
+                        <input type="text" id="bank-name-input" value="${escapeHtmlAttr(systemSettingsDraft.company_bank_name || '')}"
+                            class="w-full border-gray-300 rounded-lg p-2.5 text-sm focus:ring-orange-500 focus:border-orange-500" placeholder="e.g. FNB, ABSA, Standard Bank">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Account Holder Name</label>
+                        <input type="text" id="bank-holder-input" value="${escapeHtmlAttr(systemSettingsDraft.company_bank_account_holder || '')}"
+                            class="w-full border-gray-300 rounded-lg p-2.5 text-sm focus:ring-orange-500 focus:border-orange-500" placeholder="e.g. Zwane Financial Services">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Account Number</label>
+                        <input type="text" id="bank-account-no-input" value="${escapeHtmlAttr(systemSettingsDraft.company_bank_account_no || '')}"
+                            class="w-full border-gray-300 rounded-lg p-2.5 text-sm font-mono focus:ring-orange-500 focus:border-orange-500" placeholder="e.g. 62812345678">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Branch Code</label>
+                        <input type="text" id="bank-branch-code-input" value="${escapeHtmlAttr(systemSettingsDraft.company_bank_branch_code || '')}"
+                            class="w-full border-gray-300 rounded-lg p-2.5 text-sm font-mono focus:ring-orange-500 focus:border-orange-500" placeholder="e.g. 250655">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Account Type</label>
+                        <select id="bank-account-type-input" class="w-full border-gray-300 rounded-lg p-2.5 text-sm focus:ring-orange-500 focus:border-orange-500 bg-white">
+                            <option value="current"  ${(systemSettingsDraft.company_bank_account_type||'current')==='current'  ? 'selected':''}>Current / Cheque</option>
+                            <option value="savings"  ${(systemSettingsDraft.company_bank_account_type||'')==='savings'  ? 'selected':''}>Savings</option>
+                            <option value="business" ${(systemSettingsDraft.company_bank_account_type||'')==='business' ? 'selected':''}>Business</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Payment Reference Prefix</label>
+                        <input type="text" id="bank-ref-prefix-input" value="${escapeHtmlAttr(systemSettingsDraft.company_bank_reference_prefix || 'REF')}"
+                            class="w-full border-gray-300 rounded-lg p-2.5 text-sm font-mono focus:ring-orange-500 focus:border-orange-500" placeholder="e.g. ZFS">
+                        <p class="text-xs text-gray-400 mt-1">Client reference = PREFIX-LOANID (e.g. ZFS-1001)</p>
+                    </div>
+                </div>
+
+                <!-- Live preview -->
+                <div class="mt-6 bg-gray-50 border border-gray-200 rounded-xl p-4">
+                    <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Client will see:</p>
+                    <div class="grid grid-cols-2 gap-y-1 text-sm">
+                        ${[
+                            ['Bank', systemSettingsDraft.company_bank_name || '—'],
+                            ['Account Holder', systemSettingsDraft.company_bank_account_holder || systemSettingsDraft.company_name || '—'],
+                            ['Account Number', systemSettingsDraft.company_bank_account_no || '—'],
+                            ['Branch Code', systemSettingsDraft.company_bank_branch_code || '—'],
+                            ['Account Type', systemSettingsDraft.company_bank_account_type || 'current'],
+                            ['Reference', `${systemSettingsDraft.company_bank_reference_prefix||'REF'}-LOANID`]
+                        ].map(([k,v]) => `
+                            <span class="text-gray-400 text-xs">${k}</span>
+                            <span class="font-semibold text-gray-800 text-xs">${v}</span>
+                        `).join('')}
+                    </div>
+                </div>
+            </section>
+
             <section class="glass-card p-8 rounded-2xl">
                 <h4 class="text-lg font-headline font-bold text-on-surface mb-4 border-b border-outline-variant/10 pb-2">Theme Colors</h4>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -940,7 +1003,14 @@ async function renderSystemSettingsTab() {
     document.getElementById('provider-branch-code-input')?.addEventListener('input', (e) => commitThemeDraft({ provider_branch_code: e.target.value }));
     document.getElementById('company-phone-input')?.addEventListener('input', (e) => commitThemeDraft({ company_phone: e.target.value }));
     document.getElementById('company-physical-address-input')?.addEventListener('input', (e) => commitThemeDraft({ company_physical_address: e.target.value }));
-    document.getElementById('company-postal-address-input')?.addEventListener('input', (e) => commitThemeDraft({ company_postal_address: e.target.value }));
+    document.getElementById('company-postal-address-input')?.addEventListener('input',  (e) => commitThemeDraft({ company_postal_address: e.target.value }));
+    // Banking details
+    document.getElementById('bank-name-input')?.addEventListener('input',         (e) => commitThemeDraft({ company_bank_name: e.target.value }));
+    document.getElementById('bank-holder-input')?.addEventListener('input',       (e) => commitThemeDraft({ company_bank_account_holder: e.target.value }));
+    document.getElementById('bank-account-no-input')?.addEventListener('input',   (e) => commitThemeDraft({ company_bank_account_no: e.target.value }));
+    document.getElementById('bank-branch-code-input')?.addEventListener('input',  (e) => commitThemeDraft({ company_bank_branch_code: e.target.value }));
+    document.getElementById('bank-account-type-input')?.addEventListener('change',(e) => commitThemeDraft({ company_bank_account_type: e.target.value }));
+    document.getElementById('bank-ref-prefix-input')?.addEventListener('input',   (e) => commitThemeDraft({ company_bank_reference_prefix: e.target.value }));
     document.getElementById('wallpaper-flip-toggle')?.addEventListener('change', (e) => commitThemeDraft({ auth_background_flip: e.target.checked }));
     document.getElementById('overlay-disable-toggle')?.addEventListener('change', (e) => commitThemeDraft({ auth_overlay_enabled: !e.target.checked }));
     document.getElementById('overlay-color-picker')?.addEventListener('input', (e) => {

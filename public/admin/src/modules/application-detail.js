@@ -2646,8 +2646,7 @@ window.handleDisbursementExport = async (applicationId) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        applicationIds: [applicationId],
-        method: 'all'
+        applicationIds: [applicationId]
       })
     });
 

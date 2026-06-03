@@ -2773,17 +2773,40 @@ app.post('/api/admin/payment/confirm/:id', async (req, res) => {
             status: 'confirmed', confirmed_by: user?.id, confirmed_at: new Date().toISOString()
         }).eq('id', id);
 
-        // If settlement → update loan status to SETTLED
+        // ── Update outstanding balance on the loan ────────────────────
+        // Find the loan record linked to this application and decrement
+        const paidAmount = Number(payment.amount || 0);
+        if (payment.application_id) {
+            // Find loan by application_id
+            const { data: loan } = await supabaseService
+                .from('loans')
+                .select('id, outstanding_balance')
+                .eq('application_id', payment.application_id)
+                .maybeSingle();
+
+            if (loan) {
+                const newBalance = Math.max(0, Number(loan.outstanding_balance || 0) - paidAmount);
+                await supabaseService.from('loans')
+                    .update({ outstanding_balance: newBalance, updated_at: new Date().toISOString() })
+                    .eq('id', loan.id);
+            }
+        }
+
+        // If settlement → zero balance + update loan status to SETTLED
         if (payment.payment_type === 'settlement' && payment.application_id) {
             await supabaseService.from('loan_applications')
                 .update({ status: 'SETTLED', updated_at: new Date().toISOString() })
                 .eq('id', payment.application_id);
+
+            // Zero out the loan balance on settlement
+            await supabaseService.from('loans')
+                .update({ outstanding_balance: 0, status: 'settled', updated_at: new Date().toISOString() })
+                .eq('application_id', payment.application_id);
         }
 
         // Update cash journal entry from pending to confirmed
         await supabaseService.from('cash_journal')
-            .update({ description: supabaseService.rpc ? undefined : undefined,
-                      created_by_name: `${payment.profiles?.full_name || 'Client'} (confirmed by admin)` })
+            .update({ created_by_name: `${payment.profiles?.full_name || 'Client'} (confirmed by admin)` })
             .ilike('reference', payment.id.slice(0,8) + '%');
 
         // ── Notify client via SMS + WhatsApp + Email ─────────────────
@@ -4001,6 +4024,178 @@ app.get('/api/cron/flag-defaults', async (req, res) => {
         await sched.flagDefaultedLoans?.();
         res.json({ ok: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/disbursements/payout-csv — single-application disbursement CSV (admin panel, no PIN required)
+app.post('/api/disbursements/payout-csv', async (req, res) => {
+    try {
+        const { applicationIds = [] } = req.body || {};
+        if (!applicationIds.length) {
+            return res.status(400).json({ error: 'applicationIds array is required' });
+        }
+
+        const { data: apps, error: fetchErr } = await supabaseService
+            .from('loan_applications')
+            .select(`
+                id, amount, offer_principal, offer_monthly_repayment, offer_total_repayment,
+                term_months, loan_number, created_at, status, branch_id,
+                profiles:user_id ( full_name, identity_number, client_number ),
+                bank_accounts:bank_account_id (
+                    bank_name, account_holder, account_number, branch_code, account_type
+                )
+            `)
+            .in('id', applicationIds);
+
+        if (fetchErr) throw fetchErr;
+        if (!apps || apps.length === 0) {
+            return res.status(404).json({ error: 'No applications found for the given IDs.' });
+        }
+
+        const csvHeaders = [
+            'Reference', 'Client Name', 'ID Number',
+            'Account Holder', 'Bank Name', 'Account Number', 'Branch Code', 'Account Type',
+            'Disbursal Amount', 'Loan Term (months)', 'Application ID', 'Date'
+        ].join(',');
+
+        const rows = apps.map((app) => {
+            const bank       = app.bank_accounts || {};
+            const profile    = app.profiles || {};
+            const clientNum  = profile.client_number ? String(profile.client_number) : `C${String(app.id).slice(-4).toUpperCase()}`;
+            const loanSeq    = app.loan_number ? `L${String(app.loan_number).padStart(4, '0')}` : `L${String(app.id).slice(-4)}`;
+            const reference  = `${clientNum}-${loanSeq}`;
+            const amount     = Number(app.offer_principal || app.amount || 0).toFixed(2);
+            const accountType = (bank.account_type || 'current').toLowerCase() === 'savings' ? 'Savings' : 'Current';
+            const date = new Date().toISOString().slice(0, 10);
+            return [
+                `"${reference}"`,
+                `"${(profile.full_name || '').replace(/"/g, '""')}"`,
+                `"${profile.identity_number || ''}"`,
+                `"${(bank.account_holder || profile.full_name || '').replace(/"/g, '""')}"`,
+                `"${(bank.bank_name || '').replace(/"/g, '""')}"`,
+                `"${bank.account_number || ''}"`,
+                `"${bank.branch_code || ''}"`,
+                `"${accountType}"`,
+                amount,
+                app.term_months || 1,
+                `"${app.id}"`,
+                date
+            ].join(',');
+        });
+
+        const csvContent = [csvHeaders, ...rows].join('\n');
+        const date = new Date().toISOString().slice(0, 10);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="disbursement_${date}.csv"`);
+        return res.send(csvContent);
+    } catch (err) {
+        console.error('[disbursements/payout-csv] error:', err.message || err);
+        return res.status(500).json({ error: err.message || 'CSV generation failed' });
+    }
+});
+
+// POST /api/export/:type — generic data export for admin export manager
+app.post('/api/export/:type', async (req, res) => {
+    try {
+        const { type } = req.params;
+        const { start_date, end_date, format = 'csv' } = req.body || {};
+
+        const dateFilter = (query, col = 'created_at') => {
+            if (start_date) query = query.gte(col, start_date);
+            if (end_date)   query = query.lte(col, end_date + 'T23:59:59');
+            return query;
+        };
+
+        let rows = [];
+        let filename = `export-${type}-${new Date().toISOString().slice(0,10)}`;
+
+        if (type === 'dashboard' || type === 'applications') {
+            let q = supabaseService.from('loan_applications')
+                .select('id, loan_number, amount, offer_principal, offer_total_repayment, status, term_months, created_at, profiles:user_id(full_name, identity_number)')
+                .order('created_at', { ascending: false });
+            q = dateFilter(q);
+            const { data, error } = await q;
+            if (error) throw error;
+            rows = (data || []).map(a => ({
+                loan_number:   a.loan_number || '',
+                client:        a.profiles?.full_name || '',
+                id_number:     a.profiles?.identity_number || '',
+                amount:        a.offer_principal || a.amount || 0,
+                total_repay:   a.offer_total_repayment || 0,
+                term_months:   a.term_months || '',
+                status:        a.status || '',
+                created_at:    a.created_at?.slice(0,10) || ''
+            }));
+            filename = `applications-${new Date().toISOString().slice(0,10)}`;
+        } else if (type === 'payments' || type === 'incoming-payments') {
+            let q = supabaseService.from('manual_payments')
+                .select('id, amount, payment_type, reference, status, created_at, profiles:user_id(full_name)')
+                .order('created_at', { ascending: false });
+            q = dateFilter(q);
+            const { data, error } = await q;
+            if (error) throw error;
+            rows = (data || []).map(p => ({
+                reference:    p.reference || '',
+                client:       p.profiles?.full_name || '',
+                amount:       p.amount || 0,
+                type:         p.payment_type || '',
+                status:       p.status || '',
+                date:         p.created_at?.slice(0,10) || ''
+            }));
+            filename = `payments-${new Date().toISOString().slice(0,10)}`;
+        } else if (type === 'loan-book' || type === 'loans') {
+            let q = supabaseService.from('loans')
+                .select('id, principal_amount, outstanding_balance, monthly_payment, status, start_date, next_payment_date, loan_applications(loan_number, profiles:user_id(full_name, identity_number))')
+                .order('start_date', { ascending: false });
+            q = dateFilter(q, 'start_date');
+            const { data, error } = await q;
+            if (error) throw error;
+            rows = (data || []).map(l => ({
+                loan_number:       l.loan_applications?.loan_number || '',
+                client:            l.loan_applications?.profiles?.full_name || '',
+                id_number:         l.loan_applications?.profiles?.identity_number || '',
+                principal:         l.principal_amount || 0,
+                outstanding:       l.outstanding_balance || 0,
+                monthly_payment:   l.monthly_payment || 0,
+                status:            l.status || '',
+                start_date:        l.start_date?.slice(0,10) || '',
+                next_payment_date: l.next_payment_date?.slice(0,10) || ''
+            }));
+            filename = `loan-book-${new Date().toISOString().slice(0,10)}`;
+        } else if (type === 'cash-ledger') {
+            let q = supabaseService.from('cash_journal')
+                .select('entry_date, entry_type, category, description, reference, amount, created_by_name')
+                .order('entry_date', { ascending: false });
+            q = dateFilter(q, 'entry_date');
+            const { data, error } = await q;
+            if (error) throw error;
+            rows = data || [];
+            filename = `cash-ledger-${new Date().toISOString().slice(0,10)}`;
+        } else {
+            return res.status(400).json({ error: `Unknown export type: ${type}` });
+        }
+
+        if (format === 'json') {
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}.json"`);
+            return res.send(JSON.stringify(rows, null, 2));
+        }
+
+        // CSV
+        if (!rows.length) {
+            return res.status(404).json({ error: 'No data found for the selected date range.' });
+        }
+        const headers = Object.keys(rows[0]).join(',');
+        const csvRows = rows.map(r =>
+            Object.values(r).map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')
+        );
+        const csv = [headers, ...csvRows].join('\n');
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}.csv"`);
+        return res.send(csv);
+    } catch (err) {
+        console.error('[export] error:', err.message || err);
+        return res.status(500).json({ error: err.message || 'Export failed' });
+    }
 });
 
 // --- 8. Start Server ---
