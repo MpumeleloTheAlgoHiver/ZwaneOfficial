@@ -18,6 +18,9 @@ Thumbs.db
 
 .Database BackUp
 
+# Claude Code agent internals
+.agent/
+
 # Superpowers Brainstorm
 .superpowers/
 
@@ -28,3 +31,4 @@ scratch/
 *.asc
 *private*key*
 *pgp_key*
+.vercel
