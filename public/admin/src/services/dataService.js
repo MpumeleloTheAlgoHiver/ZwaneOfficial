@@ -32,7 +32,7 @@ async function ensureLoanFromApplication(application) {
   const applicationId = application.id;
 
   const { data: existingLoan } = await supabase
-    .from('accounts') // Write directly to institutional table
+    .from('loans')
     .select('*')
     .eq('application_id', applicationId)
     .maybeSingle();
@@ -54,7 +54,7 @@ async function ensureLoanFromApplication(application) {
     start_date: startDate,
     first_payment_date: repaymentDate,
     next_payment_date: repaymentDate,
-    outstanding_balance: totalRepayment, 
+    outstanding_balance: totalRepayment,
     total_repayment: totalRepayment,
     has_credit_life_insurance: Boolean(
       application.has_credit_life_insurance
@@ -64,11 +64,17 @@ async function ensureLoanFromApplication(application) {
   };
 
   const { data, error } = await supabase
-    .from('accounts')
+    .from('loans')
     .insert([baseLoan])
     .select()
     .single();
 
+  if (error && /first_payment_date/i.test(error.message || '')) {
+    const fallback = { ...baseLoan };
+    delete fallback.first_payment_date;
+    const retry = await supabase.from('loans').insert([fallback]).select().single();
+    return { data: retry.data, error: retry.error };
+  }
   return { data, error };
 }
 
@@ -105,9 +111,10 @@ export async function createWalkInClient(clientData) {
 export async function fetchDashboardData() {
   try {
     const { data: stats } = await supabase.rpc('get_dashboard_stats').single();
-    const { data: payments } = await supabase.from('payments').select('amount');
-    const { data: loans } = await supabase.from('loans').select('principal_amount, status'); // Read from View
-    
+    // Use manual_payments (confirmed) as the source of collected payments
+    const { data: payments } = await supabase.from('manual_payments').select('amount').eq('status', 'confirmed');
+    const { data: loans } = await supabase.from('loans').select('principal_amount, status');
+
     const totalCollected = payments?.reduce((sum, p) => sum + (Number(p.amount) || 0), 0) || 0;
     const totalDisbursed = loans?.reduce((sum, l) => sum + (Number(l.principal_amount) || 0), 0) || 0;
     
@@ -199,7 +206,7 @@ export async function updateApplicationStatus(applicationId, newStatus) {
     let updatePayload = { status: newStatus };
 
     if (['READY_TO_DISBURSE', 'DISBURSED', 'OFFER_ACCEPTED'].includes(newStatus)) {
-      const { count: historyCount } = await supabase.from('accounts').select('*', { count: 'exact', head: true }).eq('user_id', app.user_id);
+      const { count: historyCount } = await supabase.from('loans').select('*', { count: 'exact', head: true }).eq('user_id', app.user_id);
       const principal = Number(app.amount || 0);
       const term = Number(app.term_months || 1);
       const MONTHLY_ADMIN_FEE = 60.00;
@@ -294,7 +301,39 @@ export async function fetchUserDetail(userId) {
 }
 
 export async function fetchPayments() {
-  return supabase.from('payments').select('*, profile:user_id(full_name), loan:loan_id(outstanding_balance, principal_amount, application:application_id(*))').order('payment_date', { ascending: false });
+  // Query manual_payments joined with loans for the balance
+  const result = await supabase
+    .from('manual_payments')
+    .select(`
+      *,
+      profiles:user_id(full_name, identity_number, cell_tel_no),
+      loan_applications:application_id(
+        id, loan_number, amount, status,
+        offer_monthly_repayment, offer_total_repayment,
+        loans(outstanding_balance)
+      )
+    `)
+    .order('payment_date', { ascending: false });
+
+  if (result.data) {
+    result.data = result.data.map(p => {
+      const app = p.loan_applications;
+      const loan = Array.isArray(app?.loans) ? app.loans[0] : app?.loans;
+      return {
+        ...p,
+        // shape expected by incoming-payments table render
+        profile: p.profiles,
+        loan_id: p.application_id,
+        loan_number: app?.loan_number || '',
+        loan: {
+          outstanding_balance: Number(loan?.outstanding_balance ?? app?.offer_total_repayment ?? 0),
+          principal_amount:    Number(app?.amount ?? 0),
+          application: app || {}
+        }
+      };
+    });
+  }
+  return result;
 }
 
 export async function fetchPayouts() {
@@ -547,7 +586,7 @@ export async function fetchLoanBook(branchId = null) {
 
     if (branchId && branchId !== 'all') {
         // Filter by branch via profiles join
-        query = query.eq('profiles.branch_id', branchId);
+        query = query.eq('branch_id', branchId);
     }
 
     const { data, error } = await query;

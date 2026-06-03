@@ -404,9 +404,9 @@ function calculateAndRenderMetrics() {
     const now = new Date();
     const currentMonth = now.toISOString().slice(0, 7); 
 
-    const mtdPayments = allPayments.filter(p => p.payment_date.startsWith(currentMonth));
-    const mtdTotal = mtdPayments.reduce((sum, p) => sum + Number(p.amount), 0);
-    const uniquePayers = new Set(mtdPayments.map(p => p.loan_id)).size;
+    const mtdPayments = allPayments.filter(p => (p.payment_date || p.created_at || '').startsWith(currentMonth));
+    const mtdTotal = mtdPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    const uniquePayers = new Set(mtdPayments.map(p => p.loan_id || p.application_id)).size;
 
     // Calculation using CONTRACTUAL collected fields
     const currentMonthAnalytics = analyticsData.filter(row => row.month === currentMonth);
@@ -441,18 +441,22 @@ function renderTopRecentWidget(payments) {
         return;
     }
 
-    list.innerHTML = top5.map(p => `
-        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100 hover:bg-white hover:shadow-sm transition-all cursor-pointer" onclick="window.location.href='/admin/application-detail?id=${p.loan_id}'">
+    list.innerHTML = top5.map(p => {
+        const name = p.profile?.full_name || p.profiles?.full_name || 'Unknown';
+        const appId = p.loan_id || p.application_id || '';
+        const ref = p.loan_number || appId.slice(0,8).toUpperCase();
+        return `
+        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100 hover:bg-white hover:shadow-sm transition-all cursor-pointer" onclick="window.location.href='/admin/application-detail?id=${appId}'">
             <div class="flex items-center gap-3">
-                <div class="w-8 h-8 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-xs font-black">${p.profile?.full_name?.charAt(0) || '$'}</div>
+                <div class="w-8 h-8 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-xs font-black">${name.charAt(0) || '$'}</div>
                 <div>
-                    <p class="text-xs font-bold text-gray-900 truncate w-24">${p.profile?.full_name || 'Unknown'}</p>
-                    <p class="text-[10px] text-gray-400 font-mono">#${p.loan_id}</p>
+                    <p class="text-xs font-bold text-gray-900 truncate w-24">${name}</p>
+                    <p class="text-[10px] text-gray-400 font-mono">${ref}</p>
                 </div>
             </div>
             <span class="text-xs font-black text-green-600">+${formatCurrency(p.amount)}</span>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
 }
 
 /**
@@ -478,8 +482,9 @@ function getFilteredPayments() {
     }
     const s = (document.getElementById('search-input')?.value || '').toLowerCase();
     if (s) filtered = filtered.filter(p =>
-        (p.profiles?.full_name || '').toLowerCase().includes(s) ||
-        (p.reference || '').toLowerCase().includes(s)
+        (p.profile?.full_name || p.profiles?.full_name || '').toLowerCase().includes(s) ||
+        (p.reference || '').toLowerCase().includes(s) ||
+        (p.loan_number || '').toLowerCase().includes(s)
     );
     return filtered;
 }
@@ -507,10 +512,12 @@ function filterAndRender(resetPage = true) {
 
     const term = searchTerm.toLowerCase();
     if (term) {
-        filtered = filtered.filter(p => 
-            (p.profile?.full_name || '').toLowerCase().includes(term) ||
+        filtered = filtered.filter(p =>
+            (p.profile?.full_name || p.profiles?.full_name || '').toLowerCase().includes(term) ||
+            (p.reference || '').toLowerCase().includes(term) ||
             String(p.id).includes(term) ||
-            String(p.loan_id).includes(term)
+            String(p.loan_id || p.application_id || '').includes(term) ||
+            (p.loan_number || '').toLowerCase().includes(term)
         );
     }
     
@@ -546,18 +553,21 @@ function filterAndRender(resetPage = true) {
                         : `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-yellow-100 text-yellow-800 border border-yellow-200">On Track</span>`;
                 }
 
+                const clientName = p.profile?.full_name || p.profiles?.full_name || 'Unknown';
+                const appId = p.loan_id || p.application_id || '';
+                const loanRef = p.loan_number || (appId ? appId.slice(0,8).toUpperCase() : '—');
                 return `
                 <tr class="hover:bg-gray-50 transition-colors group border-b border-gray-50 last:border-0">
-                    <td class="px-6 py-4 text-xs text-gray-500 font-medium whitespace-nowrap">${formatDate(p.payment_date)}</td>
+                    <td class="px-6 py-4 text-xs text-gray-500 font-medium whitespace-nowrap">${formatDate(p.payment_date || p.created_at)}</td>
                     <td class="px-6 py-4">
                         <div class="flex flex-col">
-                            <span class="text-xs font-bold text-gray-900">${p.profile?.full_name || 'Unknown'}</span>
-                            <span class="text-[10px] text-gray-400 font-mono tracking-tighter">TX ID: #${p.id}</span>
+                            <span class="text-xs font-bold text-gray-900">${clientName}</span>
+                            <span class="text-[10px] text-gray-400 font-mono tracking-tighter">${p.reference || ('REF-' + p.id?.slice(0,8).toUpperCase())}</span>
                         </div>
                     </td>
                     <td class="px-6 py-4">
-                        <a href="/admin/application-detail?id=${p.loan_id}" class="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 transition-colors bg-indigo-50 px-2 py-1 rounded hover:bg-indigo-100">
-                            #${p.loan_id}
+                        <a href="/admin/application-detail?id=${appId}" class="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 transition-colors bg-indigo-50 px-2 py-1 rounded hover:bg-indigo-100">
+                            ${loanRef}
                         </a>
                     </td>
                     <td class="px-6 py-4 text-center">${statusHtml}</td>
@@ -611,15 +621,16 @@ function attachEventListeners() {
 function exportPaymentsCSV() {
     const visible = getFilteredPayments();
     if (!visible.length) { alert('No payments to export for this period.'); return; }
-    const headers = ['Date', 'Client', 'ID Number', 'Reference', 'Amount Paid', 'Status', 'Payment Method'];
+    const headers = ['Date', 'Client', 'ID Number', 'Reference', 'Loan Ref', 'Amount Paid', 'Type', 'Method'];
     const rows = visible.map(p => [
-        p.payment_date?.slice(0,10) || '',
-        `"${(p.profiles?.full_name || '').replace(/"/g,'""')}"`,
-        p.profiles?.identity_number || '',
+        (p.payment_date || p.created_at || '').slice(0,10),
+        `"${(p.profile?.full_name || p.profiles?.full_name || '').replace(/"/g,'""')}"`,
+        p.profile?.identity_number || p.profiles?.identity_number || '',
         p.reference || p.id || '',
-        p.amount_paid || p.amount || 0,
-        p.status || '',
-        p.payment_method || ''
+        p.loan_number || (p.loan_id || p.application_id || '').toString().slice(0,8),
+        p.amount || 0,
+        p.payment_type || p.status || '',
+        p.payment_method || 'Manual EFT'
     ].join(','));
     const csv = [headers.join(','), ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
