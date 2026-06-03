@@ -1,10 +1,11 @@
 // Payments Dashboard JavaScript
 import '/user-portal/Services/sessionGuard.js'; // Production auth guard
 
-let activeLoans = [];
-let bankAccounts = [];
+let activeLoans    = [];
+let bankAccounts   = [];
 let paymentHistory = [];
-let selectedLoan = null;
+let selectedLoan   = null;
+let bankingDetails = null; // company banking details for EFT
 
 // Initialize dashboard
 async function initPaymentsDashboard() {
@@ -20,7 +21,8 @@ async function initPaymentsDashboard() {
     await Promise.all([
       loadActiveLoans(supabase, session.user.id),
       loadBankAccounts(supabase, session.user.id),
-      loadPaymentHistory(supabase, session.user.id)
+      loadPaymentHistory(supabase, session.user.id),
+      loadBankingDetails()
     ]);
 
     await loadSureSystemsPaymentHistory(session);
@@ -311,64 +313,313 @@ function renderAll() {
 }
 
 // Render active loans
+async function loadBankingDetails() {
+  try {
+    const res = await fetch('/api/payment/banking-details');
+    if (res.ok) bankingDetails = await res.json();
+  } catch (e) { console.warn('[banking-details]', e.message); }
+}
+
 function renderActiveLoans() {
-  const container = document.getElementById('activeLoansContainer');
+  const container  = document.getElementById('activeLoansContainer');
   const countBadge = document.getElementById('activeLoansCount');
-  
-  countBadge.textContent = activeLoans.length;
+  if (countBadge) countBadge.textContent = activeLoans.length;
 
   if (activeLoans.length === 0) {
     container.innerHTML = `
       <div class="empty-state">
         <i class="fas fa-inbox"></i>
         <p>No active loans</p>
-      </div>
-    `;
+      </div>`;
     return;
   }
 
   container.innerHTML = activeLoans.map(loan => {
-    const isOverdue = new Date(loan.nextPaymentDate) < new Date();
+    const isOverdue   = loan.nextPaymentDate && new Date(loan.nextPaymentDate) < new Date();
     const statusClass = isOverdue ? 'overdue' : 'active';
-    const statusText = isOverdue ? 'Overdue' : 'Active';
+    const statusText  = isOverdue ? 'Overdue' : 'Active';
+    const pct         = loan.totalRepayment > 0
+      ? Math.min(100, Math.round(((loan.totalRepayment - loan.outstanding) / loan.totalRepayment) * 100))
+      : 0;
 
     return `
-      <div class="loan-item" data-loan-id="${loan.id}">
+      <div class="loan-item" data-loan-id="${loan.id}" style="border-radius:16px;overflow:hidden">
         <div class="loan-item-header">
-          <span class="loan-reference">Loan #${loan.applicationId || loan.id}</span>
+          <span class="loan-reference">Loan #${loan.applicationId?.slice?.(0,8)?.toUpperCase() || loan.id}</span>
           <span class="loan-status ${statusClass}">${statusText}</span>
         </div>
+
+        <!-- Progress bar -->
+        <div style="margin:8px 0 12px;background:#f3f4f6;border-radius:99px;height:6px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;background:var(--color-primary);border-radius:99px;transition:width .6s ease"></div>
+        </div>
+        <p style="font-size:11px;color:#9ca3af;margin-bottom:12px">${pct}% repaid</p>
+
         <div class="loan-details">
           <div class="loan-detail-item">
-            <span class="loan-detail-label">Total Repayment:</span>
-            <span class="loan-detail-value">${formatCurrency(loan.totalRepayment || loan.principal)}</span>
-          </div>
-          <div class="loan-detail-item">
             <span class="loan-detail-label">Outstanding:</span>
-            <span class="loan-detail-value">${formatCurrency(loan.outstanding)}</span>
+            <span class="loan-detail-value" style="color:var(--color-primary);font-weight:700">${formatCurrency(loan.outstanding)}</span>
           </div>
           <div class="loan-detail-item">
-            <span class="loan-detail-label">Monthly:</span>
+            <span class="loan-detail-label">Monthly Instalment:</span>
             <span class="loan-detail-value">${formatCurrency(loan.monthlyPayment)}</span>
           </div>
           <div class="loan-detail-item">
             <span class="loan-detail-label">Next Due:</span>
-            <span class="loan-detail-value">${formatDate(loan.nextPaymentDate)}</span>
+            <span class="loan-detail-value" style="${isOverdue?'color:#ef4444;font-weight:700':''}">
+              ${loan.nextPaymentDate ? formatDate(loan.nextPaymentDate) : '—'}
+            </span>
           </div>
         </div>
-        <div class="loan-item-actions">
-          <button class="btn-primary btn-sm" onclick="openPaymentModal(${loan.id})">
-            <i class="fas fa-credit-card"></i>
-            Pay Now
+
+        <div class="loan-item-actions" style="display:flex;gap:8px;margin-top:12px">
+          <button onclick="window.openManualPayModal('${loan.id}','${loan.applicationId||''}','${formatCurrency(loan.monthlyPayment)}','partial')"
+            style="flex:1;padding:10px;background:var(--color-primary);color:#fff;border:none;border-radius:12px;font-weight:700;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+            <i class="fas fa-money-bill-wave"></i> Make Payment
           </button>
-          <button class="btn-secondary btn-sm btn-icon" onclick="viewLoanDetails(${loan.id})">
-            <i class="fas fa-eye"></i>
+          <button onclick="window.openManualPayModal('${loan.id}','${loan.applicationId||''}','${formatCurrency(loan.outstanding)}','settlement')"
+            style="flex:1;padding:10px;background:#fff;color:var(--color-primary);border:2px solid var(--color-primary);border-radius:12px;font-weight:700;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+            <i class="fas fa-flag-checkered"></i> Settle Loan
           </button>
         </div>
-      </div>
-    `;
+      </div>`;
   }).join('');
+
+  // Inject payment modal if not already in DOM
+  if (!document.getElementById('manual-pay-modal')) {
+    injectPaymentModal();
+  }
 }
+
+function injectPaymentModal() {
+  const modal = document.createElement('div');
+  modal.id = 'manual-pay-modal';
+  modal.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;padding:16px';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:24px;width:100%;max-width:440px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.2)">
+      <!-- Header -->
+      <div style="background:var(--color-primary);padding:20px 24px;display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <p id="mpm-type-label" style="color:rgba(255,255,255,.8);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em">Payment</p>
+          <h3 style="color:#fff;font-size:20px;font-weight:800;margin:2px 0 0">Submit Proof of Payment</h3>
+        </div>
+        <button onclick="window.closeManualPayModal()" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:36px;height:36px;border-radius:50%;cursor:pointer;font-size:16px">✕</button>
+      </div>
+
+      <div style="padding:24px">
+        <!-- Banking details -->
+        <div id="mpm-banking" style="background:#f8f9fa;border-radius:16px;padding:16px;margin-bottom:20px">
+          <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#9ca3af;margin-bottom:10px">EFT to this account</p>
+          <div id="mpm-bank-details" style="space-y:4px"></div>
+        </div>
+
+        <!-- Settlement quote (shown for settlements) -->
+        <div id="mpm-quote" style="display:none;background:#fff3ea;border:1px solid #fed7aa;border-radius:16px;padding:16px;margin-bottom:20px">
+          <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#ea580c;margin-bottom:10px">Settlement Quote (valid 7 days)</p>
+          <div id="mpm-quote-details"></div>
+        </div>
+
+        <form id="mpm-form" onsubmit="window.submitManualPayment(event)">
+          <input type="hidden" id="mpm-loan-id">
+          <input type="hidden" id="mpm-app-id">
+          <input type="hidden" id="mpm-pay-type">
+
+          <div style="margin-bottom:16px">
+            <label style="display:block;font-size:12px;font-weight:700;color:#374151;margin-bottom:6px;text-transform:uppercase">Amount Paid (R) *</label>
+            <input id="mpm-amount" type="number" min="1" step="0.01" required
+              style="width:100%;border:2px solid #e5e7eb;border-radius:12px;padding:12px 16px;font-size:16px;font-weight:700;box-sizing:border-box;outline:none"
+              onfocus="this.style.borderColor='var(--color-primary)'"
+              onblur="this.style.borderColor='#e5e7eb'"
+              placeholder="0.00">
+          </div>
+
+          <div style="margin-bottom:16px">
+            <label style="display:block;font-size:12px;font-weight:700;color:#374151;margin-bottom:6px;text-transform:uppercase">Your Bank Reference *</label>
+            <input id="mpm-reference" type="text" required
+              style="width:100%;border:2px solid #e5e7eb;border-radius:12px;padding:12px 16px;font-size:14px;box-sizing:border-box;outline:none"
+              onfocus="this.style.borderColor='var(--color-primary)'"
+              onblur="this.style.borderColor='#e5e7eb'"
+              placeholder="e.g. REF-1001 or your ID number">
+          </div>
+
+          <div style="margin-bottom:16px">
+            <label style="display:block;font-size:12px;font-weight:700;color:#374151;margin-bottom:6px;text-transform:uppercase">Proof of Payment (URL or note)</label>
+            <input id="mpm-proof" type="text"
+              style="width:100%;border:2px solid #e5e7eb;border-radius:12px;padding:12px 16px;font-size:14px;box-sizing:border-box;outline:none"
+              onfocus="this.style.borderColor='var(--color-primary)'"
+              onblur="this.style.borderColor='#e5e7eb'"
+              placeholder="Paste screenshot link or bank ref number">
+            <p style="font-size:11px;color:#9ca3af;margin-top:4px">You can also WhatsApp your proof to the office directly.</p>
+          </div>
+
+          <div style="margin-bottom:20px">
+            <label style="display:block;font-size:12px;font-weight:700;color:#374151;margin-bottom:6px;text-transform:uppercase">Notes (optional)</label>
+            <textarea id="mpm-notes" rows="2"
+              style="width:100%;border:2px solid #e5e7eb;border-radius:12px;padding:12px 16px;font-size:14px;box-sizing:border-box;outline:none;resize:none"
+              onfocus="this.style.borderColor='var(--color-primary)'"
+              onblur="this.style.borderColor='#e5e7eb'"
+              placeholder="Any additional info for the admin..."></textarea>
+          </div>
+
+          <button type="submit" id="mpm-submit-btn"
+            style="width:100%;padding:14px;background:var(--color-primary);color:#fff;border:none;border-radius:14px;font-size:15px;font-weight:800;cursor:pointer;transition:opacity .2s">
+            Submit Payment Proof
+          </button>
+        </form>
+
+        <div id="mpm-success" style="display:none;text-align:center;padding:16px 0">
+          <div style="font-size:48px;margin-bottom:12px">✅</div>
+          <h4 style="font-size:18px;font-weight:800;color:#10b981;margin-bottom:8px">Proof Submitted!</h4>
+          <p style="color:#6b7280;font-size:14px">Your payment will be confirmed within 1 business day. You will receive an SMS confirmation.</p>
+          <button onclick="window.closeManualPayModal()" style="margin-top:16px;padding:12px 24px;background:var(--color-primary);color:#fff;border:none;border-radius:12px;font-weight:700;cursor:pointer">Done</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+window.openManualPayModal = async (loanId, appId, suggestedAmount, payType) => {
+  const modal = document.getElementById('manual-pay-modal');
+  if (!modal) injectPaymentModal();
+
+  // Reset form
+  document.getElementById('mpm-form').style.display = 'block';
+  document.getElementById('mpm-success').style.display = 'none';
+  document.getElementById('mpm-loan-id').value = loanId;
+  document.getElementById('mpm-app-id').value  = appId;
+  document.getElementById('mpm-pay-type').value = payType;
+  document.getElementById('mpm-amount').value  = '';
+  document.getElementById('mpm-reference').value = '';
+  document.getElementById('mpm-proof').value   = '';
+  document.getElementById('mpm-notes').value   = '';
+
+  const typeLabel = payType === 'settlement' ? 'Early Settlement' : 'Manual Payment';
+  document.getElementById('mpm-type-label').textContent = typeLabel;
+
+  // Show banking details with copy buttons
+  const bd  = bankingDetails;
+  const ref = `${(bd?.refPrefix || 'REF')}-${loanId.slice(0,8).toUpperCase()}`;
+  const bankEl = document.getElementById('mpm-bank-details');
+
+  if (bd?.accountNo) {
+    const rows = [
+      ['Bank',           bd.bankName,                        false],
+      ['Account Holder', bd.accountHolder || bd.company,     true],
+      ['Account No',     bd.accountNo,                       true],
+      ['Branch Code',    bd.branchCode,                      true],
+      ['Account Type',   bd.accountType,                     false],
+      ['Reference',      ref,                                true]
+    ];
+
+    bankEl.innerHTML = `
+      ${rows.map(([label, val, copyable]) => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f3f4f6">
+          <span style="font-size:12px;color:#9ca3af;min-width:110px">${label}</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:13px;font-weight:${copyable?'700':'500'};color:#111827;font-family:${label==='Account No'||label==='Branch Code'?'monospace':'inherit'}">${val || '—'}</span>
+            ${copyable && val ? `
+            <button onclick="window.copyToClipboard('${val.replace(/'/g,"\\'")}', this)"
+              style="background:none;border:none;cursor:pointer;color:#9ca3af;padding:2px 4px;border-radius:6px;transition:all .15s"
+              onmouseover="this.style.background='#f3f4f6';this.style.color='var(--color-primary)'"
+              onmouseout="this.style.background='none';this.style.color='#9ca3af'"
+              title="Copy">
+              <i class="fas fa-copy" style="font-size:12px"></i>
+            </button>` : ''}
+          </div>
+        </div>`).join('')}
+
+      <!-- Copy All button -->
+      <button onclick="window.copyAllBankingDetails('${bd.bankName}','${bd.accountHolder||bd.company}','${bd.accountNo}','${bd.branchCode}','${bd.accountType}','${ref}')"
+        style="width:100%;margin-top:12px;padding:10px;background:#f8f9fa;border:1.5px dashed #d1d5db;border-radius:12px;font-size:12px;font-weight:700;color:#374151;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:6px"
+        onmouseover="this.style.background='#fff3ea';this.style.borderColor='var(--color-primary)';this.style.color='var(--color-primary)'"
+        onmouseout="this.style.background='#f8f9fa';this.style.borderColor='#d1d5db';this.style.color='#374151'">
+        <i class="fas fa-copy"></i> Copy All Banking Details
+      </button>`;
+
+    document.getElementById('mpm-reference').value = ref;
+  } else {
+    bankEl.innerHTML = `<p style="font-size:13px;color:#6b7280">Contact the office for banking details.</p>`;
+  }
+
+  // For settlement: fetch quote
+  const quoteEl = document.getElementById('mpm-quote');
+  if (payType === 'settlement') {
+    quoteEl.style.display = 'block';
+    document.getElementById('mpm-quote-details').innerHTML = '<p style="font-size:13px;color:#6b7280">Calculating...</p>';
+    try {
+      const res  = await fetch(`/api/payment/settlement-quote/${appId || loanId}`);
+      const data = await res.json();
+      if (data.settlementAmount) {
+        document.getElementById('mpm-amount').value = data.settlementAmount;
+        document.getElementById('mpm-quote-details').innerHTML = `
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+            <span style="font-size:13px;color:#6b7280">Outstanding Balance</span>
+            <span style="font-size:13px;font-weight:700">${formatCurrency(data.outstanding)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+            <span style="font-size:13px;color:#10b981">Settlement Discount (5%)</span>
+            <span style="font-size:13px;font-weight:700;color:#10b981">− ${formatCurrency(data.settlementDiscount)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:2px solid #fed7aa">
+            <span style="font-size:14px;font-weight:800;color:#ea580c">Settlement Amount</span>
+            <span style="font-size:16px;font-weight:900;color:#ea580c">${formatCurrency(data.settlementAmount)}</span>
+          </div>
+          <p style="font-size:11px;color:#9ca3af;margin-top:6px">Valid until ${data.validUntil}</p>`;
+      }
+    } catch(e) {
+      document.getElementById('mpm-quote-details').innerHTML = `<p style="font-size:12px;color:#ef4444">Could not load quote.</p>`;
+    }
+  } else {
+    quoteEl.style.display = 'none';
+  }
+
+  modal.style.display = 'flex';
+};
+
+window.closeManualPayModal = () => {
+  const modal = document.getElementById('manual-pay-modal');
+  if (modal) modal.style.display = 'none';
+};
+
+window.submitManualPayment = async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('mpm-submit-btn');
+  btn.textContent = 'Submitting…';
+  btn.disabled = true;
+
+  try {
+    const { supabase } = await import('/Services/supabaseClient.js');
+    const { data: { session } } = await supabase.auth.getSession();
+
+    const res = await fetch('/api/payment/submit-proof', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({
+        loanId:      document.getElementById('mpm-loan-id').value,
+        applicationId: document.getElementById('mpm-app-id').value,
+        paymentType: document.getElementById('mpm-pay-type').value,
+        amount:      document.getElementById('mpm-amount').value,
+        reference:   document.getElementById('mpm-reference').value,
+        proofUrl:    document.getElementById('mpm-proof').value,
+        notes:       document.getElementById('mpm-notes').value
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Submission failed');
+
+    document.getElementById('mpm-form').style.display    = 'none';
+    document.getElementById('mpm-success').style.display = 'block';
+  } catch (err) {
+    alert('Error: ' + err.message);
+  } finally {
+    btn.textContent = 'Submit Payment Proof';
+    btn.disabled = false;
+  }
+};
 
 // Render bank accounts
 function renderBankAccounts() {
@@ -745,6 +996,51 @@ function maskAccountNumber(accountNumber = '') {
 function capitalizeFirst(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
+
+// ── Copy helpers ─────────────────────────────────────────────────
+window.copyToClipboard = (text, btn) => {
+  navigator.clipboard.writeText(text).then(() => {
+    const icon = btn.querySelector('i');
+    if (icon) { icon.className = 'fas fa-check'; icon.style.color = '#10b981'; }
+    btn.style.background = '#f0fdf4';
+    btn.style.color = '#10b981';
+    setTimeout(() => {
+      if (icon) { icon.className = 'fas fa-copy'; icon.style.color = ''; }
+      btn.style.background = 'none';
+      btn.style.color = '#9ca3af';
+    }, 2000);
+  }).catch(() => alert('Copy failed — please copy manually.'));
+};
+
+window.copyAllBankingDetails = (bank, holder, accNo, branch, type, ref) => {
+  const text = [
+    `Bank:            ${bank}`,
+    `Account Holder:  ${holder}`,
+    `Account Number:  ${accNo}`,
+    `Branch Code:     ${branch}`,
+    `Account Type:    ${type}`,
+    `Reference:       ${ref}`
+  ].join('\n');
+
+  navigator.clipboard.writeText(text).then(() => {
+    // Find the button and flash it green
+    const btns = document.querySelectorAll('#mpm-bank-details button');
+    const copyAllBtn = btns[btns.length - 1];
+    if (copyAllBtn) {
+      const orig = copyAllBtn.innerHTML;
+      copyAllBtn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+      copyAllBtn.style.background   = '#f0fdf4';
+      copyAllBtn.style.borderColor  = '#10b981';
+      copyAllBtn.style.color        = '#10b981';
+      setTimeout(() => {
+        copyAllBtn.innerHTML          = orig;
+        copyAllBtn.style.background   = '#f8f9fa';
+        copyAllBtn.style.borderColor  = '#d1d5db';
+        copyAllBtn.style.color        = '#374151';
+      }, 2500);
+    }
+  }).catch(() => alert('Copy failed — please copy manually.'));
+};
 
 // Initialize on page load
 if (document.readyState === 'loading') {

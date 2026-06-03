@@ -240,28 +240,29 @@ window.openUserDetail = async (userId) => {
         const container = document.getElementById('profile-card-container');
         if (container) container.innerHTML = renderProfileCard(p, { isLuhnValid });
         
-        // Financials
+        // Financials — safe setters (elements may not be in DOM yet on first render)
         const fins = data.financials || {};
-        document.getElementById('detail-income').textContent = formatCurrency(fins.monthly_income || 0);
-        document.getElementById('detail-expenses').textContent = formatCurrency(fins.monthly_expenses || 0);
+        const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
 
-        // Stats
-        document.getElementById('stat-total-loans').textContent = data.loans.length;
-        document.getElementById('stat-total-docs').textContent = data.documents.length;
-        
+        setText('detail-income',    formatCurrency(fins.monthly_income   || 0));
+        setText('detail-expenses',  formatCurrency(fins.monthly_expenses  || 0));
+        setText('stat-total-loans', data.loans.length);
+        setText('stat-total-docs',  data.documents.length);
+
         const activeDebt = data.loans
             .filter(l => ['DISBURSED', 'ACTIVE'].includes(l.status))
             .reduce((sum, l) => sum + Number(l.amount), 0);
-        document.getElementById('stat-active-debt').textContent = formatCurrency(activeDebt);
+        setText('stat-active-debt', formatCurrency(activeDebt));
 
         // Render Loans Table
         const loanBody = document.getElementById('detail-loans-body');
-        if (data.loans.length === 0) {
+        if (!loanBody) console.warn('[users] #detail-loans-body not found in DOM');
+        if (loanBody && data.loans.length === 0) {
             loanBody.innerHTML = `<tr><td colspan="5" class="p-12 text-center text-xs font-bold text-slate-300">No applications found.</td></tr>`;
-        } else {
+        } else if (loanBody) {
             loanBody.innerHTML = data.loans.map(l => `
                 <tr class="hover:bg-slate-50 transition-colors cursor-pointer group" onclick="window.location.href='/admin/application-detail?id=${l.id}'">
-                    <td class="px-8 py-5 text-[10px] font-black text-slate-400 font-mono">#${l.id.substring(0, 8)}</td>
+                    <td class="px-8 py-5 text-[10px] font-black text-slate-400 font-mono">#${String(l.id).substring(0, 8)}</td>
                     <td class="px-6 py-5 text-xs font-bold text-slate-600">${formatDate(l.created_at)}</td>
                     <td class="px-6 py-5 text-sm font-black text-slate-900">${formatCurrency(l.amount)}</td>
                     <td class="px-6 py-5">${getStatusBadge(l.status)}</td>
@@ -274,9 +275,10 @@ window.openUserDetail = async (userId) => {
 
         // Render Docs Grid
         const docGrid = document.getElementById('detail-docs-grid');
-        if (data.documents.length === 0) {
+        if (!docGrid) console.warn('[users] #detail-docs-grid not found in DOM');
+        if (docGrid && data.documents.length === 0) {
             docGrid.innerHTML = `<div class="col-span-3 text-center text-[10px] font-black text-slate-400 py-8 border-2 border-dashed border-slate-50 rounded-3xl">No documents found</div>`;
-        } else {
+        } else if (docGrid) {
             docGrid.innerHTML = data.documents.map(d => `
                 <div class="flex items-center gap-4 p-4 bg-slate-50/50 rounded-2xl border border-slate-100 hover:bg-white hover:shadow-xl hover:shadow-slate-200/20 transition-all group">
                     <div class="w-12 h-12 rounded-xl bg-white border border-slate-100 flex items-center justify-center text-[#a04100] shadow-sm">
@@ -297,8 +299,8 @@ window.openUserDetail = async (userId) => {
         window.switchView('detail');
 
     } catch (error) {
-        console.error("Detail Error:", error);
-        alert("Could not load user details.");
+        console.error("Detail Error:", error?.message || error);
+        alert(`Could not load user details: ${error?.message || 'Unknown error — check console'}`);
     } finally {
         document.body.style.cursor = 'default';
     }

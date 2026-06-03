@@ -764,7 +764,7 @@ function deriveTitle(gender) {
 }
 
 // ── Build the fixed-width 700-char file content ───────────────────────
-function buildSacrraFileContent(settings) {
+async function buildSacrraFileContent(settings) {
     // Spec: SACRRA Layout 700v2 v2.8 — exact byte positions
     // Alpha fields: LEFT-aligned, space-padded
     // Numeric fields: RIGHT-aligned, zero-padded
@@ -792,11 +792,10 @@ function buildSacrraFileContent(settings) {
     // Supplier Reference Number — 10 chars, RIGHT-aligned (issued by SACRRA)
     const srn = (sacrraState.members[0]?.f02_supplier_ref || '').trim().padStart(10, ' ').slice(-10);
 
-    // Trading name from system settings (60 chars, LEFT-aligned)
+    // Trading name — pulled from theme (same source as sidebar/navbar branding)
+    const _theme = await ensureThemeLoaded().catch(() => null);
     const tradingName = aL(
-        document.querySelector('[data-company-name]')?.textContent ||
-        document.title.replace(/[|\-].*$/,'').trim() ||
-        'ZWANE FINANCIAL SERVICES',
+        (getCompanyName(_theme) || 'ZWANE FINANCIAL SERVICES').toUpperCase(),
         60
     );
 
@@ -810,35 +809,53 @@ function buildSacrraFileContent(settings) {
     // Pos 90-700: FILLER spaces
     let content = ('H' + srn + monthEnd + '06' + creationDate + tradingName).padEnd(700, ' ').slice(0,700) + '\r\n';
 
+    // Branch code from system_settings (SACRRA-assigned, 7 chars, stored as sacrra_branch_code)
+    // Format: space-padded to 8 chars = ' ' + 7-char code, e.g. ' CS06626'
+    const rawBranchCode = (sacrraState.members[0]?.f02_supplier_ref || '').trim();
+    // Use sacrra_branch_code system setting if available, fallback to SRN right-padded
+    const branchCode = aL(rawBranchCode.slice(0, 7).padStart(7, ' ').padStart(8, ' '), 8);
+
     sacrraState.members.forEach(m => {
-        const recordType  = settings.type === 'DAILY' ? (settings.prefix || 'R') : 'R';
-        const statusCode  = aL(m.f50_status_code || 'L', 2);
+        // Monthly = 'D' (Data). Daily = 'R' (Registration) or 'C' (Closure) per prefix
+        const recordType  = settings.type === 'DAILY' ? (settings.prefix || 'R') : 'D';
         const accountType = aL(m.f03_account_type || 'P', 2);
 
-        const isPositive  = ['C','E','P','T','V','G','K','M','S'].includes((m.f50_status_code||'').trim());
+        // STATUS CODE: blank '  ' for active/current (matches dummy for normal loans)
+        // Only populate for special states: C=Closed, T=Settled, L=Legal, W=WriteOff, D=DebtReview
+        const rawStatus   = (m.f50_status_code || '').trim();
+        const statusCode  = aL(rawStatus || '  ', 2);
+
+        // LOAN REASON CODE: 'O '=Other/Standard (12/16 dummy), 'D '=DebtReview, 'I '=Insolvency, 'G '=Guarantee
+        const rawReason   = (m.f30_loan_reason || '').trim();
+        const loanReason  = aL(rawReason || 'O', 2);  // Default 'O ' = standard personal loan
+
+        const isPositive  = ['C','T','V'].includes(rawStatus);  // Closed, Settled, Cancelled = zero balances
         const saId        = (m.f10_id_number || '').replace(/\D/g,'').padStart(13,'0').slice(0,13);
         const accountNo   = aL(m.f40_account_number || m.internal_id || '', 25);
 
-        // Financial (N9, whole rands, zero for positive/closed)
+        // Owner/Tenant: 'O' if they have a residential address, 'T' if blank address (matches dummy)
+        const ownerTenant = (m.f13_address_1 || '').trim() ? 'O' : 'T';
+
+        // Financial (N9, whole rands — zero for closed/settled/cancelled)
         const openBal     = nR(isPositive ? 0 : (m.f41_opening_balance || '0').replace(/\D/g,''), 9);
         const currBal     = nR(isPositive ? 0 : (m.f44_current_balance || '0').replace(/\D/g,''), 9);
         const amtOverdue  = nR(isPositive ? 0 : (m.f49_arrears_amount  || '0').replace(/\D/g,''), 9);
         const instalment  = nR(isPositive ? 0 : (m.f45_installment     || '0').replace(/\D/g,''), 9);
         const mthsArr     = isPositive ? '00' : zeroPad(m.f53_months_in_arrears || 0, 2);
 
-        // Build 700-char data record per exact byte positions
+        // Build 700-char data record — all positions verified against official SACRRA dummy data
         let r = '';
-        r += aL(recordType, 1);               // 1:        DATA = 'R'
-        r += saId;                             // 2-14:     SA ID NUMBER (N13) — direct string, no Number() conversion
-        r += aL('', 16);                       // 15-30:    NON-SA ID (blank)
-        r += aL(m.f11_gender || 'M', 1);       // 31:       GENDER
-        r += nR((m.f12_date_of_birth||'').replace(/-/g,'') || '0', 8); // 32-39: DOB
-        r += aL('', 8);                        // 40-47:    BRANCH CODE (blank — use sub-acct)
-        r += aL(accountNo, 25);                // 48-72:    ACCOUNT NO
+        r += aL(recordType, 1);               // 1:        MONTHLY='D', DAILY='R'/'C'
+        r += saId;                             // 2-14:     SA ID (N13) — direct string, no JS Number() overflow
+        r += aL('', 16);                       // 15-30:    NON-SA ID (blank for SA citizens)
+        r += aL(m.f11_gender || 'M', 1);       // 31:       GENDER (M/F)
+        r += nR((m.f12_date_of_birth||'').replace(/-/g,'') || '0', 8); // 32-39: DOB CCYYMMDD
+        r += branchCode;                       // 40-47:    BRANCH CODE (SACRRA-assigned, 8 chars)
+        r += accountNo.trim().padStart(25,' '); // 48-72:    ACCOUNT NO (right-aligned per dummy)
         r += aL('', 4);                        // 73-76:    SUB-ACCOUNT NO
-        r += aL((m.f06_surname || '').toUpperCase(), 25);   // 77-101:  SURNAME
+        r += aL(m.f06_surname || '', 25);      // 77-101:   SURNAME (mixed case per dummy)
         r += aL(deriveTitle(m.f11_gender), 5); // 102-106:  TITLE
-        r += aL((m.f07_first_names || '').toUpperCase(), 14); // 107-120: FORENAME 1
+        r += aL(m.f07_first_names || '', 14);  // 107-120:  FORENAME 1 (mixed case per dummy)
         r += aL('', 14);                       // 121-134:  FORENAME 2
         r += aL('', 14);                       // 135-148:  FORENAME 3
         r += aL(m.f13_address_1 || '', 25);    // 149-173:  RES ADDRESS 1
@@ -846,28 +863,28 @@ function buildSacrraFileContent(settings) {
         r += aL(m.f15_city || '', 25);         // 199-223:  RES ADDRESS 3 (suburb/city)
         r += aL(m.f16_province || '', 25);     // 224-248:  RES ADDRESS 4 (province)
         r += aL(m.f17_postal || '', 6);        // 249-254:  POSTAL CODE (residential)
-        r += aL('O', 1);                       // 255:      OWNER/TENANT
+        r += aL(ownerTenant, 1);               // 255:      O=Owner T=Tenant (derived from address presence)
         r += aL('', 25);                       // 256-280:  POSTAL ADDRESS 1
         r += aL('', 25);                       // 281-305:  POSTAL ADDRESS 2
         r += aL('', 25);                       // 306-330:  POSTAL ADDRESS 3
         r += aL('', 25);                       // 331-355:  POSTAL ADDRESS 4
         r += aL('', 6);                        // 356-361:  POSTAL CODE (postal)
-        r += aL('', 2);                        // 362-363:  OWNERSHIP TYPE
-        r += aL('04', 2);                      // 364-365:  LOAN REASON CODE (04=Personal)
-        r += aL('01', 2);                      // 366-367:  PAYMENT TYPE (01=Debit order)
-        r += aL(accountType, 2);               // 368-369:  TYPE OF ACCOUNT
+        r += aL('00', 2);                      // 362-363:  OWNERSHIP TYPE (00=Individual per dummy)
+        r += loanReason;                       // 364-365:  LOAN REASON: O=Standard, D=DebtReview, I=Insolvency, G=Guarantee
+        r += aL('00', 2);                      // 366-367:  PAYMENT TYPE (00 per dummy standard)
+        r += aL(accountType, 2);               // 368-369:  TYPE OF ACCOUNT (M=1-month, P=Personal)
         r += nR((m.f43_date_opened||'').replace(/-/g,'') || '0', 8); // 370-377: DATE OPENED
-        r += nR('0', 8);                       // 378-385:  DEFERRED PAYMENT DATE
+        r += nR('0', 8);                       // 378-385:  DEFERRED PAYMENT DATE (00000000 unless deferred)
         r += nR((m.f46_first_payment_date||'').replace(/-/g,'') || '0', 8); // 386-393: DATE LAST PAYMENT
-        r += openBal;                          // 394-402:  OPENING BALANCE (N9)
-        r += currBal;                          // 403-411:  CURRENT BALANCE (N9)
-        r += aL(isPositive ? 'P' : 'D', 1);   // 412:      CURRENT BALANCE INDICATOR
+        r += openBal;                          // 394-402:  OPENING BALANCE (N9 whole rands)
+        r += currBal;                          // 403-411:  CURRENT BALANCE (N9 whole rands)
+        r += aL(isPositive ? 'P' : 'D', 1);   // 412:      BALANCE INDICATOR D=Debit P=Paid/Credit
         r += amtOverdue;                       // 413-421:  AMOUNT OVERDUE (N9)
         r += instalment;                       // 422-430:  INSTALMENT (N9)
         r += mthsArr;                          // 431-432:  MONTHS IN ARREARS (N2)
-        r += statusCode;                       // 433-434:  STATUS CODE (A2)
-        r += nR('01', 2);                      // 435-436:  REPAYMENT FREQUENCY (01=Monthly)
-        r += nR(m.f42_terms || m.term_months || '1', 4); // 437-440: TERMS
+        r += statusCode;                       // 433-434:  STATUS CODE: '  '=Active, C=Closed, T=Settled, L=Legal
+        r += nR(m.f54_repayment_frequency || '03', 2); // 435-436: FREQ: 01=Weekly 02=Fortnight 03=Monthly
+        r += nR(m.f42_terms || m.term_months || '1', 4); // 437-440: TERMS (months)
         r += nR((m.f51_status_date||'').replace(/-/g,'') || '0', 8); // 441-448: STATUS DATE
         r += aL('', 8);                        // 449-456:  OLD SUPPLIER BRANCH CODE
         r += aL('', 25);                       // 457-481:  OLD ACCOUNT NUMBER
@@ -878,11 +895,11 @@ function buildSacrraFileContent(settings) {
         r += aL(m.f32_work || '', 16);         // 528-543:  WORK TELEPHONE
         r += aL(m.f35_employer || '', 60);     // 544-603:  EMPLOYER DETAIL
         r += nR('0', 9);                       // 604-612:  INCOME (N9)
-        r += aL('', 1);                        // 613:      INCOME FREQUENCY
+        r += aL('M', 1);                       // 613:      INCOME FREQUENCY (M=Monthly — all 16 dummy records)
         r += aL('', 20);                       // 614-633:  OCCUPATION
         r += aL('', 60);                       // 634-693:  THIRD PARTY NAME
         r += nR('0', 2);                       // 694-695:  ACCOUNT SOLD TO THIRD PARTY
-        r += nR('1', 3);                       // 696-698:  NO OF PARTICIPANTS
+        r += nR('0', 3);                       // 696-698:  NO OF PARTICIPANTS (000 per all 16 dummy records)
         r += aL('', 2);                        // 699-700:  FILLER
 
         if (r.length !== 700) console.warn('[SACRRA] Record length', r.length, 'expected 700 for', m.internal_id);
@@ -919,7 +936,7 @@ window.generateSacrraFile = async () => {
     const pgpName   = `SACRRA_${settings.type}_${dateStr}.pgp`;
 
     // Build fixed-width content
-    const fileContent = buildSacrraFileContent(settings);
+    const fileContent = await buildSacrraFileContent(settings);
 
     // ── PGP encryption ────────────────────────────────────────────────
     // Load bureau public key from Supabase system_settings.sacrra_bureau_public_key

@@ -806,6 +806,62 @@ app.post('/api/credit-check', async (req, res) => {
 // Notification testing endpoints (development only)
 const notificationScheduler = require('./services/notificationScheduler');
 
+// POST /api/notifications/status-change
+// Called automatically by updateApplicationStatus() whenever a loan status changes.
+// Sends the appropriate SMS/WhatsApp to the client based on the new status.
+app.post('/api/notifications/status-change', async (req, res) => {
+    try {
+        const { applicationId, newStatus } = req.body;
+        if (!applicationId || !newStatus) return res.status(400).json({ error: 'applicationId and newStatus required' });
+
+        // Fetch application + borrower profile
+        const { data: app, error: appErr } = await supabaseService
+            .from('loan_applications')
+            .select('id, amount, offer_monthly_repayment, loan_number, user_id, profiles(full_name, phone, email)')
+            .eq('id', applicationId)
+            .single();
+        if (appErr || !app) return res.status(404).json({ error: 'Application not found' });
+
+        const profile  = app.profiles || {};
+        const to       = profile.phone;
+        const company  = process.env.COMPANY_NAME || 'Zwane Financial Services';
+        const name     = profile.full_name?.split(' ')[0] || 'Client';
+        const ref      = app.loan_number || applicationId.slice(-8).toUpperCase();
+        const amount   = Number(app.amount || 0);
+        const monthly  = Number(app.offer_monthly_repayment || 0);
+
+        if (!to) return res.json({ sent: false, reason: 'No phone number on profile' });
+
+        let result;
+        switch (newStatus) {
+            case 'OFFERED':
+            case 'APPROVED':
+                result = await messaging.notifyLoanApproved({ to, clientName: name, reference: ref, amount, monthly, company });
+                break;
+            case 'DISBURSED':
+                result = await messaging.notifyLoanDisbursed({ to, clientName: name, reference: ref, amount, company });
+                break;
+            case 'REJECTED':
+            case 'DECLINED':
+                result = await messaging.sendSMS(to,
+                    `Hi ${name}, unfortunately your loan application (Ref: ${ref}) was not approved at this time. Please contact us for more information. – ${company}`
+                );
+                break;
+            case 'IN_ARREARS':
+                result = await messaging.notifyArrears({ to, clientName: name, daysOverdue: 7, amount: monthly, company });
+                break;
+            default:
+                return res.json({ sent: false, reason: `No notification configured for status: ${newStatus}` });
+        }
+
+        console.log(`[notify] ${newStatus} → ${to}: sent=${result?.sent}`);
+        res.json({ sent: true, status: newStatus, result });
+    } catch (err) {
+        console.error('[notify/status-change]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.post('/api/notifications/check-payments', async (req, res) => {
     try {
         await notificationScheduler.checkPaymentDueNotifications();
@@ -2208,9 +2264,26 @@ app.post('/api/payouts/capitec-csv', async (req, res) => {
             }));
             await supabaseService.from('api_usage_log').insert(usageRows).catch(() => {});
 
-            // Fire disbursement notifications (non-blocking)
+            // Fire disbursement notifications + auto-post to Cash Ledger (non-blocking)
             const settings = await getSystemTheme();
             const company  = settings?.company_name || process.env.COMPANY_NAME || 'Zwane Financial';
+
+            // Auto-post each disbursement as a cash_out entry in the Cash Ledger
+            const journalRows = apps.map(app => ({
+                entry_date:      new Date().toISOString().slice(0,10),
+                entry_type:      'cash_out',
+                category:        'loan_disbursement',
+                description:     `Loan disbursed to ${app.profiles?.full_name || 'Client'} — Ref: ${app.loan_number || app.id.slice(0,8)}`,
+                reference:       String(app.loan_number || app.id.slice(0,8).toUpperCase()),
+                amount:          Number(app.offer_principal || app.amount || 0),
+                branch_id:       app.branch_id || null,
+                application_id:  String(app.id),
+                created_by_name: 'System (Capitec CSV)'
+            }));
+            supabaseService.from('cash_journal').insert(journalRows)
+                .then(() => console.log(`[cash-ledger] auto-posted ${journalRows.length} disbursement(s)`))
+                .catch(e => console.warn('[cash-ledger] auto-post disbursement failed:', e.message));
+
             apps.forEach(app => {
                 const phone = app.profiles?.cell_tel_no || app.profiles?.contact_number;
                 const name  = app.profiles?.full_name || 'Client';
@@ -2512,6 +2585,271 @@ app.get('/api/cashsend/fee', (req, res) => {
 // GET /api/cashsend/schedule — return full fee schedule
 app.get('/api/cashsend/schedule', (req, res) => {
     res.json({ schedule: CASHSEND_FEE_SCHEDULE, max: CASHSEND_MAX });
+});
+
+// ══════════════════════════════════════════════════════════════
+// MANUAL PAYMENT & EARLY SETTLEMENT  (client-facing)
+// ══════════════════════════════════════════════════════════════
+
+// GET /api/payment/banking-details
+// Returns company banking details from system_settings so the client
+// knows where to EFT their payment.
+app.get('/api/payment/banking-details', async (req, res) => {
+    try {
+        const { data: settings } = await supabaseService
+            .from('system_settings')
+            .select('company_name, company_bank_name, company_bank_account_no, company_bank_branch_code, company_bank_account_type, company_bank_account_holder, company_bank_reference_prefix')
+            .eq('id', 'global')
+            .maybeSingle();
+
+        res.json({
+            company:        settings?.company_name            || process.env.COMPANY_NAME || 'Zwane Financial Services',
+            bankName:       settings?.company_bank_name        || '',
+            accountNo:      settings?.company_bank_account_no  || '',
+            branchCode:     settings?.company_bank_branch_code || '',
+            accountType:    settings?.company_bank_account_type || 'Current',
+            accountHolder:  settings?.company_bank_account_holder || settings?.company_name || '',
+            refPrefix:      settings?.company_bank_reference_prefix || 'REF'
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/payment/settlement-quote/:loanId
+// Returns the settlement amount for a given loan (outstanding balance).
+app.get('/api/payment/settlement-quote/:loanId', async (req, res) => {
+    try {
+        const { loanId } = req.params;
+
+        // Try loans table first, fall back to loan_applications
+        const { data: loan } = await supabaseService
+            .from('loans')
+            .select('id, outstanding_balance, principal_amount, application_id, loan_applications(loan_number, offer_total_repayment, offer_monthly_repayment, term_months)')
+            .eq('id', loanId)
+            .maybeSingle();
+
+        if (!loan) {
+            // Try by application_id
+            const { data: app } = await supabaseService
+                .from('loan_applications')
+                .select('id, loan_number, amount, offer_total_repayment, offer_monthly_repayment, term_months, status')
+                .eq('id', loanId)
+                .maybeSingle();
+            if (!app) return res.status(404).json({ error: 'Loan not found' });
+
+            const outstanding = Number(app.offer_total_repayment || app.amount || 0);
+            return res.json({
+                loanId,
+                loanNumber:   app.loan_number,
+                outstanding,
+                // Settlement discount: 5% off if paid in full today (NCA compliant)
+                settlementAmount: Math.round(outstanding * 0.95 * 100) / 100,
+                settlementDiscount: Math.round(outstanding * 0.05 * 100) / 100,
+                validUntil: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString().slice(0,10)
+            });
+        }
+
+        const outstanding = Number(loan.outstanding_balance || loan.principal_amount || 0);
+        res.json({
+            loanId,
+            loanNumber:       loan.loan_applications?.loan_number,
+            outstanding,
+            settlementAmount: Math.round(outstanding * 0.95 * 100) / 100,
+            settlementDiscount: Math.round(outstanding * 0.05 * 100) / 100,
+            validUntil: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString().slice(0,10)
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/payment/submit-proof
+// Client submits proof of manual EFT payment or settlement.
+// Body: { loanId, applicationId, paymentType, amount, reference, notes, proofUrl }
+app.post('/api/payment/submit-proof', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization || '';
+        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        if (!token) return res.status(401).json({ error: 'Authentication required' });
+
+        // Verify token to get user id
+        const { data: { user }, error: authErr } = await supabaseService.auth.getUser(token);
+        if (authErr || !user) return res.status(401).json({ error: 'Invalid session' });
+
+        const { loanId, applicationId, paymentType = 'partial', amount, reference, notes, proofUrl } = req.body;
+        if (!amount || Number(amount) <= 0) return res.status(400).json({ error: 'Amount is required' });
+
+        const { data: profile } = await supabaseService
+            .from('profiles')
+            .select('full_name, phone, loan_number')
+            .eq('id', user.id)
+            .maybeSingle();
+
+        const { data: record, error: insertErr } = await supabaseService
+            .from('manual_payments')
+            .insert([{
+                loan_id:        loanId        ? parseInt(loanId, 10)        || null : null,  // bigint
+                application_id: applicationId ? parseInt(applicationId, 10) || null : null,  // bigint
+                user_id:        user.id,
+                payment_type:   paymentType,
+                amount:         Number(amount),
+                reference:      reference || null,
+                proof_url:      proofUrl  || null,
+                notes:          notes     || null,
+                status:         'pending'
+            }])
+            .select()
+            .single();
+
+        if (insertErr) throw insertErr;
+
+        // No admin SMS — admin reviews via Incoming Payments → Manual Payment Proofs panel
+
+        // Acknowledge receipt to client — SMS + WhatsApp + Email
+        const toPhone = profile?.phone;
+        const toEmail = profile?.email;
+        const clientFirst = (profile?.full_name || 'Client').split(' ')[0];
+        const co = process.env.COMPANY_NAME || 'Zwane Financial';
+        const typeStr = paymentType === 'settlement' ? 'settlement' : 'payment';
+        const ackSms = `Hi ${clientFirst}, we've received your ${typeStr} proof of R${Number(amount).toLocaleString('en-ZA')} (Ref: ${reference || 'N/A'}). We'll confirm within 1 business day. – ${co}`;
+        const ackWa  = `📋 *Proof Received* — ${co}\n\nHi ${clientFirst}, we've received your ${typeStr} proof of *R${Number(amount).toLocaleString('en-ZA')}*.\n\nReference: ${reference || 'N/A'}\n\nWe'll review and confirm within *1 business day*. You'll receive another notification once confirmed.`;
+        if (toPhone) messaging.sendSMS(toPhone, ackSms).catch(() => {});
+        if (toPhone) messaging.sendWhatsApp(toPhone, ackWa).catch(() => {});
+        if (toEmail) {
+            const { Resend } = require('resend');
+            const resend = new Resend(process.env.RESEND_API_KEY);
+            resend.emails.send({
+                from:    process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+                to:      toEmail,
+                subject: `We received your ${typeStr} proof — ${co}`,
+                html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px">
+                    <h2 style="color:#E7762E">Proof of Payment Received</h2>
+                    <p>Hi <strong>${clientFirst}</strong>,</p>
+                    <p>We've received your ${typeStr} proof of <strong>R${Number(amount).toLocaleString('en-ZA')}</strong> (Ref: ${reference || 'N/A'}).</p>
+                    <p>Our team will review and confirm your payment within <strong>1 business day</strong>. You'll receive a confirmation via SMS, WhatsApp, and email once processed.</p>
+                    <p style="color:#9ca3af;font-size:13px">— ${co}</p>
+                  </div>`
+            }).catch(() => {});
+        }
+
+        // Auto-post to cash journal as 'pending' repayment note
+        await supabaseService.from('cash_journal').insert([{
+            entry_date:      new Date().toISOString().slice(0,10),
+            entry_type:      'cash_in',
+            category:        paymentType === 'settlement' ? 'loan_disbursement' : 'repayment',
+            description:     `[PENDING CONFIRMATION] ${typeLabel} from ${profile?.full_name || 'Client'} — R${Number(amount).toLocaleString('en-ZA')} — Ref: ${reference || 'N/A'}`,
+            reference:       reference || record.id.slice(0,8).toUpperCase(),
+            amount:          Number(amount),
+            application_id:  String(applicationId || loanId || ''),
+            created_by_name: `${profile?.full_name || 'Client'} (self-submitted, pending review)`
+        }]).catch(() => {}); // non-blocking
+
+        res.json({ success: true, paymentId: record.id, message: 'Payment proof submitted. Admin will confirm within 1 business day.' });
+    } catch (err) {
+        console.error('[submit-proof]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/admin/payment/confirm/:id  — admin confirms a manual payment
+app.post('/api/admin/payment/confirm/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const authHeader = req.headers.authorization || '';
+        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        if (!token) return res.status(401).json({ error: 'Auth required' });
+        const { data: { user } } = await supabaseService.auth.getUser(token);
+
+        const { data: payment } = await supabaseService
+            .from('manual_payments')
+            .select('*, profiles:user_id(full_name, phone, email)')
+            .eq('id', id)
+            .single();
+
+        if (!payment) return res.status(404).json({ error: 'Payment not found' });
+
+        await supabaseService.from('manual_payments').update({
+            status: 'confirmed', confirmed_by: user?.id, confirmed_at: new Date().toISOString()
+        }).eq('id', id);
+
+        // If settlement → update loan status to SETTLED
+        if (payment.payment_type === 'settlement' && payment.application_id) {
+            await supabaseService.from('loan_applications')
+                .update({ status: 'SETTLED', updated_at: new Date().toISOString() })
+                .eq('id', payment.application_id);
+        }
+
+        // Update cash journal entry from pending to confirmed
+        await supabaseService.from('cash_journal')
+            .update({ description: supabaseService.rpc ? undefined : undefined,
+                      created_by_name: `${payment.profiles?.full_name || 'Client'} (confirmed by admin)` })
+            .ilike('reference', payment.id.slice(0,8) + '%');
+
+        // ── Notify client via SMS + WhatsApp + Email ─────────────────
+        const phone    = payment.profiles?.phone;
+        const email    = payment.profiles?.email;
+        const fullName = payment.profiles?.full_name || 'Client';
+        const name     = fullName.split(' ')[0];
+        const settings = await getSystemTheme();
+        const company  = settings?.company_name || process.env.COMPANY_NAME || 'Zwane Financial';
+        const amtFmt   = `R ${Number(payment.amount).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
+        const ref      = payment.reference || payment.id.slice(0,8).toUpperCase();
+        const isSettle = payment.payment_type === 'settlement';
+
+        const smsMsg = isSettle
+            ? `Hi ${name}, your settlement of ${amtFmt} (Ref: ${ref}) has been confirmed. Your loan is now SETTLED. Thank you! – ${company}`
+            : `Hi ${name}, your payment of ${amtFmt} (Ref: ${ref}) has been confirmed and applied to your account. Thank you! – ${company}`;
+
+        const waMsg = isSettle
+            ? `✅ *Settlement Confirmed* — ${company}\n\nHi ${name}, your early settlement of *${amtFmt}* has been received and confirmed.\n\nReference: ${ref}\nYour loan is now *fully settled*.\n\nThank you for banking with us! 🎉`
+            : `✅ *Payment Confirmed* — ${company}\n\nHi ${name}, your payment of *${amtFmt}* has been received and applied to your account.\n\nReference: ${ref}\n\nThank you! 🙏`;
+
+        const emailHtml = `
+            <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
+              <div style="background:#E7762E;padding:24px 32px">
+                <h2 style="color:#fff;margin:0;font-size:22px">${isSettle ? '🎉 Loan Settled!' : '✅ Payment Confirmed'}</h2>
+                <p style="color:rgba(255,255,255,.85);margin:6px 0 0;font-size:14px">${company}</p>
+              </div>
+              <div style="padding:32px">
+                <p style="font-size:15px;color:#111827">Hi <strong>${name}</strong>,</p>
+                <p style="font-size:15px;color:#374151;line-height:1.6">
+                  ${isSettle
+                    ? `Your early settlement payment of <strong style="color:#E7762E">${amtFmt}</strong> has been received and confirmed. Your loan is now <strong>fully settled</strong>.`
+                    : `Your payment of <strong style="color:#E7762E">${amtFmt}</strong> has been received and confirmed. It has been applied to your account.`}
+                </p>
+                <div style="background:#f9fafb;border-radius:10px;padding:16px;margin:20px 0">
+                  <table style="width:100%;font-size:13px;color:#374151">
+                    <tr><td style="padding:4px 0;color:#6b7280">Amount</td><td style="text-align:right;font-weight:700">${amtFmt}</td></tr>
+                    <tr><td style="padding:4px 0;color:#6b7280">Reference</td><td style="text-align:right;font-weight:700">${ref}</td></tr>
+                    <tr><td style="padding:4px 0;color:#6b7280">Type</td><td style="text-align:right">${isSettle ? 'Settlement' : 'Manual Payment'}</td></tr>
+                    <tr><td style="padding:4px 0;color:#6b7280">Date</td><td style="text-align:right">${new Date().toLocaleDateString('en-ZA')}</td></tr>
+                  </table>
+                </div>
+                ${isSettle ? `<p style="font-size:14px;color:#10b981;font-weight:600">🎉 Congratulations on settling your loan!</p>` : ''}
+                <p style="font-size:13px;color:#9ca3af;margin-top:24px">If you have any questions, please contact us. — ${company}</p>
+              </div>
+            </div>`;
+
+        // Send all three non-blocking
+        if (phone) messaging.sendSMS(phone, smsMsg).catch(e => console.warn('[confirm-sms]', e.message));
+        if (phone) messaging.sendWhatsApp(phone, waMsg).catch(e => console.warn('[confirm-wa]', e.message));
+        if (email) {
+            const { Resend } = require('resend');
+            const resend = new Resend(process.env.RESEND_API_KEY);
+            const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+            resend.emails.send({
+                from:    fromEmail,
+                to:      email,
+                subject: isSettle ? `✅ Loan Settled — ${amtFmt} confirmed | ${company}` : `✅ Payment confirmed — ${amtFmt} | ${company}`,
+                html:    emailHtml
+            }).catch(e => console.warn('[confirm-email]', e.message));
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // GET /api/my-eligibility — returns borrower's current credit band + eligibility for dashboard widget

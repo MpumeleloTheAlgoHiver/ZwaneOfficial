@@ -9,6 +9,8 @@ let branches      = [];
 let activeBranch  = 'all';
 let activeStatus  = 'all';
 let searchTerm    = '';
+let dateFrom      = '';
+let dateTo        = '';
 let sortKey       = 'created_at';
 let sortDir       = 'desc';
 
@@ -46,7 +48,10 @@ function applyFilters() {
             (l.client_name || '').toLowerCase().includes(s) ||
             (l.reference   || '').toLowerCase().includes(s) ||
             (l.identity_number || '').includes(s);
-        return matchStatus && matchSearch;
+        const disbDate = (l.disbursed_date || '').slice(0,10);
+        const matchFrom = !dateFrom || disbDate >= dateFrom;
+        const matchTo   = !dateTo   || disbDate <= dateTo;
+        return matchStatus && matchSearch && matchFrom && matchTo;
     });
 
     // Sort
@@ -96,6 +101,12 @@ function renderShell() {
             <option value="IN_DEFAULT">In Default</option>
             <option value="READY_TO_DISBURSE">Approved</option>
           </select>
+          <input type="date" id="lb-date-from" onchange="window.lbSetDateFrom(this.value)"
+            title="Disbursed from"
+            class="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white font-semibold focus:ring-orange-400 focus:outline-none">
+          <input type="date" id="lb-date-to" onchange="window.lbSetDateTo(this.value)"
+            title="Disbursed to"
+            class="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white font-semibold focus:ring-orange-400 focus:outline-none">
           <input type="text" id="lb-search" placeholder="Search client, reference..."
             oninput="window.lbSearch(this.value)"
             class="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white focus:ring-orange-400 focus:outline-none w-56">
@@ -122,18 +133,19 @@ function renderShell() {
             <thead>
               <tr class="bg-gray-50 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-100">
                 ${[
-                  ['reference',     'Reference'],
-                  ['client_name',   'Client'],
-                  ['amount',        'Amount'],
-                  ['monthly_payment','Monthly'],
-                  ['status',        'Status'],
-                  ['days_active',   'Days Active'],
-                  ['days_overdue',  'Days Overdue'],
-                  ['days_to_maturity','Days to Maturity'],
-                  ['disbursed_date','Disbursed'],
-                  ['maturity_date', 'Maturity'],
-                  ['band',          'Band'],
-                  ['purpose',       'Purpose'],
+                  ['reference',       'Reference'],
+                  ['client_name',     'Client'],
+                  ['amount',          'Principal'],
+                  ['outstanding',     'Outstanding'],
+                  ['monthly_payment', 'Monthly'],
+                  ['status',          'Status'],
+                  ['days_active',     'Days Active'],
+                  ['days_overdue',    'Days Overdue'],
+                  ['days_to_maturity','Maturity In'],
+                  ['disbursed_date',  'Disbursed'],
+                  ['maturity_date',   'Maturity Date'],
+                  ['band',            'Band'],
+                  ['purpose',         'Purpose'],
                 ].map(([k,l]) => `
                   <th class="px-4 py-3 text-left cursor-pointer hover:bg-gray-100 transition-colors select-none"
                     onclick="window.lbSort('${k}')">
@@ -150,11 +162,14 @@ function renderShell() {
       </div>`;
 
     // Expose handlers
-    window.lbSetBranch  = (v) => { activeBranch = v; loadLoans(); };
-    window.lbSetStatus  = (v) => { activeStatus = v; applyFilters(); };
-    window.lbSearch     = (v) => { searchTerm = v; applyFilters(); };
-    window.lbSort       = sortBy;
-    window.lbExport     = exportLoanBook;
+    window.lbSetBranch   = (v) => { activeBranch = v; loadLoans(); };
+    window.lbSetStatus   = (v) => { activeStatus = v; applyFilters(); };
+    window.lbSearch      = (v) => { searchTerm = v; applyFilters(); };
+    window.lbSetDateFrom = (v) => { dateFrom = v; applyFilters(); };
+    window.lbSetDateTo   = (v) => { dateTo = v; applyFilters(); };
+    window.lbSort        = sortBy;
+    window.lbExport      = exportLoanBook;
+    window.lbSendReminder = sendReminder;
 }
 
 function renderSummary() {
@@ -214,6 +229,7 @@ function renderTable() {
             <div class="text-[10px] text-gray-400 font-mono">${l.identity_number || ''}</div>
           </td>
           <td class="px-4 py-3 font-bold text-gray-900">${formatCurrency(l.amount)}</td>
+          <td class="px-4 py-3 font-bold ${l.outstanding > 0 ? 'text-orange-600' : 'text-green-600'}">${formatCurrency(l.outstanding ?? l.total_repayable ?? l.amount)}</td>
           <td class="px-4 py-3 text-gray-600">${formatCurrency(l.monthly_payment)}</td>
           <td class="px-4 py-3">
             <span class="px-2 py-0.5 rounded-full text-[10px] font-bold" style="background:${st.bg};color:${st.color}">${st.label}</span>
@@ -228,9 +244,18 @@ function renderTable() {
           </td>
           <td class="px-4 py-3 text-xs text-gray-500">${l.purpose}</td>
           <td class="px-4 py-3 text-center">
-            <a href="/admin/application-detail?id=${l.id}" class="text-gray-400 hover:text-orange-600 transition-colors p-1.5 rounded-lg hover:bg-orange-50 inline-block">
-              <span class="material-symbols-outlined text-[16px]">visibility</span>
-            </a>
+            <div class="flex items-center justify-center gap-1">
+              ${(l.status === 'IN_ARREARS' || l.status === 'IN_DEFAULT') ? `
+              <button onclick="window.lbSendReminder('${l.id}','${(l.client_name||'').replace(/'/g,"\\'")}','${l.monthly_payment}')"
+                title="Send SMS reminder"
+                class="p-1.5 rounded-lg text-yellow-500 hover:bg-yellow-50 transition-colors">
+                <span class="material-symbols-outlined text-[16px]">sms</span>
+              </button>` : ''}
+              <a href="/admin/application-detail?id=${l.id}"
+                class="p-1.5 rounded-lg text-gray-400 hover:text-orange-600 hover:bg-orange-50 transition-colors inline-block">
+                <span class="material-symbols-outlined text-[16px]">visibility</span>
+              </a>
+            </div>
           </td>
         </tr>`;
     }).join('');
@@ -245,6 +270,25 @@ function sortBy(key) {
     if (sortKey === key) { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; }
     else { sortKey = key; sortDir = key === 'client_name' ? 'asc' : 'desc'; }
     applyFilters();
+}
+
+async function sendReminder(applicationId, clientName, monthly) {
+    if (!confirm(`Send SMS payment reminder to ${clientName}?`)) return;
+    try {
+        const res = await fetch('/api/notifications/status-change', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ applicationId, newStatus: 'IN_ARREARS' })
+        });
+        const json = await res.json();
+        if (json.sent) {
+            alert(`✅ Reminder sent to ${clientName}`);
+        } else {
+            alert(`Could not send: ${json.reason || 'unknown error'}`);
+        }
+    } catch (e) {
+        alert('SMS failed: ' + e.message);
+    }
 }
 
 function exportLoanBook() {

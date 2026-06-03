@@ -250,6 +250,21 @@ export async function updateApplicationStatus(applicationId, newStatus) {
     } catch (_) { /* audit is non-blocking */ }
     // ──────────────────────────────────────────────────────────────
 
+    // ── Client notification (non-blocking) ────────────────────────
+    // Statuses that trigger a client SMS/WhatsApp
+    const NOTIFY_STATUSES = ['OFFERED', 'APPROVED', 'DISBURSED', 'REJECTED', 'DECLINED', 'IN_ARREARS'];
+    if (NOTIFY_STATUSES.includes(newStatus)) {
+        fetch('/api/notifications/status-change', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ applicationId, newStatus })
+        })
+        .then(r => r.json())
+        .then(r => console.log(`[notify] ${newStatus} → sent=${r.sent}`, r.reason || ''))
+        .catch(e => console.warn('[notify] status-change failed:', e.message));
+    }
+    // ──────────────────────────────────────────────────────────────
+
     return { data: updatedApp, error: null };
   } catch (error) {
     return { data: null, error };
@@ -746,9 +761,20 @@ export const fetchFullUserProfile = async (userId) => {
     const [profileRes, loansRes, docsRes, finRes] = await Promise.all([
         supabase.from('profiles').select('*, branches(id, name)').eq('id', userId).maybeSingle(),
         supabase.from('loan_applications').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
-        supabase.from('document_uploads').select('*').eq('user_id', userId),
+        supabase.from('document_uploads').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
         supabase.from('financial_profiles').select('*').eq('user_id', userId).maybeSingle()
     ]);
+
+    // Log any query errors for debugging without throwing
+    if (profileRes.error) console.warn('[fetchFullUserProfile] profiles error:', profileRes.error.message);
+    if (loansRes.error)   console.warn('[fetchFullUserProfile] loans error:', loansRes.error.message);
+    if (docsRes.error)    console.warn('[fetchFullUserProfile] docs error:', docsRes.error.message);
+    if (finRes.error)     console.warn('[fetchFullUserProfile] financials error:', finRes.error.message);
+
+    // If profile itself is missing (not just null), throw a clear error
+    if (profileRes.error && !profileRes.data) {
+        throw new Error(`Profile query failed: ${profileRes.error.message}`);
+    }
 
     const profile = profileRes.data || { id: userId, full_name: 'Unknown User', role: 'borrower' };
     return {
@@ -772,6 +798,32 @@ export async function getDisbursementsByApplication(applicationId) {
 
 // Alias: createDisbursement = createPayout for backward compat
 export const createDisbursement = createPayout;
+
+/**
+ * Auto-post a repayment to the Cash Ledger when manually confirmed.
+ * Called from incoming-payments or application detail when marking a payment received.
+ */
+export async function postRepaymentToLedger({ applicationId, amount, clientName, reference, branchId }) {
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const { data: profile } = session?.user?.id
+            ? await supabase.from('profiles').select('full_name').eq('id', session.user.id).maybeSingle()
+            : { data: null };
+
+        const { error } = await supabase.from('cash_journal').insert([{
+            entry_date:      new Date().toISOString().slice(0,10),
+            entry_type:      'cash_in',
+            category:        'repayment',
+            description:     `Repayment received from ${clientName || 'Client'} — Ref: ${reference || applicationId?.slice(0,8)}`,
+            reference:       String(reference || applicationId?.slice(0,8) || '').toUpperCase(),
+            amount:          Number(amount || 0),
+            branch_id:       branchId || null,
+            application_id:  String(applicationId || ''),
+            created_by_name: profile?.full_name || session?.user?.email || 'System'
+        }]);
+        if (error) console.warn('[cash-ledger] repayment post failed:', error.message);
+    } catch (e) { console.warn('[cash-ledger] postRepaymentToLedger error:', e.message); }
+}
 
 // CashSend config — returns fee schedule for UI
 export async function getCashSendConfig() {

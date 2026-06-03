@@ -6,7 +6,11 @@ import { formatCurrency, formatDate } from '../shared/utils.js';
 let entries     = [];
 let branches    = [];
 let activeBranch = 'all';
-let activeDate   = new Date().toISOString().slice(0,10); // today
+// Default: show current month
+const _today = new Date().toISOString().slice(0,10);
+const _monthStart = _today.slice(0,8) + '01';
+let dateFrom  = _monthStart;
+let dateTo    = _today;
 
 // ─────────────────────────────────────────────
 // BOOTSTRAP
@@ -30,6 +34,8 @@ async function loadEntries() {
     let query = supabase
         .from('cash_journal')
         .select('*')
+        .gte('entry_date', dateFrom)
+        .lte('entry_date', dateTo)
         .order('entry_date', { ascending: false })
         .order('created_at',  { ascending: false });
 
@@ -81,9 +87,22 @@ function renderPage() {
             <option value="all">All Branches</option>
             ${branches.map(b => `<option value="${b.id}" ${b.id===activeBranch?'selected':''}>${b.name}</option>`).join('')}
           </select>
-          <input type="date" id="date-filter" value="${activeDate}"
-            onchange="window.clFilterDate(this.value)"
-            class="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white font-semibold focus:ring-orange-400 focus:outline-none">
+          <div class="flex items-center gap-2">
+            <input type="date" id="date-from" value="${dateFrom}"
+              onchange="window.clSetDateFrom(this.value)"
+              class="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white font-semibold focus:ring-orange-400 focus:outline-none">
+            <span class="text-gray-400 text-xs font-bold">to</span>
+            <input type="date" id="date-to" value="${dateTo}"
+              onchange="window.clSetDateTo(this.value)"
+              class="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white font-semibold focus:ring-orange-400 focus:outline-none">
+          </div>
+          <div class="flex gap-1">
+            ${['Today','Week','Month','All'].map(p => `
+            <button onclick="window.clSetPeriod('${p}')"
+              class="text-xs font-bold px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-orange-50 hover:text-orange-600 hover:border-orange-200 transition-colors">
+              ${p}
+            </button>`).join('')}
+          </div>
           <button onclick="window.clOpenJournal()"
             class="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold px-4 py-2.5 rounded-xl transition-colors shadow-sm">
             <i class="fas fa-plus text-xs"></i> Add Journal Entry
@@ -96,7 +115,7 @@ function renderPage() {
       </div>
 
       <!-- Summary cards -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6" id="cl-summary"></div>
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6" id="cl-summary"></div>
 
       <!-- Ledger table -->
       <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -135,7 +154,7 @@ function renderPage() {
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Date</label>
-                <input name="entry_date" type="date" value="${activeDate}" required
+                <input name="entry_date" type="date" value="${dateTo}" required
                   class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none">
               </div>
               <div>
@@ -196,7 +215,18 @@ function renderPage() {
 
     // Expose window functions
     window.clSwitchBranch = (v) => { activeBranch = v; loadEntries(); };
-    window.clFilterDate   = (v) => { activeDate = v; renderTable(); renderSummary(); };
+    window.clSetDateFrom  = (v) => { dateFrom = v; loadEntries(); };
+    window.clSetDateTo    = (v) => { dateTo = v; loadEntries(); };
+    window.clSetPeriod    = (period) => {
+        const t = new Date(); const f = new Date();
+        if (period === 'Today') { dateFrom = dateTo = t.toISOString().slice(0,10); }
+        else if (period === 'Week') { f.setDate(t.getDate()-6); dateFrom = f.toISOString().slice(0,10); dateTo = t.toISOString().slice(0,10); }
+        else if (period === 'Month') { dateFrom = t.toISOString().slice(0,8)+'01'; dateTo = t.toISOString().slice(0,10); }
+        else if (period === 'All') { dateFrom = '2020-01-01'; dateTo = t.toISOString().slice(0,10); }
+        document.getElementById('date-from').value = dateFrom;
+        document.getElementById('date-to').value   = dateTo;
+        loadEntries();
+    };
     window.clOpenJournal  = () => document.getElementById('cl-modal').classList.remove('hidden');
     window.clCloseJournal = () => document.getElementById('cl-modal').classList.add('hidden');
     window.clSaveEntry    = saveEntry;
@@ -207,17 +237,22 @@ function renderSummary() {
     const el = document.getElementById('cl-summary');
     if (!el) return;
 
-    const filtered = entries.filter(e => !activeDate || e.entry_date === activeDate);
-    const cashIn   = filtered.filter(e => e.entry_type === 'cash_in').reduce((s,e) => s + Number(e.amount), 0);
-    const cashOut  = filtered.filter(e => e.entry_type === 'cash_out').reduce((s,e) => s + Number(e.amount), 0);
+    // entries are already filtered by date range + branch from loadEntries()
+    const cashIn   = entries.filter(e => ['cash_in','opening_balance'].includes(e.entry_type)).reduce((s,e) => s + Number(e.amount), 0);
+    const cashOut  = entries.filter(e => ['cash_out','closing_balance'].includes(e.entry_type)).reduce((s,e) => s + Number(e.amount), 0);
     const net      = cashIn - cashOut;
-    const count    = filtered.length;
+    const disbursed = entries.filter(e => e.category === 'loan_disbursement').reduce((s,e) => s + Number(e.amount), 0);
+    const repaid    = entries.filter(e => e.category === 'repayment').reduce((s,e) => s + Number(e.amount), 0);
+
+    const rangeLabel = dateFrom === dateTo ? dateFrom : `${dateFrom} – ${dateTo}`;
 
     el.innerHTML = [
-        { label: 'Cash In Today',  value: formatCurrency(cashIn),  color: '#10b981', bg: '#d1fae5', icon: 'arrow_downward' },
-        { label: 'Cash Out Today', value: formatCurrency(cashOut), color: '#ef4444', bg: '#fee2e2', icon: 'arrow_upward'   },
-        { label: 'Net Position',   value: formatCurrency(net),     color: net >= 0 ? '#10b981' : '#ef4444', bg: net >= 0 ? '#d1fae5' : '#fee2e2', icon: 'balance' },
-        { label: 'Entries Today',  value: count,                   color: '#6b7280', bg: '#f3f4f6', icon: 'receipt_long'   }
+        { label: `Cash In (${rangeLabel})`,  value: formatCurrency(cashIn),     color: '#10b981', bg: '#d1fae5', icon: 'arrow_downward'  },
+        { label: `Cash Out (${rangeLabel})`, value: formatCurrency(cashOut),    color: '#ef4444', bg: '#fee2e2', icon: 'arrow_upward'    },
+        { label: 'Net Position',             value: formatCurrency(net),        color: net >= 0 ? '#10b981' : '#ef4444', bg: net >= 0 ? '#d1fae5' : '#fee2e2', icon: 'balance' },
+        { label: 'Loans Disbursed',          value: formatCurrency(disbursed),  color: '#E7762E', bg: '#fff3ea', icon: 'payments'        },
+        { label: 'Repayments Collected',     value: formatCurrency(repaid),     color: '#6366f1', bg: '#eef2ff', icon: 'savings'         },
+        { label: 'Entries',                  value: entries.length,             color: '#6b7280', bg: '#f3f4f6', icon: 'receipt_long'    }
     ].map(c => `
       <div class="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm flex items-center gap-4">
         <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background:${c.bg}">
@@ -234,10 +269,8 @@ function renderTable() {
     const tbody = document.getElementById('cl-table-body');
     if (!tbody) return;
 
-    // Filter by selected date if set
-    const filtered = activeDate
-        ? entries.filter(e => e.entry_date === activeDate)
-        : entries;
+    // entries already filtered by date range + branch from loadEntries()
+    const filtered = entries;
 
     if (!filtered.length) {
         tbody.innerHTML = `<tr><td colspan="9" class="p-10 text-center text-sm text-gray-400">No entries for this date. <button onclick="window.clOpenJournal()" class="text-orange-500 font-semibold">Add the first entry.</button></td></tr>`;
@@ -299,7 +332,7 @@ async function saveEntry(e) {
         await addJournalEntry(data);
         window.clCloseJournal();
         form.reset();
-        form.elements['entry_date'].value = activeDate;
+        form.elements['entry_date'].value = dateTo;
     } catch (err) {
         alert('Error saving entry: ' + err.message);
     } finally {
@@ -331,6 +364,6 @@ function exportLedger() {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
-    a.href = url; a.download = `cash_ledger_${activeDate || new Date().toISOString().slice(0,10)}.csv`;
+    a.href = url; a.download = `cash_ledger_${dateFrom}_to_${dateTo}.csv`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
 }

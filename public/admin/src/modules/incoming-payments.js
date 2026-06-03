@@ -1,9 +1,126 @@
 import { initLayout } from '../shared/layout.js';
 import { formatCurrency, formatDate } from '../shared/utils.js';
-import { 
-  fetchPayments, 
+import { supabase } from '../services/supabaseClient.js';
+import {
+  fetchPayments,
   fetchAnalyticsData
 } from '../services/dataService.js';
+
+// ── Manual / EFT Payment Review ─────────────────────────────────
+let pendingManualPayments = [];
+
+async function loadPendingManualPayments() {
+  const { data, error } = await supabase
+    .from('manual_payments')
+    .select('*, profiles:user_id(full_name, phone, identity_number), loan_applications:application_id(loan_number, amount, status)')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false });
+  if (error) { console.warn('[manual-payments]', error.message); return; }
+  pendingManualPayments = data || [];
+  renderPendingPanel();
+}
+
+function renderPendingPanel() {
+  const el = document.getElementById('pending-manual-payments');
+  if (!el) return;
+
+  if (!pendingManualPayments.length) {
+    el.innerHTML = `
+      <div class="flex items-center gap-2 text-sm text-slate-400 py-4">
+        <span class="material-symbols-outlined text-[18px]">check_circle</span>
+        No pending manual payments
+      </div>`;
+    return;
+  }
+
+  const badge = document.getElementById('pending-count-badge');
+  if (badge) { badge.textContent = pendingManualPayments.length; badge.classList.remove('hidden'); }
+
+  el.innerHTML = pendingManualPayments.map(p => {
+    const name    = p.profiles?.full_name || 'Unknown';
+    const phone   = p.profiles?.phone || '—';
+    const loanRef = p.loan_applications?.loan_number || p.application_id?.toString().slice(0,8) || '—';
+    const typeLabel = p.payment_type === 'settlement' ? 'Settlement' : p.payment_type === 'arrears' ? 'Arrears Payment' : 'Payment';
+    const typeColor = p.payment_type === 'settlement' ? 'text-purple-600 bg-purple-50' : 'text-green-700 bg-green-50';
+    const age = Math.floor((Date.now() - new Date(p.created_at)) / 3600000);
+    const ageLabel = age < 1 ? 'Just now' : age < 24 ? `${age}h ago` : `${Math.floor(age/24)}d ago`;
+
+    return `
+      <div class="border border-slate-100 rounded-2xl p-4 hover:border-orange-200 hover:bg-orange-50/30 transition-all" id="mp-${p.id}">
+        <div class="flex items-start justify-between gap-3">
+          <div class="flex items-center gap-3 min-w-0">
+            <div class="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-black text-slate-600 text-sm flex-shrink-0">
+              ${name.charAt(0).toUpperCase()}
+            </div>
+            <div class="min-w-0">
+              <p class="font-bold text-slate-900 text-sm truncate">${name}</p>
+              <p class="text-xs text-slate-400">${phone} · Loan ${loanRef}</p>
+            </div>
+          </div>
+          <div class="text-right flex-shrink-0">
+            <p class="font-black text-lg text-slate-900">R ${Number(p.amount).toLocaleString('en-ZA',{minimumFractionDigits:2})}</p>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${typeColor}">${typeLabel}</span>
+          </div>
+        </div>
+
+        ${p.reference ? `<p class="text-xs text-slate-500 mt-2"><span class="font-semibold">Ref:</span> ${p.reference}</p>` : ''}
+        ${p.proof_url ? `<p class="text-xs text-slate-500 mt-1"><span class="font-semibold">Proof:</span> <a href="${p.proof_url}" target="_blank" class="text-orange-600 underline">${p.proof_url.length > 40 ? p.proof_url.slice(0,40)+'…' : p.proof_url}</a></p>` : ''}
+        ${p.notes    ? `<p class="text-xs text-slate-500 mt-1 italic">"${p.notes}"</p>` : ''}
+
+        <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+          <span class="text-[10px] text-slate-400">${ageLabel}</span>
+          <div class="flex gap-2">
+            <button onclick="window.rejectManualPayment('${p.id}')"
+              class="px-3 py-1.5 text-xs font-bold text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 rounded-xl transition-colors">
+              Reject
+            </button>
+            <button onclick="window.confirmManualPayment('${p.id}','${p.payment_type}','${name}')"
+              class="px-3 py-1.5 text-xs font-bold text-white rounded-xl transition-colors flex items-center gap-1.5"
+              style="background:var(--color-primary)">
+              <span class="material-symbols-outlined text-[14px]">check</span> Confirm
+            </button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+window.confirmManualPayment = async (id, payType, clientName) => {
+  if (!confirm(`Confirm ${payType === 'settlement' ? 'SETTLEMENT' : 'payment'} from ${clientName}?\n\nThis will:\n• Mark as confirmed\n• Post to Cash Ledger\n• Send SMS to client${payType === 'settlement' ? '\n• Set loan status to SETTLED' : ''}`)) return;
+
+  const { data: { session } } = await supabase.auth.getSession();
+  const res = await fetch(`/api/admin/payment/confirm/${id}`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }
+  });
+  const json = await res.json();
+  if (json.success) {
+    // Animate out
+    const el = document.getElementById(`mp-${id}`);
+    if (el) { el.style.opacity = '0'; el.style.transform = 'scale(0.95)'; el.style.transition = 'all .3s'; setTimeout(() => el.remove(), 300); }
+    pendingManualPayments = pendingManualPayments.filter(p => p.id !== id);
+    renderPendingPanel();
+  } else {
+    alert('Error: ' + (json.error || 'Could not confirm'));
+  }
+};
+
+window.rejectManualPayment = async (id) => {
+  const reason = prompt('Reason for rejection (sent to client):');
+  if (reason === null) return;
+
+  const { data: { session } } = await supabase.auth.getSession();
+  const { error } = await supabase.from('manual_payments')
+    .update({ status: 'rejected', rejection_reason: reason, confirmed_at: new Date().toISOString() })
+    .eq('id', id);
+
+  if (!error) {
+    const el = document.getElementById(`mp-${id}`);
+    if (el) { el.style.opacity='0'; el.style.transition='all .3s'; setTimeout(()=>el.remove(),300); }
+    pendingManualPayments = pendingManualPayments.filter(p => p.id !== id);
+    renderPendingPanel();
+  }
+};
 
 // --- State ---
 let allPayments = [];
@@ -23,6 +140,28 @@ function renderPageContent() {
 
   mainContent.innerHTML = `
     <div id="recovery-dashboard" class="flex flex-col h-full animate-fade-in space-y-6">
+
+      <!-- Pending Manual Payments Banner -->
+      <div class="glass-card rounded-2xl overflow-hidden">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center">
+              <span class="material-symbols-outlined text-[18px]" style="color:var(--color-primary)">payments</span>
+            </div>
+            <div>
+              <h3 class="font-bold text-slate-900">Manual Payment Proofs</h3>
+              <p class="text-xs text-slate-400">EFT / self-submitted payments awaiting confirmation</p>
+            </div>
+            <span id="pending-count-badge" class="hidden ml-1 px-2 py-0.5 text-xs font-black text-white rounded-full" style="background:var(--color-primary)">0</span>
+          </div>
+          <button onclick="window.loadPendingManualPayments()" class="text-xs font-bold text-slate-400 hover:text-slate-700 flex items-center gap-1 transition-colors">
+            <span class="material-symbols-outlined text-[14px]">refresh</span> Refresh
+          </button>
+        </div>
+        <div id="pending-manual-payments" class="p-4 space-y-3">
+          <div class="text-sm text-slate-400 py-4 text-center">Loading...</div>
+        </div>
+      </div>
       
       <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div class="glass-card p-8 rounded-2xl flex items-center justify-between relative overflow-hidden group">
@@ -445,6 +584,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   const auth = await initLayout();
   if (auth) {
       renderPageContent();
-      await loadData();
+      await Promise.all([
+        loadData(),
+        loadPendingManualPayments()
+      ]);
   }
 });
+
+// Expose for refresh button
+window.loadPendingManualPayments = loadPendingManualPayments;

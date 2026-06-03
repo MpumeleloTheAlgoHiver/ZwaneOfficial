@@ -194,5 +194,7 @@ class ExportManager {
   }
 }
 
-// Create global instance
+// Create global instance + named export for direct imports
 window.exportManager = new ExportManager();
+export { ExportManager };
+export default window.exportManager;

@@ -1,6 +1,7 @@
 import '../shared/sessionGuard.js';
 import { initLayout, getProfile } from '../shared/layout.js';
 import { formatCompactNumber, formatCurrency } from '../shared/utils.js';
+import exportManager from './export-manager.js';
 import {
   fetchDashboardData,
   fetchPipelineApplications,
@@ -209,6 +210,95 @@ document.addEventListener('DOMContentLoaded', async () => {
         </div>
       </section>
 
+      <style>
+        @keyframes bannerSlideDown {
+          from { opacity:0; transform:translateY(-18px); }
+          to   { opacity:1; transform:translateY(0); }
+        }
+        @keyframes borderPulse {
+          0%,100% { box-shadow: -4px 0 0 var(--color-primary), 0 0 0 0 color-mix(in srgb,var(--color-primary) 0%,transparent); }
+          50%      { box-shadow: -4px 0 0 var(--color-primary), 0 0 24px 4px color-mix(in srgb,var(--color-primary) 35%,transparent); }
+        }
+        @keyframes iconRing {
+          0%,100% { transform:scale(1); opacity:1; }
+          40%     { transform:scale(1.22); opacity:.85; }
+        }
+        @keyframes dotBlink {
+          0%,100% { opacity:1; transform:scale(1); }
+          50%     { opacity:.4; transform:scale(.7); }
+        }
+        @keyframes shimmer {
+          0%   { transform: translateX(-100%); }
+          100% { transform: translateX(200%); }
+        }
+        .action-banner {
+          animation: bannerSlideDown .5s cubic-bezier(.22,1,.36,1) both,
+                     borderPulse 2.8s ease-in-out 1s infinite;
+          position:relative; overflow:hidden;
+        }
+        /* Shimmer runs BEHIND content via z-index — never covers text */
+        .action-banner::after {
+          content:''; pointer-events:none;
+          position:absolute; top:0; left:0; width:40%; height:100%;
+          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent);
+          z-index: 0;
+          animation: shimmer 2s ease-in-out 0.6s 2;
+        }
+        /* All direct children sit above the shimmer */
+        .action-banner > * { position:relative; z-index:1; }
+        .banner-icon-ring {
+          animation: iconRing 2.2s ease-in-out 0.8s infinite;
+          transform-origin:center;
+        }
+        .banner-dot {
+          animation: dotBlink 1.4s ease-in-out infinite;
+        }
+        .banner-cta {
+          transition: transform .2s cubic-bezier(.34,1.56,.64,1), box-shadow .2s ease, opacity .2s;
+        }
+        .banner-cta:hover {
+          transform: translateY(-2px) scale(1.04);
+          box-shadow: 0 8px 24px color-mix(in srgb, var(--color-primary) 45%, transparent);
+          opacity:.92;
+        }
+        .banner-cta:active { transform: scale(.97); transition-duration:.1s; }
+      </style>
+
+      <!-- Action Banner — top of dashboard, always visible -->
+      ${pendingCount > 0 ? `
+      <section class="action-banner glass-card rounded-2xl border-l-4 flex items-center justify-between gap-4 p-5"
+               style="border-color:var(--color-primary); background:color-mix(in srgb,var(--color-primary) 5%,white);">
+        <div class="flex items-center gap-4 min-w-0">
+          <!-- Animated icon -->
+          <div class="relative flex-shrink-0">
+            <div class="p-3 rounded-full banner-icon-ring" style="background:color-mix(in srgb,var(--color-primary) 14%,transparent)">
+              <span class="material-symbols-outlined text-[22px]" style="color:var(--color-primary)">notification_important</span>
+            </div>
+            <!-- Live dot -->
+            <span class="banner-dot absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white"
+                  style="background:var(--color-primary)"></span>
+          </div>
+          <!-- Text -->
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <h5 class="font-bold text-on-surface">
+                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-xs font-black mr-1"
+                      style="background:var(--color-primary)">${pendingCount}</span>
+                application${pendingCount > 1 ? 's' : ''} pending review
+              </h5>
+            </div>
+            <p class="text-secondary text-sm mt-0.5 truncate">${sureSystemsState.text}. Complete setup to automate disbursements.</p>
+          </div>
+        </div>
+        <!-- CTA -->
+        <a href="/admin/applications"
+           class="banner-cta flex-shrink-0 flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm text-white"
+           style="background:var(--color-primary)">
+          <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+          Review Now
+        </a>
+      </section>` : ''}
+
       <!-- KPI Cards -->
       <section id="cards-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 fade-in delay-100"></section>
 
@@ -306,55 +396,48 @@ document.addEventListener('DOMContentLoaded', async () => {
         </div>
       </section>
 
-      <!-- Bottom Banner -->
-      ${pendingCount > 0 ? `
-      <section class="glass-card p-6 rounded-2xl border-l-4 flex items-center justify-between fade-in" style="border-color:var(--color-primary)">
-        <div class="flex items-center gap-4">
-          <div class="p-3 rounded-full" style="background:color-mix(in srgb, var(--color-primary) 10%, transparent)">
-            <span class="material-symbols-outlined" style="color:var(--color-primary)">notification_important</span>
-          </div>
-          <div>
-            <h5 class="font-bold text-on-surface">${pendingCount} application${pendingCount > 1 ? 's' : ''} pending review</h5>
-            <p class="text-secondary text-sm">${sureSystemsState.text}. Complete setup to automate disbursements.</p>
-          </div>
-        </div>
-        <a href="/admin/applications" class="px-6 py-2 border-2 rounded-xl font-bold text-sm transition-all hover:text-white" style="border-color:var(--color-primary);color:var(--color-primary);" onmouseover="this.style.background='var(--color-primary)'" onmouseout="this.style.background='transparent'">
-          Review Now
-        </a>
-      </section>` : ''}
     </div>
   `;
 
-  // Render components
+  // Render KPI cards + export wiring (no canvas needed, safe to do immediately)
   renderKpiCards(financials);
-  initStatusDonut(dashData?.portfolioStatus);
 
-  // Initialize export manager and add event listener
   exportManager.init(profile.id);
-  document.getElementById('export-dashboard-btn').addEventListener('click', () => {
+  document.getElementById('export-dashboard-btn')?.addEventListener('click', () => {
     exportManager.open('dashboard', 'Dashboard Metrics');
   });
 
-  const riskData = analytics.risk_matrix?.length ? analytics.risk_matrix : [];
-  initRiskScatter(riskData);
-  initFunnelChart(pipeline);
-  initPerformanceRadial(detailedFin, analytics.vintage);
+  // Set up tab groups FIRST (they only wire buttons, don't render charts yet)
+  // We pass a no-op — actual first render happens inside rAF below
+  setupDynamicChart('tabs-velocity', ['1M', '3M', '6M', '1Y', 'YTD'], '1Y', () => {});
+  setupDynamicChart('tabs-vintage', ['3M', '6M', '1Y', 'ALL'], 'ALL', () => {});
+  setupDynamicChart('tabs-trends', ['3M', '6M', '1Y', 'ALL'], '1Y', () => {});
 
-  // Capture snapshot for dashboard export
+  // Capture snapshot
   captureDashboardSnapshot(dashData, detailedFin, pipelineData, perfData);
 
-  setupDynamicChart('tabs-velocity', ['1M', '3M', '6M', '1Y', 'YTD'], '1Y', (range) => {
-    const filtered = filterDataByDate(perf, 'month_year', range);
-    renderVelocityChart(filtered);
-  });
-  setupDynamicChart('tabs-vintage', ['3M', '6M', '1Y', 'ALL'], 'ALL', (range) => {
-    const filtered = filterDataByDate(analytics.vintage, 'cohort', range);
-    renderVintageChart(filtered);
-  });
-  setupDynamicChart('tabs-trends', ['3M', '6M', '1Y', 'ALL'], '1Y', (range) => {
-    const filtered = filterDataByDate(trends, 'month', range);
-    renderTrendCharts(filtered);
-  });
+  // All ApexCharts need the browser to finish layout FIRST — defer by two frames
+  // so every chart container has real width/height when ApexCharts measures it.
+  const riskData = analytics.risk_matrix?.length ? analytics.risk_matrix : [];
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    try { initStatusDonut(dashData?.portfolioStatus); } catch(e) { console.warn('donut', e); }
+    try { initRiskScatter(riskData); } catch(e) { console.warn('risk', e); }
+    try { initFunnelChart(pipeline); } catch(e) { console.warn('funnel', e); }
+    try { initPerformanceRadial(detailedFin, analytics.vintage); } catch(e) { console.warn('radial', e); }
+
+    // Velocity — wire tab clicks + render initial
+    setupDynamicChart('tabs-velocity', ['1M', '3M', '6M', '1Y', 'YTD'], '1Y', (range) => {
+      try { renderVelocityChart(filterDataByDate(perf, 'month_year', range)); } catch(e) { console.warn('velocity', e); }
+    });
+    // Vintage — wire tab clicks + render initial
+    setupDynamicChart('tabs-vintage', ['3M', '6M', '1Y', 'ALL'], 'ALL', (range) => {
+      try { renderVintageChart(filterDataByDate(analytics.vintage, 'cohort', range)); } catch(e) { console.warn('vintage', e); }
+    });
+    // Trends — wire tab clicks + render initial
+    setupDynamicChart('tabs-trends', ['3M', '6M', '1Y', 'ALL'], '1Y', (range) => {
+      try { renderTrendCharts(filterDataByDate(trends, 'month', range)); } catch(e) { console.warn('trends', e); }
+    });
+  }));
 });
 
 // ---------- Helpers ----------
@@ -432,6 +515,15 @@ function setupDynamicChart(containerId, options, defaultOption, onRender) {
 }
 
 // ---------- Charts ----------
+function emptyState(id, msg = 'No data yet') {
+  const el = document.querySelector(`#${id}`);
+  if (el) el.innerHTML = `<div class="h-full flex flex-col items-center justify-center gap-2 text-slate-400" style="min-height:280px">
+    <span class="material-symbols-outlined text-4xl opacity-30">bar_chart</span>
+    <p class="text-sm font-semibold">${msg}</p>
+    <p class="text-xs opacity-70">Data will appear once loans are processed</p>
+  </div>`;
+}
+
 function initFunnelChart(apps) {
   const { primary: primaryColor } = getThemeColors();
   const data = apps || [];
@@ -498,6 +590,7 @@ let velocityChartInstance = null;
 function renderVelocityChart(perf) {
   const { primary: primaryColor, secondary: secondaryColor } = getThemeColors();
   const data = perf || [];
+  if (!data.length) { emptyState('velocityChart', 'No cash flow data yet'); return; }
   const options = {
     series: [
       { name: 'Disbursed', type: 'area', data: data.map((p) => p.disbursed_amount) },
@@ -521,6 +614,7 @@ function renderVelocityChart(perf) {
 
 function initRiskScatter(data) {
   const { primary: primaryColor } = getThemeColors();
+  if (!data?.length) { emptyState('riskChart', 'No risk data yet'); return; }
   const points = data?.length
     ? data.map((p) => ({
         x: p.credit_score || 0,
@@ -580,6 +674,11 @@ let trendChart1 = null,
   trendChart3 = null;
 function renderTrendCharts(data) {
   const { primary: primaryColor, secondary: secondaryColor } = getThemeColors();
+  if (!data?.length) {
+    emptyState('comboChart', 'No trend data yet');
+    emptyState('growthChart', 'No growth data yet');
+    return;
+  }
   const sorted = [...(data || [])].reverse();
   if (sorted.length === 1) {
     const currentMonth = new Date(sorted[0].month);

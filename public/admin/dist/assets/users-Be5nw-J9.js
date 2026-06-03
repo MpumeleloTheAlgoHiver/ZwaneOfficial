@@ -1,4 +1,4 @@
-import{supabase as f}from"./supabaseClient-WTCtVqgB.js";/* empty css              *//* empty css               */import{i as k}from"./layout-DLkpXMPI.js";import{n as E,o as I,j as L,p as _}from"./dataService-489HhSyD.js";import{v,a as m,b as B}from"./utils-CZwHw4kl.js";import"https://esm.sh/@supabase/supabase-js@2";import"./theme-CeTh6-N5.js";function $(t,e={}){const{showActions:a=!0,className:n="",isLuhnValid:l=!0}=e;let s=t.full_name||t.first_name+" "+t.surname;s=s.replace("NOT_PROVIDED","").trim();const r=s.split(" ").map(o=>o[0]).join("").substring(0,2).toUpperCase(),i=l?"bg-emerald-50 text-emerald-700 border-emerald-100":"bg-red-50 text-red-700 border-red-100",d=l?"check_circle":"warning",c=l?"Verified ID":"ID Error";return`
+import{supabase as v}from"./supabaseClient-WTCtVqgB.js";/* empty css              *//* empty css               */import{i as I}from"./layout-DLkpXMPI.js";import{n as L,o as _,j as B,p as $}from"./dataService-edWZtrJs.js";import{v as w,a as b,b as C}from"./utils-CZwHw4kl.js";import"https://esm.sh/@supabase/supabase-js@2";import"./theme-CeTh6-N5.js";function T(t,e={}){const{showActions:a=!0,className:n="",isLuhnValid:l=!0}=e;let s=t.full_name||t.first_name+" "+t.surname;s=s.replace("NOT_PROVIDED","").trim();const i=s.split(" ").map(x=>x[0]).join("").substring(0,2).toUpperCase(),o=l?"bg-emerald-50 text-emerald-700 border-emerald-100":"bg-red-50 text-red-700 border-red-100",d=l?"check_circle":"warning",c=l?"Verified ID":"ID Error";return`
         <div class="bg-white rounded-[32px] border border-slate-200/60 shadow-sm overflow-hidden relative group transition-all hover:shadow-xl hover:shadow-slate-200/40 ${n}">
             <!-- Brand Accent -->
             <div class="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-[#7C3AED] to-[#5B21B6]"></div>
@@ -7,7 +7,7 @@ import{supabase as f}from"./supabaseClient-WTCtVqgB.js";/* empty css            
                 <div class="flex items-start justify-between mb-8">
                     <div class="flex items-center gap-5">
                         <div class="w-16 h-16 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center text-xl font-black text-slate-400 shadow-inner group-hover:scale-105 transition-transform">
-                            ${r||"U"}
+                            ${i||"U"}
                         </div>
                         <div>
                             <h3 class="text-xl font-black text-slate-900 tracking-tight leading-none">${s||"Unknown Client"}</h3>
@@ -19,7 +19,7 @@ import{supabase as f}from"./supabaseClient-WTCtVqgB.js";/* empty css            
                         </div>
                     </div>
                     
-                    <div class="px-3 py-1.5 rounded-xl border ${i} flex items-center gap-2 animate-pulse-slow">
+                    <div class="px-3 py-1.5 rounded-xl border ${o} flex items-center gap-2 animate-pulse-slow">
                         <span class="material-symbols-outlined text-[14px]">${d}</span>
                         <span class="text-[10px] font-black uppercase tracking-widest">${c}</span>
                     </div>
@@ -57,7 +57,7 @@ import{supabase as f}from"./supabaseClient-WTCtVqgB.js";/* empty css            
                 `:""}
             </div>
         </div>
-    `}let h=[],g=[],C=null,u=null,p=1;const b=20;let y="all";const T=`
+    `}let k=[],h=[],D=null,m=null,p=1;const g=20;let E="all";const U=`
 <div id="view-list" class="flex flex-col h-full animate-fade-in">
 
   <!-- Header -->
@@ -123,7 +123,7 @@ import{supabase as f}from"./supabaseClient-WTCtVqgB.js";/* empty css            
     <div id="user-pagination-container"></div>
   </div>
 </div>
-`,D=`
+`,M=`
 <div id="view-detail" class="hidden flex flex-col h-full animate-fade-in bg-gray-50 -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8">
     <div class="flex items-center justify-between mb-6">
         <button onclick="window.switchView('list')" class="flex items-center gap-2 text-gray-500 hover:text-gray-900 font-medium transition-colors">
@@ -226,28 +226,28 @@ import{supabase as f}from"./supabaseClient-WTCtVqgB.js";/* empty css            
         </div>
     </div>
 </div>
-`,U=t=>["admin","super_admin","base_admin"].includes(t),S=t=>({super_admin:"SUPER ADMIN",admin:"BRANCH MANAGER",base_admin:"LOAN OFFICER"})[t]||"CLIENT",M=t=>{const e=(t||"UNKNOWN").toUpperCase();let a="bg-gray-100 text-gray-600";return e==="DISBURSED"&&(a="bg-green-100 text-green-700"),e==="DECLINED"&&(a="bg-red-100 text-red-700"),["STARTED","SUBMITTED"].includes(e)&&(a="bg-blue-50 text-blue-700"),`<span class="px-2 py-0.5 rounded text-[10px] font-bold ${a}">${e}</span>`};window.switchView=t=>{const e=document.getElementById("view-list"),a=document.getElementById("view-detail");t==="detail"?(e.classList.add("hidden"),a.classList.remove("hidden")):(e.classList.remove("hidden"),a.classList.add("hidden"),u=null)};window.openUserDetail=async t=>{try{document.body.style.cursor="wait";const e=await E(t);if(!e?.profile)throw new Error("Profile not found for this user.");u=e;const a=e.profile,n=v(a?.identity_number||a?.id_number),l=document.getElementById("profile-card-container");l&&(l.innerHTML=$(a,{isLuhnValid:n}));const s=e.financials||{};document.getElementById("detail-income").textContent=m(s.monthly_income||0),document.getElementById("detail-expenses").textContent=m(s.monthly_expenses||0),document.getElementById("stat-total-loans").textContent=e.loans.length,document.getElementById("stat-total-docs").textContent=e.documents.length;const r=e.loans.filter(o=>["DISBURSED","ACTIVE"].includes(o.status)).reduce((o,w)=>o+Number(w.amount),0);document.getElementById("stat-active-debt").textContent=m(r);const i=document.getElementById("detail-loans-body");e.loans.length===0?i.innerHTML='<tr><td colspan="5" class="p-12 text-center text-xs font-bold text-slate-300">No applications found.</td></tr>':i.innerHTML=e.loans.map(o=>`
-                <tr class="hover:bg-slate-50 transition-colors cursor-pointer group" onclick="window.location.href='/admin/application-detail?id=${o.id}'">
-                    <td class="px-8 py-5 text-[10px] font-black text-slate-400 font-mono">#${o.id.substring(0,8)}</td>
-                    <td class="px-6 py-5 text-xs font-bold text-slate-600">${B(o.created_at)}</td>
-                    <td class="px-6 py-5 text-sm font-black text-slate-900">${m(o.amount)}</td>
-                    <td class="px-6 py-5">${M(o.status)}</td>
+`,S=t=>["admin","super_admin","base_admin"].includes(t),A=t=>({super_admin:"SUPER ADMIN",admin:"BRANCH MANAGER",base_admin:"LOAN OFFICER"})[t]||"CLIENT",j=t=>{const e=(t||"UNKNOWN").toUpperCase();let a="bg-gray-100 text-gray-600";return e==="DISBURSED"&&(a="bg-green-100 text-green-700"),e==="DECLINED"&&(a="bg-red-100 text-red-700"),["STARTED","SUBMITTED"].includes(e)&&(a="bg-blue-50 text-blue-700"),`<span class="px-2 py-0.5 rounded text-[10px] font-bold ${a}">${e}</span>`};window.switchView=t=>{const e=document.getElementById("view-list"),a=document.getElementById("view-detail");t==="detail"?(e.classList.add("hidden"),a.classList.remove("hidden")):(e.classList.remove("hidden"),a.classList.add("hidden"),m=null)};window.openUserDetail=async t=>{try{document.body.style.cursor="wait";const e=await L(t);if(!e?.profile)throw new Error("Profile not found for this user.");m=e;const a=e.profile,n=w(a?.identity_number||a?.id_number),l=document.getElementById("profile-card-container");l&&(l.innerHTML=T(a,{isLuhnValid:n}));const s=e.financials||{},i=(r,f)=>{const y=document.getElementById(r);y&&(y.textContent=f)};i("detail-income",b(s.monthly_income||0)),i("detail-expenses",b(s.monthly_expenses||0)),i("stat-total-loans",e.loans.length),i("stat-total-docs",e.documents.length);const o=e.loans.filter(r=>["DISBURSED","ACTIVE"].includes(r.status)).reduce((r,f)=>r+Number(f.amount),0);i("stat-active-debt",b(o));const d=document.getElementById("detail-loans-body");d||console.warn("[users] #detail-loans-body not found in DOM"),d&&e.loans.length===0?d.innerHTML='<tr><td colspan="5" class="p-12 text-center text-xs font-bold text-slate-300">No applications found.</td></tr>':d&&(d.innerHTML=e.loans.map(r=>`
+                <tr class="hover:bg-slate-50 transition-colors cursor-pointer group" onclick="window.location.href='/admin/application-detail?id=${r.id}'">
+                    <td class="px-8 py-5 text-[10px] font-black text-slate-400 font-mono">#${String(r.id).substring(0,8)}</td>
+                    <td class="px-6 py-5 text-xs font-bold text-slate-600">${C(r.created_at)}</td>
+                    <td class="px-6 py-5 text-sm font-black text-slate-900">${b(r.amount)}</td>
+                    <td class="px-6 py-5">${j(r.status)}</td>
                     <td class="px-8 py-5 text-right">
                         <span class="material-symbols-outlined text-slate-300 group-hover:text-[#a04100] transition-colors">chevron_right</span>
                     </td>
                 </tr>
-            `).join("");const d=document.getElementById("detail-docs-grid");e.documents.length===0?d.innerHTML='<div class="col-span-3 text-center text-[10px] font-black text-slate-400 py-8 border-2 border-dashed border-slate-50 rounded-3xl">No documents found</div>':d.innerHTML=e.documents.map(o=>`
+            `).join(""));const c=document.getElementById("detail-docs-grid");c||console.warn("[users] #detail-docs-grid not found in DOM"),c&&e.documents.length===0?c.innerHTML='<div class="col-span-3 text-center text-[10px] font-black text-slate-400 py-8 border-2 border-dashed border-slate-50 rounded-3xl">No documents found</div>':c&&(c.innerHTML=e.documents.map(r=>`
                 <div class="flex items-center gap-4 p-4 bg-slate-50/50 rounded-2xl border border-slate-100 hover:bg-white hover:shadow-xl hover:shadow-slate-200/20 transition-all group">
                     <div class="w-12 h-12 rounded-xl bg-white border border-slate-100 flex items-center justify-center text-[#a04100] shadow-sm">
                         <span class="material-symbols-outlined">description</span>
                     </div>
                     <div class="flex-1 min-w-0">
-                        <p class="text-[10px] font-black text-slate-900 truncate" title="${o.file_name}">${o.file_name}</p>
-                        <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">${o.file_type||"DOC"}</p>
+                        <p class="text-[10px] font-black text-slate-900 truncate" title="${r.file_name}">${r.file_name}</p>
+                        <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">${r.file_type||"DOC"}</p>
                     </div>
-                    <a href="${o.file_path}" target="_blank" class="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-[#a04100] transition-all"><span class="material-symbols-outlined text-[20px]">download</span></a>
+                    <a href="${r.file_path}" target="_blank" class="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-[#a04100] transition-all"><span class="material-symbols-outlined text-[20px]">download</span></a>
                 </div>
-            `).join("");const c=document.getElementById("btn-transfer-branch");c&&(c.onclick=()=>window.openBranchModal()),window.switchView("detail")}catch(e){console.error("Detail Error:",e),alert("Could not load user details.")}finally{document.body.style.cursor="default"}};window.openBranchModal=()=>{if(!u)return;const t=u.profile;document.getElementById("modal-username").textContent=t.full_name;const e=document.getElementById("modal-branch-select");e.innerHTML='<option value="online">Online / Unassigned</option>',g.forEach(a=>{const n=document.createElement("option");n.value=a.id,n.textContent=a.name,t.branch_id===a.id&&(n.selected=!0),e.appendChild(n)}),document.getElementById("branch-modal").classList.remove("hidden")};window.confirmBranchTransfer=async()=>{const t=document.getElementById("btn-confirm-transfer"),e=document.getElementById("modal-branch-select").value,a=u.profile;try{t.disabled=!0,t.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Moving...';const n=e==="online"||!e?null:parseInt(e,10),{error:l}=await f.from("profiles").update({branch_id:n}).eq("id",a.id);if(l)throw l;await f.from("loan_applications").update({branch_id:n}).eq("user_id",a.id),alert("Success! User transferred."),document.getElementById("branch-modal").classList.add("hidden"),window.location.reload()}catch(n){alert("Transfer failed: "+n.message),t.disabled=!1,t.textContent="Confirm Transfer"}};const A=t=>{const e=document.getElementById("users-table-body");if(!e)return;const a=(p-1)*b,n=t.slice(a,a+b);if(n.length===0){e.innerHTML='<tr><td colspan="5" class="p-20 text-center text-slate-300 font-bold">No results matching your query.</td></tr>';return}e.innerHTML=n.map(s=>{const r=s.branches?.name||"Online",i=v(s.identity_number||s.id_number);return`
+            `).join(""));const x=document.getElementById("btn-transfer-branch");x&&(x.onclick=()=>window.openBranchModal()),window.switchView("detail")}catch(e){console.error("Detail Error:",e?.message||e),alert(`Could not load user details: ${e?.message||"Unknown error — check console"}`)}finally{document.body.style.cursor="default"}};window.openBranchModal=()=>{if(!m)return;const t=m.profile;document.getElementById("modal-username").textContent=t.full_name;const e=document.getElementById("modal-branch-select");e.innerHTML='<option value="online">Online / Unassigned</option>',h.forEach(a=>{const n=document.createElement("option");n.value=a.id,n.textContent=a.name,t.branch_id===a.id&&(n.selected=!0),e.appendChild(n)}),document.getElementById("branch-modal").classList.remove("hidden")};window.confirmBranchTransfer=async()=>{const t=document.getElementById("btn-confirm-transfer"),e=document.getElementById("modal-branch-select").value,a=m.profile;try{t.disabled=!0,t.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Moving...';const n=e==="online"||!e?null:parseInt(e,10),{error:l}=await v.from("profiles").update({branch_id:n}).eq("id",a.id);if(l)throw l;await v.from("loan_applications").update({branch_id:n}).eq("user_id",a.id),alert("Success! User transferred."),document.getElementById("branch-modal").classList.add("hidden"),window.location.reload()}catch(n){alert("Transfer failed: "+n.message),t.disabled=!1,t.textContent="Confirm Transfer"}};const N=t=>{const e=document.getElementById("users-table-body");if(!e)return;const a=(p-1)*g,n=t.slice(a,a+g);if(n.length===0){e.innerHTML='<tr><td colspan="5" class="p-20 text-center text-slate-300 font-bold">No results matching your query.</td></tr>';return}e.innerHTML=n.map(s=>{const i=s.branches?.name||"Online",o=w(s.identity_number||s.id_number);return`
         <tr class="hover:bg-slate-50/50 transition-colors group cursor-pointer" onclick="window.openUserDetail('${s.id}')">
             <td class="px-8 py-6">
                 <div class="flex items-center gap-4">
@@ -256,7 +256,7 @@ import{supabase as f}from"./supabaseClient-WTCtVqgB.js";/* empty css            
                     </div>
                     <div>
                         <div class="text-sm font-black text-slate-900">${s.full_name||"Unknown"}</div>
-                        <div class="text-[9px] font-black text-slate-400 uppercase tracking-widest">${S(s.role)}</div>
+                        <div class="text-[9px] font-black text-slate-400 uppercase tracking-widest">${A(s.role)}</div>
                     </div>
                 </div>
             </td>
@@ -267,15 +267,15 @@ import{supabase as f}from"./supabaseClient-WTCtVqgB.js";/* empty css            
             </td>
             <td class="px-6 py-6">
                  <span class="px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest bg-slate-100 text-slate-500">
-                    ${r}
+                    ${i}
                  </span>
             </td>
             <td class="px-6 py-6">
                 <div class="flex flex-col gap-1">
                     <div class="flex items-center gap-2">
-                        <span class="w-1.5 h-1.5 rounded-full ${i?"bg-emerald-500":"bg-red-500"}"></span>
-                        <span class="text-[10px] font-black uppercase tracking-widest ${i?"text-emerald-600":"text-red-600"}">
-                            ${i?"ID Valid":"ID Invalid"}
+                        <span class="w-1.5 h-1.5 rounded-full ${o?"bg-emerald-500":"bg-red-500"}"></span>
+                        <span class="text-[10px] font-black uppercase tracking-widest ${o?"text-emerald-600":"text-red-600"}">
+                            ${o?"ID Valid":"ID Invalid"}
                         </span>
                     </div>
                     ${s.employer_verified?'<div class="text-[10px] font-bold text-blue-600 flex items-center gap-1"><span>✓</span> Employer verified</div>':""}
@@ -288,7 +288,7 @@ import{supabase as f}from"./supabaseClient-WTCtVqgB.js";/* empty css            
                     <span class="material-symbols-outlined text-[20px]">chevron_right</span>
                 </button>
             </td>
-        </tr>`}).join("");const l=document.getElementById("visible-count");l&&(l.textContent=t.length),N(Math.ceil(t.length/b)||1)},x=(t=!0)=>{t&&(p=1);const e=(document.getElementById("user-search")?.value||"").toLowerCase(),a=document.getElementById("role-filter")?.value||y||"client",n=document.getElementById("branch-filter")?.value||"all",l=h.filter(s=>{const r=!e||(s.full_name||"").toLowerCase().includes(e)||(s.email||"").toLowerCase().includes(e)||(s.identity_number||"").includes(e)||(s.id||"").includes(e),i=U(s.role);let d=!0;a==="client"&&(d=!i),a==="staff"&&(d=i);const c=n==="all"||s.branch_id?.toString()===n||n==="online"&&!s.branch_id;return r&&d&&c});A(l)};function j(t){if(document.getElementById("invite-staff-modal"))return;const e=document.createElement("div");e.id="invite-staff-modal",e.className="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4",e.innerHTML=`
+        </tr>`}).join("");const l=document.getElementById("visible-count");l&&(l.textContent=t.length),P(Math.ceil(t.length/g)||1)},u=(t=!0)=>{t&&(p=1);const e=(document.getElementById("user-search")?.value||"").toLowerCase(),a=document.getElementById("role-filter")?.value||E||"client",n=document.getElementById("branch-filter")?.value||"all",l=k.filter(s=>{const i=!e||(s.full_name||"").toLowerCase().includes(e)||(s.email||"").toLowerCase().includes(e)||(s.identity_number||"").includes(e)||(s.id||"").includes(e),o=S(s.role);let d=!0;a==="client"&&(d=!o),a==="staff"&&(d=o);const c=n==="all"||s.branch_id?.toString()===n||n==="online"&&!s.branch_id;return i&&d&&c});N(l)};function H(t){if(document.getElementById("invite-staff-modal"))return;const e=document.createElement("div");e.id="invite-staff-modal",e.className="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4",e.innerHTML=`
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onclick="event.stopPropagation()">
         <div class="flex items-center justify-between mb-6">
           <div>
@@ -345,10 +345,10 @@ import{supabase as f}from"./supabaseClient-WTCtVqgB.js";/* empty css            
               style="background:var(--color-primary)">Send Invite</button>
           </div>
         </form>
-      </div>`,document.body.appendChild(e),e.addEventListener("click",()=>e.classList.add("hidden")),document.getElementById("invite-form").addEventListener("submit",async a=>{a.preventDefault();const n=document.getElementById("invite-submit-btn"),l=document.getElementById("invite-error"),s=document.getElementById("invite-success");l.classList.add("hidden"),s.classList.add("hidden"),n.textContent="Inviting…",n.disabled=!0;try{const r=new FormData(a.target),i=Object.fromEntries(r),{data:{session:d}}=await f.auth.getSession(),c=await fetch("/api/admin/invite-staff",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${d.access_token}`},body:JSON.stringify(i)}),o=await c.json();if(!c.ok)throw new Error(o.error||"Failed");s.textContent=`✓ ${i.full_name} has been invited and can now log in.`,s.classList.remove("hidden"),a.target.reset(),setTimeout(()=>{e.classList.add("hidden"),window.location.reload()},2e3)}catch(r){l.textContent=r.message,l.classList.remove("hidden")}finally{n.textContent="Send Invite",n.disabled=!1}})}document.addEventListener("DOMContentLoaded",async()=>{await k();const t=document.getElementById("main-content");t.innerHTML=T+D,t.className="flex-1 p-4 sm:p-6 lg:p-8 h-screen overflow-hidden flex flex-col";try{const[e,a,n]=await Promise.all([I(),L(),_()]);C=e,h=a,g=n.data||[];const l=document.getElementById("branch-filter");l.innerHTML='<option value="all">All Branches</option><option value="online">Online / Unassigned</option>',g.forEach(s=>l.innerHTML+=`<option value="${s.id}">${s.name}</option>`),x(!0),document.getElementById("user-search").addEventListener("input",()=>x(!0)),document.getElementById("branch-filter").addEventListener("change",()=>x(!0)),window.switchUserTab=s=>{y=s==="staff"?"staff":"client",document.querySelectorAll(".user-tab-btn").forEach(r=>{const i=r.id===`tab-${s}`;r.classList.toggle("bg-white",i),r.classList.toggle("shadow-sm",i),r.classList.toggle("text-on-surface",i),r.classList.toggle("text-outline",!i)}),x(!0)},window.switchUserTab("clients"),j(n.data||[]),document.getElementById("btn-invite-staff")?.addEventListener("click",()=>{document.getElementById("invite-staff-modal")?.classList.remove("hidden")})}catch(e){console.error(e),t.innerHTML=`<div class="p-8 text-center text-red-500">Failed to load directory: ${e.message}</div>`}});function N(t){let e=document.getElementById("user-pagination-container");if(e||(e=document.createElement("div"),e.id="user-pagination-container",e.className="flex justify-between items-center p-4 border-t border-gray-100 bg-gray-50/50",document.getElementById("view-list").appendChild(e)),t<=1){e.innerHTML='<span class="text-xs text-gray-400">Showing all users</span>';return}e.innerHTML=`
+      </div>`,document.body.appendChild(e),e.addEventListener("click",()=>e.classList.add("hidden")),document.getElementById("invite-form").addEventListener("submit",async a=>{a.preventDefault();const n=document.getElementById("invite-submit-btn"),l=document.getElementById("invite-error"),s=document.getElementById("invite-success");l.classList.add("hidden"),s.classList.add("hidden"),n.textContent="Inviting…",n.disabled=!0;try{const i=new FormData(a.target),o=Object.fromEntries(i),{data:{session:d}}=await v.auth.getSession(),c=await fetch("/api/admin/invite-staff",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${d.access_token}`},body:JSON.stringify(o)}),x=await c.json();if(!c.ok)throw new Error(x.error||"Failed");s.textContent=`✓ ${o.full_name} has been invited and can now log in.`,s.classList.remove("hidden"),a.target.reset(),setTimeout(()=>{e.classList.add("hidden"),window.location.reload()},2e3)}catch(i){l.textContent=i.message,l.classList.remove("hidden")}finally{n.textContent="Send Invite",n.disabled=!1}})}document.addEventListener("DOMContentLoaded",async()=>{await I();const t=document.getElementById("main-content");t.innerHTML=U+M,t.className="flex-1 p-4 sm:p-6 lg:p-8 h-screen overflow-hidden flex flex-col";try{const[e,a,n]=await Promise.all([_(),B(),$()]);D=e,k=a,h=n.data||[];const l=document.getElementById("branch-filter");l.innerHTML='<option value="all">All Branches</option><option value="online">Online / Unassigned</option>',h.forEach(s=>l.innerHTML+=`<option value="${s.id}">${s.name}</option>`),u(!0),document.getElementById("user-search").addEventListener("input",()=>u(!0)),document.getElementById("branch-filter").addEventListener("change",()=>u(!0)),window.switchUserTab=s=>{E=s==="staff"?"staff":"client",document.querySelectorAll(".user-tab-btn").forEach(i=>{const o=i.id===`tab-${s}`;i.classList.toggle("bg-white",o),i.classList.toggle("shadow-sm",o),i.classList.toggle("text-on-surface",o),i.classList.toggle("text-outline",!o)}),u(!0)},window.switchUserTab("clients"),H(n.data||[]),document.getElementById("btn-invite-staff")?.addEventListener("click",()=>{document.getElementById("invite-staff-modal")?.classList.remove("hidden")})}catch(e){console.error(e),t.innerHTML=`<div class="p-8 text-center text-red-500">Failed to load directory: ${e.message}</div>`}});function P(t){let e=document.getElementById("user-pagination-container");if(e||(e=document.createElement("div"),e.id="user-pagination-container",e.className="flex justify-between items-center p-4 border-t border-gray-100 bg-gray-50/50",document.getElementById("view-list").appendChild(e)),t<=1){e.innerHTML='<span class="text-xs text-gray-400">Showing all users</span>';return}e.innerHTML=`
         <span class="text-xs font-bold text-gray-500 uppercase tracking-tight">Page ${p} of ${t}</span>
         <div class="flex gap-2">
             <button onclick="window.changePageUsers(${p-1})" ${p===1?"disabled":""} class="px-4 py-2 text-xs font-bold border rounded-lg bg-white hover:bg-gray-50 disabled:opacity-30 transition-all shadow-sm">Prev</button>
             <button onclick="window.changePageUsers(${p+1})" ${p===t?"disabled":""} class="px-4 py-2 text-xs font-bold border rounded-lg bg-white hover:bg-gray-50 disabled:opacity-30 transition-all shadow-sm">Next</button>
         </div>
-    `}window.changePageUsers=t=>{p=t,x(!1)};
+    `}window.changePageUsers=t=>{p=t,u(!1)};
