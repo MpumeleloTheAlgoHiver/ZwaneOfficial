@@ -950,28 +950,80 @@ window.setPrimaryAccount = async function(accountId) {
   }
 };
 
-// Add bank account
+// Add bank account — navigate to profile banking tab
 function addBankAccount() {
-  alert('Add bank account feature - redirect to banking form or show modal');
-  // TODO: Implement add bank account modal or redirect
+  if (typeof window.navigate === 'function') {
+    window.navigate('profile');
+  } else {
+    window.lumaNavigate?.('profile');
+  }
 }
 
-// View loan details
+// View loan details — navigate to apply page which shows active loan detail
 window.viewLoanDetails = function(loanId) {
-  alert(`View details for loan ${loanId}`);
-  // TODO: Implement loan details modal or redirect
+  if (typeof window.navigate === 'function') {
+    window.navigate('dashboard');
+  } else {
+    window.lumaNavigate?.('dashboard');
+  }
 };
 
-// View payment receipt
-window.viewPaymentReceipt = function(paymentId) {
-  alert(`View receipt for payment ${paymentId}`);
-  // TODO: Implement receipt modal or download
+// View payment receipt — show a simple receipt card in a modal
+window.viewPaymentReceipt = async function(paymentId) {
+  const payment = paymentHistory.find(p => p.id === paymentId);
+  if (!payment) { alert('Receipt not found.'); return; }
+
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:20px;width:100%;max-width:360px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.2)">
+      <div style="background:var(--color-primary,#E7762E);padding:20px 24px">
+        <p style="color:rgba(255,255,255,.8);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin:0">Payment Receipt</p>
+        <h3 style="color:#fff;font-size:22px;font-weight:800;margin:4px 0 0">✓ Confirmed</h3>
+      </div>
+      <div style="padding:24px">
+        ${[
+          ['Amount', `R ${Number(payment.amount).toFixed(2)}`],
+          ['Date', payment.date || '—'],
+          ['Reference', payment.id?.slice(0,8)?.toUpperCase() || '—'],
+          ['Status', payment.status || 'Completed'],
+          ['Method', payment.source === 'suresystems' ? 'Debit Order' : 'Payment']
+        ].map(([k,v]) => `
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f3f4f6">
+            <span style="font-size:13px;color:#6b7280">${k}</span>
+            <span style="font-size:13px;font-weight:700">${v}</span>
+          </div>`).join('')}
+        <button onclick="this.closest('[style*=fixed]').remove()"
+          style="width:100%;margin-top:20px;padding:12px;background:var(--color-primary,#E7762E);color:#fff;border:none;border-radius:12px;font-weight:700;cursor:pointer">
+          Close
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
 };
 
-// Download statement
-function downloadStatement() {
-  alert('Download statement feature coming soon');
-  // TODO: Implement statement generation and download
+// Download statement — fetch from server and open in new tab
+async function downloadStatement(applicationId) {
+  try {
+    const { supabase } = await import('/Services/supabaseClient.js');
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { alert('Please log in again.'); return; }
+
+    // Use first active loan if no specific ID
+    const appId = applicationId || activeLoans[0]?.applicationId;
+    if (!appId) { alert('No active loans found.'); return; }
+
+    // Open in new tab — browser will show/download the HTML statement
+    const url = `/api/statement/${appId}`;
+    const win = window.open('', '_blank');
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${session.access_token}` } });
+    const html = await res.text();
+    win.document.write(html);
+    win.document.close();
+  } catch (e) {
+    alert('Could not generate statement: ' + e.message);
+  }
 }
 
 // Utility functions

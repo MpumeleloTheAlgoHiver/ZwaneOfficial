@@ -85,8 +85,101 @@ window.openBranchesModal = function() {
     openUniversalModal('Our Branch Locations', html, false);
 };
 
+// ── Support Ticket Submission ──────────────────────────────────
+window.openSupportTicketModal = function() {
+  let modal = document.getElementById('support-ticket-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'support-ticket-modal';
+    modal.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;padding:16px';
+    modal.innerHTML = `
+      <div style="background:#fff;border-radius:24px;width:100%;max-width:440px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.2)">
+        <div style="background:var(--color-primary,#E7762E);padding:20px 24px;display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <p style="color:rgba(255,255,255,.8);font-size:11px;font-weight:700;text-transform:uppercase;margin:0">Support</p>
+            <h3 style="color:#fff;font-size:18px;font-weight:800;margin:4px 0 0">Send a Message</h3>
+          </div>
+          <button onclick="document.getElementById('support-ticket-modal').style.display='none'"
+            style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:16px">✕</button>
+        </div>
+        <div style="padding:24px">
+          <div style="margin-bottom:14px">
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:6px">Category</label>
+            <select id="ticket-category" style="width:100%;border:2px solid #e5e7eb;border-radius:12px;padding:10px 14px;font-size:14px;background:#fff;outline:none">
+              <option value="general">General Enquiry</option>
+              <option value="payment">Payment Issue</option>
+              <option value="loan">Loan Query</option>
+              <option value="account">Account Problem</option>
+              <option value="complaint">Complaint</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div style="margin-bottom:14px">
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:6px">Subject</label>
+            <input id="ticket-subject" type="text" placeholder="Brief description of your issue"
+              style="width:100%;border:2px solid #e5e7eb;border-radius:12px;padding:10px 14px;font-size:14px;outline:none;box-sizing:border-box">
+          </div>
+          <div style="margin-bottom:20px">
+            <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:6px">Message *</label>
+            <textarea id="ticket-message" rows="4" placeholder="Describe your issue in detail..."
+              style="width:100%;border:2px solid #e5e7eb;border-radius:12px;padding:10px 14px;font-size:14px;outline:none;resize:none;box-sizing:border-box"></textarea>
+          </div>
+          <button id="ticket-submit-btn" onclick="window.submitSupportTicket()"
+            style="width:100%;padding:14px;background:var(--color-primary,#E7762E);color:#fff;border:none;border-radius:14px;font-size:15px;font-weight:800;cursor:pointer">
+            Send Message
+          </button>
+          <div id="ticket-result" style="display:none;margin-top:12px;text-align:center"></div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+  }
+  modal.style.display = 'flex';
+};
+
+window.submitSupportTicket = async function() {
+  const btn     = document.getElementById('ticket-submit-btn');
+  const result  = document.getElementById('ticket-result');
+  const message = document.getElementById('ticket-message')?.value?.trim();
+  const subject = document.getElementById('ticket-subject')?.value?.trim();
+  const category= document.getElementById('ticket-category')?.value;
+
+  if (!message) { alert('Please enter a message.'); return; }
+
+  btn.textContent = 'Sending…'; btn.disabled = true;
+  result.style.display = 'none';
+
+  try {
+    const { supabase } = await import('/Services/supabaseClient.js');
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Please log in again.');
+
+    const res  = await fetch('/api/support/ticket', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+      body:    JSON.stringify({ subject, category, message })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Submission failed');
+
+    result.style.display = 'block';
+    result.innerHTML = `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:14px">
+      <p style="color:#15803d;font-weight:700;margin:0 0 4px">✅ Message sent!</p>
+      <p style="color:#166534;font-size:13px;margin:0">Reference: <strong>${data.ticketRef}</strong><br>We'll respond within 1 business day.</p>
+    </div>`;
+    document.getElementById('ticket-message').value = '';
+    document.getElementById('ticket-subject').value = '';
+    setTimeout(() => { document.getElementById('support-ticket-modal').style.display = 'none'; result.style.display = 'none'; }, 4000);
+  } catch(e) {
+    result.style.display = 'block';
+    result.innerHTML = `<p style="color:#ef4444;font-size:13px">Error: ${e.message}</p>`;
+  } finally {
+    btn.textContent = 'Send Message'; btn.disabled = false;
+  }
+};
+
 // Make functions globally accessible
-window.toggleFAQ = toggleFAQ;
+window.toggleFAQ    = toggleFAQ;
 window.openResource = openResource;
 
 console.log('✅ Support page functions loaded');

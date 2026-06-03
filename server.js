@@ -631,6 +631,32 @@ app.post('/api/kyc/webhook', async (req, res) => {
         }
 
         kyc.updateSessionFromWebhook(payload);
+
+        // ── Persist KYC result to profiles table ─────────────────────
+        const sessionId = payload?.session_id || payload?.id;
+        const status    = payload?.status || payload?.verification_status;
+        const userId    = payload?.metadata?.userId || payload?.user_id;
+
+        if (userId && status) {
+            const kycPassed = ['approved','verified','completed','success'].includes(String(status).toLowerCase());
+            await supabaseService.from('profiles').update({
+                kyc_status:       status,
+                kyc_verified:     kycPassed,
+                kyc_verified_at:  kycPassed ? new Date().toISOString() : null,
+                kyc_session_id:   sessionId || null,
+                updated_at:       new Date().toISOString()
+            }).eq('id', userId);
+
+            // If KYC approved → update any pending application to next stage
+            if (kycPassed) {
+                await supabaseService.from('loan_applications')
+                    .update({ kyc_status: 'verified', updated_at: new Date().toISOString() })
+                    .eq('user_id', userId)
+                    .in('status', ['STARTED', 'BUREAU_CHECKING', 'BUREAU_OK']);
+            }
+            console.log(`[KYC webhook] userId=${userId} status=${status} passed=${kycPassed}`);
+        }
+
         return res.status(200).json({ received: true });
     } catch (error) {
         console.error('KYC webhook error:', error);
@@ -3864,6 +3890,183 @@ app.post('/api/messaging/verify-otp', (req, res) => {
     if (!phone || !otp) return res.status(400).json({ error: 'phone and otp required' });
     const result = messaging.verifyOTP(phone, otp);
     res.json(result);
+});
+
+// GET /api/statement/:applicationId — generate loan statement for client download
+app.get('/api/statement/:applicationId', async (req, res) => {
+    try {
+        const { applicationId } = req.params;
+        const authHeader = req.headers.authorization || '';
+        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        if (!token) return res.status(401).json({ error: 'Authentication required' });
+
+        const { data: { user }, error: authErr } = await supabaseService.auth.getUser(token);
+        if (authErr || !user) return res.status(401).json({ error: 'Invalid session' });
+
+        const { data: app, error: appErr } = await supabaseService
+            .from('loan_applications')
+            .select('*, profiles:user_id(full_name, identity_number, phone, email)')
+            .eq('id', applicationId)
+            .eq('user_id', user.id) // ensure client can only get their own
+            .single();
+
+        if (appErr || !app) return res.status(404).json({ error: 'Loan not found' });
+
+        const { data: payments } = await supabaseService
+            .from('payments')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('payment_date', { ascending: true });
+
+        const { data: manualPayments } = await supabaseService
+            .from('manual_payments')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('status', 'confirmed')
+            .order('created_at', { ascending: true });
+
+        const settings = await getSystemTheme();
+        const company  = settings?.company_name || process.env.COMPANY_NAME || 'Zwane Financial Services';
+        const profile  = app.profiles || {};
+        const loanRef  = app.loan_number || String(applicationId).slice(0,8).toUpperCase();
+        const allPayments = [
+            ...(payments || []).map(p => ({ date: p.payment_date, amount: p.amount, type: 'Debit Order', ref: p.id?.slice(0,8) })),
+            ...(manualPayments || []).map(p => ({ date: p.created_at?.slice(0,10), amount: p.amount, type: 'Manual EFT', ref: p.reference || p.id?.slice(0,8) }))
+        ].sort((a,b) => new Date(a.date) - new Date(b.date));
+
+        const totalPaid = allPayments.reduce((s,p) => s + Number(p.amount), 0);
+        const outstanding = Math.max(0, Number(app.offer_total_repayment || app.amount || 0) - totalPaid);
+        const fmtR = v => `R ${Number(v).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
+        const today = new Date().toLocaleDateString('en-ZA');
+
+        const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+        <title>Loan Statement — ${loanRef}</title>
+        <style>
+          body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:32px;color:#111}
+          h1{color:#E7762E;font-size:22px;margin:0} .sub{color:#6b7280;font-size:12px}
+          table{width:100%;border-collapse:collapse;margin:16px 0}
+          th{background:#E7762E;color:#fff;padding:8px 12px;text-align:left;font-size:12px}
+          td{padding:8px 12px;border-bottom:1px solid #f3f4f6;font-size:13px}
+          tr:nth-child(even) td{background:#fafafa}
+          .summary{background:#fff8f3;border:1px solid #fed7aa;border-radius:8px;padding:16px;margin:16px 0}
+          .kv{display:flex;justify-content:space-between;margin:4px 0;font-size:13px}
+          .kv span:last-child{font-weight:700} .footer{color:#9ca3af;font-size:11px;margin-top:24px}
+        </style></head><body>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px">
+          <div><h1>${company}</h1><p class="sub">Loan Statement — ${today}</p></div>
+          <div style="text-align:right;font-size:12px;color:#6b7280">
+            <div>Ref: <strong>${loanRef}</strong></div>
+            <div>${profile.full_name || ''}</div>
+            <div>ID: ${profile.identity_number || ''}</div>
+          </div>
+        </div>
+        <div class="summary">
+          <div class="kv"><span>Loan Amount</span><span>${fmtR(app.amount || app.offer_principal)}</span></div>
+          <div class="kv"><span>Total Repayable</span><span>${fmtR(app.offer_total_repayment || app.amount)}</span></div>
+          <div class="kv"><span>Monthly Instalment</span><span>${fmtR(app.offer_monthly_repayment)}</span></div>
+          <div class="kv"><span>Total Paid</span><span style="color:#10b981">${fmtR(totalPaid)}</span></div>
+          <div class="kv" style="border-top:2px solid #fed7aa;padding-top:8px;margin-top:8px">
+            <span><strong>Outstanding Balance</strong></span>
+            <span style="color:${outstanding>0?'#E7762E':'#10b981'};font-size:16px"><strong>${fmtR(outstanding)}</strong></span>
+          </div>
+        </div>
+        <h3 style="font-size:14px;color:#374151;margin-bottom:8px">Payment History</h3>
+        ${allPayments.length ? `
+        <table><thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Amount</th></tr></thead>
+        <tbody>${allPayments.map(p => `<tr><td>${p.date||'—'}</td><td>${p.type}</td><td>${p.ref||'—'}</td><td>${fmtR(p.amount)}</td></tr>`).join('')}
+        </tbody></table>` : '<p style="color:#9ca3af;font-size:13px">No payments recorded yet.</p>'}
+        <p class="footer">${company} · NCR Registered Credit Provider · Statement generated ${today} · This is an official statement.</p>
+        </body></html>`;
+
+        res.setHeader('Content-Type', 'text/html');
+        res.setHeader('Content-Disposition', `inline; filename="statement_${loanRef}_${today.replace(/\//g,'-')}.html"`);
+        res.send(html);
+    } catch (err) {
+        console.error('[statement]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/support/ticket — client submits a support request
+app.post('/api/support/ticket', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization || '';
+        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        if (!token) return res.status(401).json({ error: 'Authentication required' });
+
+        const { data: { user }, error: authErr } = await supabaseService.auth.getUser(token);
+        if (authErr || !user) return res.status(401).json({ error: 'Invalid session' });
+
+        const { subject, category, message, priority = 'normal' } = req.body;
+        if (!message?.trim()) return res.status(400).json({ error: 'Message is required' });
+
+        const { data: profile } = await supabaseService
+            .from('profiles')
+            .select('full_name, phone, email')
+            .eq('id', user.id)
+            .maybeSingle();
+
+        // Save to support_tickets table
+        const { data: ticket, error: ticketErr } = await supabaseService
+            .from('support_tickets')
+            .insert([{
+                user_id:    user.id,
+                subject:    subject || 'Support Request',
+                category:   category || 'general',
+                message,
+                priority,
+                status:     'open',
+                created_at: new Date().toISOString()
+            }])
+            .select()
+            .single();
+
+        if (ticketErr) {
+            // If table doesn't exist yet, still send email and succeed
+            console.warn('[support] support_tickets insert failed:', ticketErr.message);
+        }
+
+        // Email to credit provider / support team
+        const company = process.env.COMPANY_NAME || 'Zwane Financial Services';
+        const supportEmail = process.env.CREDIT_PROVIDER_EMAIL || process.env.RESEND_FROM_EMAIL;
+        const clientName = profile?.full_name || user.email;
+        const ticketRef  = ticket?.id?.slice(0,8)?.toUpperCase() || Date.now().toString(36).toUpperCase();
+
+        if (supportEmail && process.env.RESEND_API_KEY) {
+            const { Resend } = require('resend');
+            const resend = new Resend(process.env.RESEND_API_KEY);
+            resend.emails.send({
+                from:    process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+                to:      supportEmail,
+                subject: `[Support #${ticketRef}] ${subject || 'New support request'} — ${company}`,
+                html: `<div style="font-family:Arial,sans-serif;max-width:600px">
+                    <h2 style="color:#E7762E">New Support Ticket #${ticketRef}</h2>
+                    <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+                        <tr><td style="padding:6px;color:#666;width:120px">Client</td><td style="padding:6px;font-weight:600">${clientName}</td></tr>
+                        <tr><td style="padding:6px;color:#666">Phone</td><td style="padding:6px">${profile?.phone || '—'}</td></tr>
+                        <tr><td style="padding:6px;color:#666">Category</td><td style="padding:6px">${category || 'General'}</td></tr>
+                        <tr><td style="padding:6px;color:#666">Priority</td><td style="padding:6px">${priority}</td></tr>
+                    </table>
+                    <div style="background:#f9fafb;padding:16px;border-radius:8px;border-left:4px solid #E7762E">
+                        <p style="margin:0;white-space:pre-wrap">${message}</p>
+                    </div>
+                    <p style="color:#9ca3af;font-size:12px;margin-top:16px">Ref: ${ticketRef} — ${company}</p>
+                </div>`
+            }).catch(e => console.warn('[support email]', e.message));
+        }
+
+        // Confirm to client via SMS
+        if (profile?.phone) {
+            messaging.sendSMS(profile.phone,
+                `Hi ${clientName?.split(' ')[0] || 'Client'}, your support request (Ref: ${ticketRef}) has been received. We'll respond within 1 business day. – ${company}`
+            ).catch(() => {});
+        }
+
+        res.json({ success: true, ticketRef, message: `Support request submitted. Reference: ${ticketRef}` });
+    } catch (err) {
+        console.error('[support/ticket]', err.message);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // POST /api/messaging/send — manual send (admin tool)
