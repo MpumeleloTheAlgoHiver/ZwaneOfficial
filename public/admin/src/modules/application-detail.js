@@ -122,13 +122,20 @@ const pageTemplate = `
                          <div id="detail-identity-number" class="w-full p-3 bg-surface-container border border-outline-variant/20 rounded-xl text-on-surface text-sm font-mono"></div>
                       </div>
                    </div>
-                   <div class="grid grid-cols-1 sm:grid-cols-3 items-center gap-2">
-                      <span class="text-sm font-medium text-outline flex items-center gap-1">
-                        <span class="material-symbols-outlined text-[14px] text-orange-500">people</span>
-                        Next of Kin
-                      </span>
-                      <div class="sm:col-span-2">
-                         <div id="detail-nok" class="w-full p-3 bg-orange-50 border border-orange-100 rounded-xl text-on-surface text-sm font-medium"></div>
+                   <div class="sm:col-span-3">
+                      <div class="mt-2 p-5 bg-orange-50 border border-orange-100 rounded-2xl">
+                        <div class="flex items-center justify-between mb-3">
+                          <span class="text-sm font-bold text-orange-800 flex items-center gap-1.5">
+                            <span class="material-symbols-outlined text-[16px]">people</span>Next of Kin
+                          </span>
+                          <span id="nok-saved-badge" class="hidden text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Saved</span>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
+                          <input id="nok-name-input" type="text" placeholder="Full name" class="border border-orange-200 rounded-xl px-3 py-2 text-sm bg-white focus:ring-2 outline-none" style="--tw-ring-color:var(--color-primary)">
+                          <input id="nok-relationship-input" type="text" placeholder="Relationship (e.g. Spouse)" class="border border-orange-200 rounded-xl px-3 py-2 text-sm bg-white focus:ring-2 outline-none" style="--tw-ring-color:var(--color-primary)">
+                          <input id="nok-phone-input" type="tel" placeholder="Phone number" class="border border-orange-200 rounded-xl px-3 py-2 text-sm bg-white focus:ring-2 outline-none" style="--tw-ring-color:var(--color-primary)">
+                        </div>
+                        <button onclick="window.saveNOK()" class="text-xs font-bold text-white px-4 py-2 rounded-xl transition-colors" style="background:var(--color-primary)">Save Next of Kin</button>
                       </div>
                    </div>
                 </div>
@@ -1369,13 +1376,13 @@ const renderPersonalDetails = (profile, bankAccounts) => {
   populateEmployerFields(profile);
   populateClientCap(profile);
 
-  // Next of Kin
-  const nokEl = document.getElementById('detail-nok');
-  if (nokEl) {
-    const nok = [profile?.nok_name, profile?.nok_relationship, profile?.nok_phone].filter(Boolean).join(' · ');
-    nokEl.textContent = nok || '— Not provided —';
-    nokEl.style.color = nok ? '' : '#ef4444';
-  }
+  // Next of Kin — populate edit inputs
+  const nokName = document.getElementById('nok-name-input');
+  const nokRel  = document.getElementById('nok-relationship-input');
+  const nokPhone = document.getElementById('nok-phone-input');
+  if (nokName) nokName.value = profile?.nok_name || '';
+  if (nokRel)  nokRel.value  = profile?.nok_relationship || '';
+  if (nokPhone) nokPhone.value = profile?.nok_phone || '';
 
   // Identity number
   const idEl = document.getElementById('detail-identity-number');
@@ -1483,37 +1490,67 @@ const renderFinancials = (financials, creditChecks) => {
       breakdownContainer = div;
   }
 
+  const salary = Number(parsed.income.salary || 0);
+  const otherIncome = Number(parsed.income.other_monthly_earnings || 0);
+  const totalIncome = salary + otherIncome;
+  const totalExpenses = Object.values(parsed.expenses || {}).reduce((s, v) => s + Number(v || 0), 0);
+  const disposable = Number(profile.affordability_ratio || (totalIncome - totalExpenses));
+
   breakdownContainer.innerHTML = `
     <h4 class="text-[10px] font-semibold text-outline uppercase tracking-widest mb-4 flex items-center gap-2">
         <span class="material-symbols-outlined text-[16px]">checklist</span> Monthly Budget Breakdown
     </h4>
+
+    <div class="mb-4 p-4 bg-blue-50 border border-blue-100 rounded-xl">
+      <p class="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-2">Income Sources — tick to include in affordability</p>
+      <div class="space-y-2">
+        <label class="flex items-center justify-between gap-3 cursor-pointer">
+          <span class="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" id="inc-salary-toggle" class="w-4 h-4 rounded accent-orange-500" ${salary > 0 ? 'checked' : ''} onchange="window.recalcAffordability()">
+            Basic Salary (Net)
+          </span>
+          <span class="text-sm font-bold text-slate-900">${formatCurrency(salary)}</span>
+        </label>
+        <label class="flex items-center justify-between gap-3 cursor-pointer">
+          <span class="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" id="inc-other-toggle" class="w-4 h-4 rounded accent-orange-500" ${otherIncome > 0 ? 'checked' : ''} onchange="window.recalcAffordability()">
+            Other Earnings
+          </span>
+          <span class="text-sm font-bold text-slate-900">${formatCurrency(otherIncome)}</span>
+        </label>
+      </div>
+    </div>
+
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
-        <div class="flex justify-between border-b border-outline-variant/10 pb-1">
-            <span class="text-sm text-outline">Basic Salary (Net)</span>
-            <span class="text-sm font-bold text-on-surface">${formatCurrency(parsed.income.salary || 0)}</span>
-        </div>
         <div class="flex justify-between border-b border-outline-variant/10 pb-1">
             <span class="text-sm text-outline">Housing / Rent</span>
             <span class="text-sm font-bold text-on-surface">${formatCurrency(parsed.expenses.housing_rent || 0)}</span>
-        </div>
-        <div class="flex justify-between border-b border-outline-variant/10 pb-1">
-            <span class="text-sm text-outline">Other Earnings</span>
-            <span class="text-sm font-bold text-on-surface">${formatCurrency(parsed.income.other_monthly_earnings || 0)}</span>
         </div>
         <div class="flex justify-between border-b border-outline-variant/10 pb-1">
             <span class="text-sm text-outline">School Fees</span>
             <span class="text-sm font-bold text-on-surface">${formatCurrency(parsed.expenses.school || 0)}</span>
         </div>
         <div class="flex justify-between border-b border-outline-variant/10 pb-1">
-            <span class="text-sm text-outline">Disposable Surplus</span>
-            <span class="text-sm font-bold" style="color:var(--color-primary)">${formatCurrency(profile.affordability_ratio || 0)}</span>
-        </div>
-        <div class="flex justify-between border-b border-outline-variant/10 pb-1">
             <span class="text-sm text-outline">Transport / Fuel</span>
             <span class="text-sm font-bold text-on-surface">${formatCurrency(parsed.expenses.petrol || 0)}</span>
         </div>
+        <div class="flex justify-between border-b border-outline-variant/10 pb-1">
+            <span class="text-sm text-outline">Total Expenses</span>
+            <span class="text-sm font-bold text-red-600">${formatCurrency(totalExpenses)}</span>
+        </div>
+    </div>
+
+    <div class="mt-4 p-4 rounded-xl border-2 border-dashed" style="border-color:var(--color-primary);background:color-mix(in srgb, var(--color-primary) 5%, white)">
+      <div class="flex justify-between items-center">
+        <span class="text-sm font-bold text-on-surface">Disposable Surplus</span>
+        <span id="calc-disposable" class="text-lg font-black" style="color:var(--color-primary)">${formatCurrency(disposable)}</span>
+      </div>
+      <p class="text-[10px] text-outline mt-1">Included income minus total expenses</p>
     </div>
   `;
+
+  // Store income data on window for the toggle recalc
+  window._incomeData = { salary, otherIncome, totalExpenses };
   
   const latest = (creditChecks && creditChecks.length > 0) ? creditChecks[0] : null;
 
@@ -1598,6 +1635,35 @@ const renderFinancials = (financials, creditChecks) => {
       if(creditDate) creditDate.textContent = '';
       if(reportBtn) reportBtn.classList.add('hidden');
       creditContainer.innerHTML = `<div class="py-12 text-center text-gray-400"><p>No bureau data available.</p></div>`;
+  }
+
+  // ── Decline reasons ───────────────────────────────────────────
+  const declineReasons = currentApplication?.credit_decline_reasons;
+  if (Array.isArray(declineReasons) && declineReasons.length > 0) {
+      let existing = document.getElementById('decline-reasons-panel');
+      if (!existing) {
+          existing = document.createElement('div');
+          existing.id = 'decline-reasons-panel';
+          existing.className = 'mt-6 p-5 rounded-2xl border border-red-200 bg-red-50';
+          const creditSection = document.querySelector('#financial-tab .pt-8');
+          if (creditSection) creditSection.after(existing);
+          else document.getElementById('financial-tab')?.appendChild(existing);
+      }
+      existing.innerHTML = `
+        <h4 class="text-sm font-bold text-red-800 mb-3 flex items-center gap-2">
+          <span class="material-symbols-outlined text-[18px]">cancel</span>
+          Decline Reasons (${declineReasons.length})
+        </h4>
+        <div class="space-y-2">
+          ${declineReasons.map(r => `
+            <div class="flex items-start gap-3 p-3 bg-white rounded-xl border border-red-100">
+              <span class="material-symbols-outlined text-[16px] text-red-500 mt-0.5">block</span>
+              <div>
+                <p class="text-sm font-semibold text-red-900">${r.label || r.rule_key || 'Rule Failed'}</p>
+                ${r.reason ? `<p class="text-xs text-red-600 mt-0.5">${r.reason}</p>` : ''}
+              </div>
+            </div>`).join('')}
+        </div>`;
   }
 };
 /**
@@ -2329,7 +2395,16 @@ const renderSidePanel = (app) => {
           renderDisbursementSection(currentApplication);
       }
       else if (status === 'DISBURSED') {
-          actionsContainer.innerHTML = `<div class="p-4 bg-gray-50 border border-gray-100 rounded-xl text-center"><p class="text-sm font-bold text-gray-600">Loan Active / Completed</p></div>`;
+          actionsContainer.innerHTML = `
+            <div class="p-4 bg-gray-50 border border-gray-100 rounded-xl text-center mb-2"><p class="text-sm font-bold text-gray-600">Loan Active</p></div>
+            <button onclick="window.open('/api/letters-of-demand/${app.id}', '_blank')"
+              class="w-full py-2.5 bg-white border border-orange-200 text-orange-700 text-sm font-bold rounded-xl hover:bg-orange-50 transition-colors flex items-center justify-center gap-2">
+              <span class="material-symbols-outlined text-[16px]">description</span> Letter of Demand
+            </button>
+            ${!app.routed_to_head_office ? `<button onclick="window.routeToHeadOffice('${app.id}')"
+              class="w-full py-2.5 bg-white border border-gray-200 text-gray-600 text-sm font-bold rounded-xl hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 mt-2">
+              <span class="material-symbols-outlined text-[16px]">corporate_fare</span> Route to Head Office
+            </button>` : `<div class="mt-2 text-xs text-center text-green-700 font-semibold bg-green-50 rounded-xl py-2 border border-green-100">✓ Routed to Head Office</div>`}`;
       }
       else if (status === 'IN_ARREARS') {
           actionsContainer.innerHTML = `
@@ -2386,6 +2461,57 @@ const renderHeader = (app) => {
       badge.textContent = app.status;
       badge.className = `px-4 py-1.5 text-sm font-bold rounded-full shadow-sm ${getBadgeColor(app.status)}`;
   }
+};
+
+// ── Next of Kin ───────────────────────────────────────────────────
+// ── Income toggle recalc ──────────────────────────────────────────
+window.recalcAffordability = function() {
+    if (!window._incomeData) return;
+    const { salary, otherIncome, totalExpenses } = window._incomeData;
+    const inclSalary = document.getElementById('inc-salary-toggle')?.checked ? salary : 0;
+    const inclOther  = document.getElementById('inc-other-toggle')?.checked ? otherIncome : 0;
+    const disposable = (inclSalary + inclOther) - totalExpenses;
+    const el = document.getElementById('calc-disposable');
+    if (el) {
+        el.textContent = `R ${Math.max(0, disposable).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
+        el.style.color = disposable < 0 ? '#ef4444' : 'var(--color-primary)';
+    }
+};
+
+// ── Route to Head Office ──────────────────────────────────────────
+window.routeToHeadOffice = async function(appId) {
+    if (!confirm('Route this application to Head Office?')) return;
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(`/api/applications/${appId}/route-to-head-office`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${session?.access_token}`, 'Content-Type': 'application/json' }
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Failed');
+        showFeedback('Routed to Head Office.', 'success');
+        await loadApplicationData();
+    } catch (err) { showFeedback('Error: ' + err.message, 'error'); }
+};
+
+// ── Next of Kin ───────────────────────────────────────────────────
+window.saveNOK = async function() {
+    if (!currentApplication?.user_id) return;
+    const name         = document.getElementById('nok-name-input')?.value.trim();
+    const relationship = document.getElementById('nok-relationship-input')?.value.trim();
+    const phone        = document.getElementById('nok-phone-input')?.value.trim();
+    try {
+        const { error } = await supabase.from('profiles').update({
+            nok_name: name || null,
+            nok_relationship: relationship || null,
+            nok_phone: phone || null,
+            updated_at: new Date().toISOString()
+        }).eq('id', currentApplication.user_id);
+        if (error) throw error;
+        const badge = document.getElementById('nok-saved-badge');
+        if (badge) { badge.classList.remove('hidden'); setTimeout(() => badge.classList.add('hidden'), 2500); }
+        showFeedback('Next of kin saved.', 'success');
+    } catch (err) { showFeedback('Failed to save: ' + err.message, 'error'); }
 };
 
 // ── Employer Verification ─────────────────────────────────────────

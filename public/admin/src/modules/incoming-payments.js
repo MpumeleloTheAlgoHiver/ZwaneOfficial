@@ -141,6 +141,62 @@ function renderPageContent() {
   mainContent.innerHTML = `
     <div id="recovery-dashboard" class="flex flex-col h-full animate-fade-in space-y-6">
 
+      <!-- Admin Record Payment (with back-date) -->
+      <div class="glass-card rounded-2xl overflow-hidden">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-green-50 flex items-center justify-center">
+              <span class="material-symbols-outlined text-[18px] text-green-600">add_circle</span>
+            </div>
+            <div>
+              <h3 class="font-bold text-slate-900">Record Payment</h3>
+              <p class="text-xs text-slate-400">Admin: manually record a payment with any date</p>
+            </div>
+          </div>
+          <button onclick="window.toggleRecordPaymentForm()" class="text-xs font-bold px-3 py-1.5 rounded-xl text-white transition-colors" style="background:var(--color-primary)">+ Record</button>
+        </div>
+        <div id="record-payment-form" class="hidden p-6">
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+            <div>
+              <label class="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-1">Loan / App ID or Ref</label>
+              <input id="rp-app-id" type="text" placeholder="Loan number or application ID" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:ring-2 outline-none" style="--tw-ring-color:var(--color-primary)">
+            </div>
+            <div>
+              <label class="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-1">Amount (R)</label>
+              <input id="rp-amount" type="number" min="1" placeholder="e.g. 1500" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:ring-2 outline-none" style="--tw-ring-color:var(--color-primary)">
+            </div>
+            <div>
+              <label class="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-1">Payment Date</label>
+              <input id="rp-date" type="date" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:ring-2 outline-none" style="--tw-ring-color:var(--color-primary)" value="${new Date().toISOString().slice(0,10)}">
+            </div>
+            <div>
+              <label class="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-1">Payment Type</label>
+              <select id="rp-type" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:ring-2 outline-none" style="--tw-ring-color:var(--color-primary)">
+                <option value="installment">Installment</option>
+                <option value="settlement">Settlement (Full)</option>
+                <option value="arrears">Arrears Payment</option>
+                <option value="partial">Partial Payment</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-1">Reference</label>
+              <input id="rp-ref" type="text" placeholder="Bank ref / receipt no." class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:ring-2 outline-none" style="--tw-ring-color:var(--color-primary)">
+            </div>
+            <div>
+              <label class="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-1">Notes</label>
+              <input id="rp-notes" type="text" placeholder="Optional notes" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:ring-2 outline-none" style="--tw-ring-color:var(--color-primary)">
+            </div>
+          </div>
+          <div class="flex gap-3">
+            <button onclick="window.submitAdminPayment()" class="px-6 py-2.5 text-white text-sm font-bold rounded-xl transition-colors shadow-sm" style="background:var(--color-primary)">
+              <span class="material-symbols-outlined text-[16px] align-middle mr-1">save</span> Save Payment
+            </button>
+            <button onclick="window.toggleRecordPaymentForm()" class="px-4 py-2.5 text-sm font-bold rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50">Cancel</button>
+          </div>
+          <div id="rp-feedback" class="hidden mt-3 p-3 rounded-xl text-sm font-semibold"></div>
+        </div>
+      </div>
+
       <!-- Pending Manual Payments Banner -->
       <div class="glass-card rounded-2xl overflow-hidden">
         <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
@@ -593,3 +649,90 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // Expose for refresh button
 window.loadPendingManualPayments = loadPendingManualPayments;
+
+// ── Admin Record Payment (with back-date) ─────────────────────────
+window.toggleRecordPaymentForm = () => {
+    const form = document.getElementById('record-payment-form');
+    if (form) form.classList.toggle('hidden');
+};
+
+window.submitAdminPayment = async () => {
+    const appIdRaw  = document.getElementById('rp-app-id')?.value.trim();
+    const amount    = parseFloat(document.getElementById('rp-amount')?.value || '0');
+    const payDate   = document.getElementById('rp-date')?.value;
+    const payType   = document.getElementById('rp-type')?.value || 'installment';
+    const ref       = document.getElementById('rp-ref')?.value.trim();
+    const notes     = document.getElementById('rp-notes')?.value.trim();
+    const feedback  = document.getElementById('rp-feedback');
+
+    const showRpFeedback = (msg, type) => {
+        if (!feedback) return;
+        feedback.className = `mt-3 p-3 rounded-xl text-sm font-semibold ${type === 'error' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`;
+        feedback.textContent = msg;
+        feedback.classList.remove('hidden');
+    };
+
+    if (!appIdRaw || !amount || amount <= 0 || !payDate) {
+        return showRpFeedback('Please fill in the Loan ID, amount, and date.', 'error');
+    }
+
+    try {
+        // Try to find application by loan_number or ID
+        let appId = appIdRaw;
+        const { data: found } = await supabase.from('loan_applications')
+            .select('id, user_id, loan_number, profiles:user_id(full_name)')
+            .or(`id.eq.${appIdRaw},loan_number.eq.${appIdRaw}`)
+            .maybeSingle();
+
+        if (!found) return showRpFeedback('Application not found. Check the loan number or ID.', 'error');
+        appId = found.id;
+
+        const reference = ref || `ADM-${Date.now().toString(36).toUpperCase()}`;
+        const { error } = await supabase.from('manual_payments').insert([{
+            application_id: appId,
+            user_id:        found.user_id,
+            amount,
+            payment_type:   payType,
+            payment_date:   payDate,
+            reference,
+            notes:          notes || null,
+            status:         'confirmed',
+            confirmed_at:   new Date().toISOString(),
+            created_at:     new Date(`${payDate}T12:00:00`).toISOString()
+        }]);
+        if (error) throw error;
+
+        // Post to cash ledger
+        await supabase.from('cash_journal').insert([{
+            entry_date:      payDate,
+            entry_type:      'cash_in',
+            category:        payType === 'settlement' ? 'settlement' : 'repayment',
+            description:     `Admin-recorded ${payType} from ${found.profiles?.full_name || 'Client'} — Ref: ${reference}`,
+            reference,
+            amount,
+            application_id:  String(appId),
+            created_by_name: 'Admin (manual entry)'
+        }]);
+
+        // Decrement loan balance
+        const { data: loan } = await supabase.from('loans').select('id, outstanding_balance')
+            .eq('application_id', appId).maybeSingle();
+        if (loan) {
+            const newBal = payType === 'settlement' ? 0 : Math.max(0, Number(loan.outstanding_balance || 0) - amount);
+            await supabase.from('loans').update({ outstanding_balance: newBal, updated_at: new Date().toISOString() }).eq('id', loan.id);
+            if (payType === 'settlement') {
+                await supabase.from('loan_applications').update({ status: 'SETTLED', updated_at: new Date().toISOString() }).eq('id', appId);
+            }
+        }
+
+        showRpFeedback(`✓ Payment of R${amount.toFixed(2)} recorded for ${found.profiles?.full_name || appIdRaw} (${payDate}).`, 'success');
+        document.getElementById('rp-app-id').value = '';
+        document.getElementById('rp-amount').value = '';
+        document.getElementById('rp-ref').value = '';
+        document.getElementById('rp-notes').value = '';
+        document.getElementById('rp-date').value = new Date().toISOString().slice(0, 10);
+        await Promise.all([loadData(), loadPendingManualPayments()]);
+    } catch (err) {
+        showRpFeedback('Error: ' + err.message, 'error');
+    }
+};

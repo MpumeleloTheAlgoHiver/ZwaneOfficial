@@ -370,8 +370,8 @@ async function handleCreditCheckSubmit() {
                 status: 'BUREAU_CHECKING', 
                 amount: 0, 
                 term_months: 0, 
-                purpose: 'In-branch', 
-                source: 'IN_BRANCH', 
+                loan_purpose: inBranchState.loanConfig?.reason || 'Personal Loan',
+                source: 'IN_BRANCH',
                 created_by_admin: session.user?.id
             }]).select().single();
             
@@ -1501,11 +1501,27 @@ async function renderLoanConfiguration(container) {
 
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-1">First Repayment Date</label>
-                    <input type="date" id="loan-start-date" class="w-full border-gray-300 rounded-md focus:ring-brand-accent" 
+                    <input type="date" id="loan-start-date" class="w-full border-gray-300 rounded-md focus:ring-brand-accent"
                         value="${startDate ? (startDate instanceof Date ? startDate.toISOString().split('T')[0] : startDate.split('T')[0]) : ''}">
                     <div id="date-error-msg" class="${dateValidation?.valid === false ? '' : 'hidden'} text-xs text-red-600 mt-1 font-semibold flex items-center gap-1">
                         <i class="fa-solid fa-circle-exclamation"></i> <span id="error-text">${dateValidation?.reason || ''}</span>
                     </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Purpose of Loan</label>
+                    <select id="loan-reason" class="w-full border-gray-300 rounded-md focus:ring-brand-accent">
+                        <option value="Personal Loan"        ${(reason||'Personal Loan')==='Personal Loan'        ? 'selected':''}>Personal Loan</option>
+                        <option value="Medical Expenses"     ${reason==='Medical Expenses'     ? 'selected':''}>Medical Expenses</option>
+                        <option value="Education"            ${reason==='Education'            ? 'selected':''}>Education / School Fees</option>
+                        <option value="Home Improvement"     ${reason==='Home Improvement'     ? 'selected':''}>Home Improvement</option>
+                        <option value="Debt Consolidation"   ${reason==='Debt Consolidation'   ? 'selected':''}>Debt Consolidation</option>
+                        <option value="Funeral"              ${reason==='Funeral'              ? 'selected':''}>Funeral Costs</option>
+                        <option value="Vehicle"              ${reason==='Vehicle'              ? 'selected':''}>Vehicle / Transport</option>
+                        <option value="Business"             ${reason==='Business'             ? 'selected':''}>Business / Working Capital</option>
+                        <option value="Emergency"            ${reason==='Emergency'            ? 'selected':''}>Emergency</option>
+                        <option value="Other"                ${reason==='Other'                ? 'selected':''}>Other</option>
+                    </select>
                 </div>
             </div>
             
@@ -1629,8 +1645,8 @@ async function renderDocumentCheck(container) {
                 status: 'STARTED', 
                 amount: inBranchState.loanConfig.amount || 0, 
                 term_months: inBranchState.loanConfig.period || 1, 
-                purpose: 'In-branch', 
-                source: 'IN_BRANCH', 
+                loan_purpose: inBranchState.loanConfig?.reason || 'Personal Loan',
+                source: 'IN_BRANCH',
                 created_by_admin: adminId
             }]).select().single();
             if (error) throw error;
@@ -2192,7 +2208,7 @@ async function handleFinalSubmit() {
     nextBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
 
     try {
-        const { amount, period, startDate } = inBranchState.loanConfig;
+        const { amount, period, startDate, reason } = inBranchState.loanConfig;
         const history = inBranchState.loanHistoryCount || 0;
         const isFirstLoanOfYear = inBranchState.isFirstLoanOfYear ?? true;
 
@@ -2241,7 +2257,9 @@ async function handleFinalSubmit() {
             offer_total_repayment: calc.totalRepayment,
             offer_total_admin_fees: calc.totalServiceFees,
             offer_credit_life_monthly: calc.monthlyCreditLife,
+            offer_credit_life_total:   calc.totalCreditLife,
             repayment_start_date: startDate,
+            loan_purpose: reason || 'Personal Loan',
 
             branch_id: inBranchState.targetUser?.branch_id || currentAdminProfile?.branch_id,
 
@@ -2255,7 +2273,7 @@ async function handleFinalSubmit() {
                 waive_initiation: calc.waiveInitiation,
                 source: "In-Branch Admin Terminal"
             },
-            notes: `In-branch application for ${inBranchState.targetUser.full_name}. Verified by Admin.`
+            notes: `In-branch application for ${inBranchState.targetUser.full_name}. Purpose: ${reason || 'Personal Loan'}. Verified by Admin.`
         };
 
         // Update Supabase
