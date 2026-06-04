@@ -2180,6 +2180,10 @@ app.get('/admin/sacrra', (req, res) => {
     sendAdminPage('sacrra.html', res);
 });
 
+app.get('/admin/sacrra-validator', (req, res) => {
+    sendAdminPage('sacrra-validator.html', res);
+});
+
 // ─── MOVEit / SACRRA transmission routes ─────────────────────────────────────
 
 // Step 1: Initiate auth — returns access_token or triggers MFA email

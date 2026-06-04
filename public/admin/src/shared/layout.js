@@ -276,6 +276,7 @@ function renderSidebarNav(role) {
       ${isAdmin ? `
         ${navSection('Compliance')}
         ${navLink('/admin/sacrra', 'verified_user', 'SACRRA')}
+        ${navLink('/admin/sacrra-validator', 'rule_folder', 'Migration Validator')}
       ` : ''}
 
       ${isSuperAdmin ? `

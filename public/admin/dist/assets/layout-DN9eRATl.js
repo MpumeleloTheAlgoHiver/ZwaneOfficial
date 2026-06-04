@@ -4,11 +4,11 @@ import{supabase as x}from"./supabaseClient-WTCtVqgB.js";import{e as _,b as k,D a
             <span class="text-[10px] font-black uppercase tracking-widest opacity-70">${a}</span>
             <span class="text-xs font-bold uppercase tracking-tight">${e}</span>
         </div>
-    `,t.appendChild(n),setTimeout(()=>{n.classList.add("opacity-0","translate-y-4"),setTimeout(()=>n.remove(),500)},4e3)};function E(e,a,t=null){if(!h)return;const n=e?.full_name||"Admin",r=n.split(" ").map(i=>i[0]).join("").slice(0,2).toUpperCase(),s=k(t)||L.company_name,o=(t?.company_logo_url||"").trim(),d=y(o||$),m=y(s||"Company"),u=d?`<img src="${d}" alt="${m}" class="h-10 w-auto object-contain max-w-[180px]">`:`<div class="flex items-center gap-3">
+    `,t.appendChild(n),setTimeout(()=>{n.classList.add("opacity-0","translate-y-4"),setTimeout(()=>n.remove(),500)},4e3)};function E(e,a,t=null){if(!h)return;const n=e?.full_name||"Admin",r=n.split(" ").map(i=>i[0]).join("").slice(0,2).toUpperCase(),s=k(t)||L.company_name,o=(t?.company_logo_url||"").trim(),d=y(o||$),p=y(s||"Company"),u=d?`<img src="${d}" alt="${p}" class="h-10 w-auto object-contain max-w-[180px]">`:`<div class="flex items-center gap-3">
          <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-lg" style="background-color: var(--color-primary);">
            ${(s||"A").charAt(0)}
          </div>
-         <span class="font-headline font-semibold text-base tracking-tight" style="color: var(--color-primary);">${m||"Admin"}</span>
+         <span class="font-headline font-semibold text-base tracking-tight" style="color: var(--color-primary);">${p||"Admin"}</span>
        </div>`;h.innerHTML=`
     <!-- Sidebar -->
     <aside id="sidebar" class="fixed inset-y-0 left-0 z-50 flex flex-col w-[280px] bg-surface-container-lowest border-r border-outline-variant/20 transition-transform duration-300 ease-in-out md:translate-x-0 -translate-x-full">
@@ -89,7 +89,7 @@ import{supabase as x}from"./supabaseClient-WTCtVqgB.js";import{e as _,b as k,D a
 
       <main id="main-content" class="flex-1 p-8 relative z-10"></main>
     </div>
-  `}function p(e,a,t){return`<li>
+  `}function m(e,a,t){return`<li>
     <a href="${e}" class="nav-link flex items-center gap-4 px-4 py-3 rounded-xl transition-all duration-200 text-on-surface-variant hover:bg-surface-variant/50 hover:text-on-surface text-sm font-medium">
       <span class="material-symbols-outlined text-[22px] leading-none">${a}</span>
       <span>${t}</span>
@@ -98,7 +98,7 @@ import{supabase as x}from"./supabaseClient-WTCtVqgB.js";import{e as _,b as k,D a
     <ul class="space-y-0.5">
       ${a?`
         ${g("Overview")}
-        ${p("/admin/dashboard","dashboard","Dashboard")}
+        ${m("/admin/dashboard","dashboard","Dashboard")}
         <li>
           <button type="button" id="analytics-toggle" class="nav-link w-full flex items-center justify-between gap-4 px-4 py-3 rounded-xl transition-all duration-200 text-on-surface-variant hover:bg-surface-variant/50 hover:text-on-surface text-sm font-medium">
             <span class="flex items-center gap-4">
@@ -112,13 +112,13 @@ import{supabase as x}from"./supabaseClient-WTCtVqgB.js";import{e as _,b as k,D a
             <li><a href="/admin/financials.html" class="nav-sublink block py-2 px-3 text-sm text-outline hover:text-on-surface rounded-lg transition-colors">Financials</a></li>
           </ul>
         </li>
-        ${p("/admin/applications","assignment","Applications")}
+        ${m("/admin/applications","assignment","Applications")}
       `:""}
 
       ${t?`
         ${g("Finance")}
-        ${p("/admin/users","group","Users")}
-        ${p("/admin/mandates.html","receipt_long","Mandates")}
+        ${m("/admin/users","group","Users")}
+        ${m("/admin/mandates.html","receipt_long","Mandates")}
         <li>
           <button type="button" id="payments-toggle" class="nav-link w-full flex items-center justify-between gap-4 px-4 py-3 rounded-xl transition-all duration-200 text-on-surface-variant hover:bg-surface-variant/50 hover:text-on-surface text-sm font-medium">
             <span class="flex items-center gap-4">
@@ -136,22 +136,23 @@ import{supabase as x}from"./supabaseClient-WTCtVqgB.js";import{e as _,b as k,D a
 
       ${t?`
         ${g("Tools")}
-        ${p("/admin/credit-rules","rule","Credit Rules")}
-        ${p("/admin/loan-book","menu_book","Loan Book")}
-        ${p("/admin/cash-ledger","account_balance_wallet","Cash Ledger")}
+        ${m("/admin/credit-rules","rule","Credit Rules")}
+        ${m("/admin/loan-book","menu_book","Loan Book")}
+        ${m("/admin/cash-ledger","account_balance_wallet","Cash Ledger")}
       `:""}
 
       ${t?`
         ${g("Compliance")}
-        ${p("/admin/sacrra","verified_user","SACRRA")}
+        ${m("/admin/sacrra","verified_user","SACRRA")}
+        ${m("/admin/sacrra-validator","rule_folder","Migration Validator")}
       `:""}
 
       ${n?`
         ${g("System")}
-        ${p("/admin/settings","settings","Settings")}
+        ${m("/admin/settings","settings","Settings")}
       `:""}
     </ul>
-  `}function S(){const e=document.getElementById("sign-out-btn");e&&e.addEventListener("click",d=>{d.preventDefault();try{x.auth.signOut()}catch{}try{sessionStorage.clear()}catch{}try{localStorage.clear()}catch{}window.location.replace("/auth/login.html")});const a=document.getElementById("sidebar-toggle"),t=document.getElementById("sidebar"),n=document.getElementById("sidebar-overlay");a&&t&&(a.addEventListener("click",()=>{t.classList.toggle("-translate-x-full"),n&&(n.classList.toggle("overlay-hidden"),n.classList.toggle("overlay-visible"))}),n?.addEventListener("click",()=>{t.classList.add("-translate-x-full"),n&&(n.classList.add("overlay-hidden"),n.classList.remove("overlay-visible"))}));const r=(d,m,u)=>{const i=document.getElementById(d),c=document.getElementById(m),l=document.getElementById(u);i&&c&&i.addEventListener("click",()=>{c.classList.toggle("expanded"),l&&l.classList.toggle("rotate-180")})};r("payments-toggle","payments-submenu","payments-chevron"),r("analytics-toggle","analytics-submenu","analytics-chevron");const s=document.getElementById("notif-btn"),o=document.getElementById("notif-dropdown");s&&o&&(s.addEventListener("click",d=>{d.stopPropagation(),o.classList.toggle("hidden")}),document.addEventListener("click",d=>{!s.contains(d.target)&&!o.contains(d.target)&&o.classList.add("hidden")}))}function B(){const e=window.location.pathname;document.querySelectorAll(".nav-link, .nav-sublink").forEach(a=>{if(a.tagName!=="A")return;const t=a.getAttribute("href");if(!t||!(e===t||e.startsWith(t+"/")||e.startsWith(t+".html")))return;if(a.classList.contains("nav-sublink")){a.classList.add("font-semibold","text-on-surface"),a.classList.remove("text-outline");const s=a.closest('ul[id$="-submenu"]');if(s){s.classList.add("expanded");const o=document.getElementById(s.id.replace("-submenu","-chevron"));o&&o.classList.add("rotate-180")}}else a.classList.remove("text-on-surface-variant","hover:bg-surface-variant/50","hover:text-on-surface"),a.classList.add("nav-link-active","text-white","shadow-md"),a.style.backgroundColor="var(--color-primary)",a.style.boxShadow="0 4px 14px -2px color-mix(in srgb, var(--color-primary) 40%, transparent)"})}async function I(e,a){const t=document.getElementById("notif-badge"),n=document.getElementById("notif-list"),r=document.getElementById("mark-all-read"),s=v?.branch_id||null,o=async()=>{const{data:u,error:i}=await x.from("admin_notifications").select("*");if(i){console.error("Notification Fetch Error:",i);return}const c=u.filter(l=>{let f=!1;e==="super_admin"?f=!0:e==="admin"?f=["admin","base_admin"].includes(l.target_role):e==="base_admin"&&(f=l.target_role==="base_admin");const b=l.branch_id===null||l.branch_id===s,w=!(l.read_by||[]).includes(a);return f&&b&&w}).sort((l,f)=>new Date(f.created_at)-new Date(l.created_at));d(c)},d=u=>{const i=u.length;if(i>0?(t.classList.remove("hidden"),t.textContent=i>9?"9+":i,t.className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-[8px] font-bold text-white border-2 border-white animate-bounce"):t.classList.add("hidden"),i===0){n.innerHTML=`
+  `}function S(){const e=document.getElementById("sign-out-btn");e&&e.addEventListener("click",d=>{d.preventDefault();try{x.auth.signOut()}catch{}try{sessionStorage.clear()}catch{}try{localStorage.clear()}catch{}window.location.replace("/auth/login.html")});const a=document.getElementById("sidebar-toggle"),t=document.getElementById("sidebar"),n=document.getElementById("sidebar-overlay");a&&t&&(a.addEventListener("click",()=>{t.classList.toggle("-translate-x-full"),n&&(n.classList.toggle("overlay-hidden"),n.classList.toggle("overlay-visible"))}),n?.addEventListener("click",()=>{t.classList.add("-translate-x-full"),n&&(n.classList.add("overlay-hidden"),n.classList.remove("overlay-visible"))}));const r=(d,p,u)=>{const i=document.getElementById(d),c=document.getElementById(p),l=document.getElementById(u);i&&c&&i.addEventListener("click",()=>{c.classList.toggle("expanded"),l&&l.classList.toggle("rotate-180")})};r("payments-toggle","payments-submenu","payments-chevron"),r("analytics-toggle","analytics-submenu","analytics-chevron");const s=document.getElementById("notif-btn"),o=document.getElementById("notif-dropdown");s&&o&&(s.addEventListener("click",d=>{d.stopPropagation(),o.classList.toggle("hidden")}),document.addEventListener("click",d=>{!s.contains(d.target)&&!o.contains(d.target)&&o.classList.add("hidden")}))}function B(){const e=window.location.pathname;document.querySelectorAll(".nav-link, .nav-sublink").forEach(a=>{if(a.tagName!=="A")return;const t=a.getAttribute("href");if(!t||!(e===t||e.startsWith(t+"/")||e.startsWith(t+".html")))return;if(a.classList.contains("nav-sublink")){a.classList.add("font-semibold","text-on-surface"),a.classList.remove("text-outline");const s=a.closest('ul[id$="-submenu"]');if(s){s.classList.add("expanded");const o=document.getElementById(s.id.replace("-submenu","-chevron"));o&&o.classList.add("rotate-180")}}else a.classList.remove("text-on-surface-variant","hover:bg-surface-variant/50","hover:text-on-surface"),a.classList.add("nav-link-active","text-white","shadow-md"),a.style.backgroundColor="var(--color-primary)",a.style.boxShadow="0 4px 14px -2px color-mix(in srgb, var(--color-primary) 40%, transparent)"})}async function I(e,a){const t=document.getElementById("notif-badge"),n=document.getElementById("notif-list"),r=document.getElementById("mark-all-read"),s=v?.branch_id||null,o=async()=>{const{data:u,error:i}=await x.from("admin_notifications").select("*");if(i){console.error("Notification Fetch Error:",i);return}const c=u.filter(l=>{let f=!1;e==="super_admin"?f=!0:e==="admin"?f=["admin","base_admin"].includes(l.target_role):e==="base_admin"&&(f=l.target_role==="base_admin");const b=l.branch_id===null||l.branch_id===s,w=!(l.read_by||[]).includes(a);return f&&b&&w}).sort((l,f)=>new Date(f.created_at)-new Date(l.created_at));d(c)},d=u=>{const i=u.length;if(i>0?(t.classList.remove("hidden"),t.textContent=i>9?"9+":i,t.className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-[8px] font-bold text-white border-2 border-white animate-bounce"):t.classList.add("hidden"),i===0){n.innerHTML=`
             <div class="flex flex-col items-center justify-center p-10 text-center">
                 <div class="w-12 h-12 bg-green-50 text-green-500 rounded-full flex items-center justify-center mb-3">
                     <i class="fa-solid fa-check-double text-xl"></i>
@@ -167,7 +168,7 @@ import{supabase as x}from"./supabaseClient-WTCtVqgB.js";import{e as _,b as k,D a
                             <a href="${c.link||"#"}" class="block">
                                 <div class="flex justify-between items-start mb-0.5">
                                     <p class="text-xs font-black text-gray-900 truncate pr-2 uppercase tracking-tight">${c.title}</p>
-                                    <p class="text-[9px] font-bold text-gray-400 uppercase">${m(c.created_at)}</p>
+                                    <p class="text-[9px] font-bold text-gray-400 uppercase">${p(c.created_at)}</p>
                                 </div>
                                 <p class="text-[10px] text-gray-600 leading-relaxed line-clamp-2">${c.message}</p>
                             </a>
@@ -177,4 +178,4 @@ import{supabase as x}from"./supabaseClient-WTCtVqgB.js";import{e as _,b as k,D a
                         <i class="fa-solid fa-xmark text-xs"></i>
                     </button>
                 </div>
-            `}).join(""),n.querySelectorAll(".dismiss-notif").forEach(c=>{c.addEventListener("click",async l=>{const f=l.currentTarget.closest("[data-id]").dataset.id,{error:b}=await x.rpc("mark_notification_read_single",{p_notif_id:parseInt(f)});b||await o()})})},m=u=>{const i=Math.floor((new Date-new Date(u))/1e3);return i<60?"Just now":i<3600?`${Math.floor(i/60)}m ago`:i<86400?`${Math.floor(i/3600)}h ago`:`${Math.floor(i/86400)}d ago`};await o(),x.channel("admin_notif_channel").on("postgres_changes",{event:"INSERT",schema:"public",table:"admin_notifications"},()=>o()).subscribe(),r&&r.addEventListener("click",async()=>{const{error:u}=await x.rpc("mark_notifications_read",{p_target_role:e});u||await o()})}export{j as g,M as i};
+            `}).join(""),n.querySelectorAll(".dismiss-notif").forEach(c=>{c.addEventListener("click",async l=>{const f=l.currentTarget.closest("[data-id]").dataset.id,{error:b}=await x.rpc("mark_notification_read_single",{p_notif_id:parseInt(f)});b||await o()})})},p=u=>{const i=Math.floor((new Date-new Date(u))/1e3);return i<60?"Just now":i<3600?`${Math.floor(i/60)}m ago`:i<86400?`${Math.floor(i/3600)}h ago`:`${Math.floor(i/86400)}d ago`};await o(),x.channel("admin_notif_channel").on("postgres_changes",{event:"INSERT",schema:"public",table:"admin_notifications"},()=>o()).subscribe(),r&&r.addEventListener("click",async()=>{const{error:u}=await x.rpc("mark_notifications_read",{p_target_role:e});u||await o()})}export{j as g,M as i};

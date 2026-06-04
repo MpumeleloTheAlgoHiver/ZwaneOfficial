@@ -67,6 +67,10 @@ export async function init(container) {
                         <button onclick="window.refreshSacrraData()" class="p-2.5 bg-gray-50 text-gray-500 hover:bg-gray-100 rounded-xl transition-all">
                             <span class="material-symbols-outlined text-[18px] ${sacrraState.loading ? 'animate-spin' : ''}">refresh</span>
                         </button>
+                        <a href="/admin/sacrra-validator" class="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 hover:border-orange-300 hover:bg-orange-50 text-gray-700 rounded-xl font-bold text-sm transition-all">
+                            <span class="material-symbols-outlined text-[18px]" style="color:var(--color-primary)">rule_folder</span>
+                            Migration Validator
+                        </a>
                         <button onclick="window.showExportModal()" class="flex items-center gap-2 px-5 py-2.5 text-white rounded-xl font-bold text-sm transition-all hover:-translate-y-0.5" style="background:var(--color-primary)">
                             <span class="material-symbols-outlined text-[18px]">ios_share</span>
                             Generate Compliance File
