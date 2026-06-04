@@ -331,6 +331,8 @@ async function loadSystemSettings(forceRefresh = false) {
         return cachedSystemSettings.data;
     }
 }
+// Alias used throughout this file
+const getSystemTheme = loadSystemSettings;
 
 async function docuSealRequest(method, endpoint, data) {
     if (!isDocuSealReady()) {
@@ -843,13 +845,13 @@ app.post('/api/notifications/status-change', async (req, res) => {
         // Fetch application + borrower profile
         const { data: app, error: appErr } = await supabaseService
             .from('loan_applications')
-            .select('id, amount, offer_monthly_repayment, loan_number, user_id, profiles(full_name, phone, email)')
+            .select('id, amount, offer_monthly_repayment, loan_number, user_id, profiles(full_name, cell_tel_no, email)')
             .eq('id', applicationId)
             .single();
         if (appErr || !app) return res.status(404).json({ error: 'Application not found' });
 
         const profile  = app.profiles || {};
-        const to       = profile.phone;
+        const to       = profile.cell_tel_no || profile.phone;
         const company  = process.env.COMPANY_NAME || 'Zwane Financial Services';
         const name     = profile.full_name?.split(' ')[0] || 'Client';
         const ref      = app.loan_number || applicationId.slice(-8).toUpperCase();
@@ -2199,7 +2201,7 @@ app.post('/api/payouts/capitec-csv', async (req, res) => {
             .select(`
                 id, amount, offer_principal, offer_monthly_repayment, offer_total_repayment,
                 term_months, created_at, status,
-                profiles:user_id ( full_name, identity_number, client_number ),
+                profiles:user_id ( full_name, identity_number ),
                 bank_accounts:bank_account_id (
                     bank_name, account_holder, account_number, branch_code, account_type
                 )
@@ -2313,7 +2315,7 @@ app.post('/api/payouts/capitec-csv', async (req, res) => {
             apps.forEach(app => {
                 const phone = app.profiles?.cell_tel_no || app.profiles?.contact_number;
                 const name  = app.profiles?.full_name || 'Client';
-                const clientNum = app.profiles?.client_number || '';
+                const clientNum = app.profiles?.client_number || 'C' + String(app.id).slice(-4).toUpperCase();
                 const loanSeq   = app.loan_number ? `L${String(app.loan_number).padStart(4,'0')}` : app.id.slice(0,8);
                 const reference = clientNum ? `${clientNum}-${loanSeq}` : loanSeq;
                 if (phone) {
@@ -2343,7 +2345,7 @@ app.get('/api/payouts/ready', async (req, res) => {
             .from('loan_applications')
             .select(`
                 id, amount, offer_principal, offer_total_repayment, term_months, created_at, status,
-                profiles:user_id ( full_name, identity_number, client_number ),
+                profiles:user_id ( full_name, identity_number ),
                 bank_accounts:bank_account_id ( bank_name, account_number, branch_code, account_type, account_holder )
             `)
             .in('status', ['READY_TO_DISBURSE'])
@@ -2733,7 +2735,7 @@ app.post('/api/payment/submit-proof', async (req, res) => {
         // No admin SMS — admin reviews via Incoming Payments → Manual Payment Proofs panel
 
         // Acknowledge receipt to client — SMS + WhatsApp + Email
-        const toPhone = profile?.phone;
+        const toPhone = profile?.cell_tel_no || profile?.phone;
         const toEmail = profile?.email;
         const clientFirst = (profile?.full_name || 'Client').split(' ')[0];
         const co = process.env.COMPANY_NAME || 'Zwane Financial';
@@ -2789,7 +2791,7 @@ app.post('/api/admin/payment/confirm/:id', async (req, res) => {
 
         const { data: payment } = await supabaseService
             .from('manual_payments')
-            .select('*, profiles:user_id(full_name, phone, email)')
+            .select('*, profiles:user_id(full_name, cell_tel_no, email)')
             .eq('id', id)
             .single();
 
@@ -2836,7 +2838,7 @@ app.post('/api/admin/payment/confirm/:id', async (req, res) => {
             .ilike('reference', payment.id.slice(0,8) + '%');
 
         // ── Notify client via SMS + WhatsApp + Email ─────────────────
-        const phone    = payment.profiles?.phone;
+        const phone    = payment.profiles?.cell_tel_no || payment.profiles?.phone;
         const email    = payment.profiles?.email;
         const fullName = payment.profiles?.full_name || 'Client';
         const name     = fullName.split(' ')[0];
@@ -3255,7 +3257,7 @@ app.get('/api/letters-of-demand/:applicationId', async (req, res) => {
                 profiles:user_id (
                     full_name, identity_number, contact_number, cell_tel_no,
                     address, postal_code, suburb_area,
-                    nok_name, nok_phone, nok_relationship, client_number
+                    nok_name, nok_phone, nok_relationship
                 )
             `)
             .eq('id', applicationId)
@@ -3271,7 +3273,7 @@ app.get('/api/letters-of-demand/:applicationId', async (req, res) => {
         const companyEmail= process.env.CREDIT_PROVIDER_EMAIL || '';
         const today       = new Date().toLocaleDateString('en-ZA', { year:'numeric', month:'long', day:'numeric' });
 
-        const clientNum   = profile.client_number ? String(profile.client_number) : '';
+        const clientNum   = profile.client_number ? String(profile.client_number) : 'C' + String(applicationId).slice(-4).toUpperCase();
         const loanSeq     = app.loan_number ? `L${String(app.loan_number).padStart(4,'0')}` : app.id.slice(0,8);
         const reference   = clientNum ? `${clientNum}-${loanSeq}` : loanSeq;
 
@@ -3462,8 +3464,8 @@ app.get('/api/contracts/:applicationId/preview', async (req, res) => {
                 profiles:user_id (
                     full_name, identity_number, contact_number, cell_tel_no,
                     address, postal_code, suburb_area, email,
-                    employer_name, work_address,
-                    nok_name, nok_phone, nok_relationship, client_number
+                    employer_name,
+                    nok_name, nok_phone, nok_relationship
                 )
             `)
             .eq('id', applicationId)
@@ -3498,7 +3500,7 @@ app.get('/api/contracts/:applicationId/preview', async (req, res) => {
         const cpiRate             = 0.45;        // 0.45% p/m
         const initiationRate      = app.is_first_loan ? 5 : 15;
 
-        const clientNum  = profile.client_number ? String(profile.client_number) : '';
+        const clientNum  = profile.client_number ? String(profile.client_number) : 'C' + String(applicationId).slice(-4).toUpperCase();
         const loanSeq    = app.loan_number ? `L${String(app.loan_number).padStart(4,'0')}` : app.id.slice(0,8).toUpperCase();
         const reference  = clientNum ? `${clientNum}-${loanSeq}` : loanSeq;
         const agreementNo= app.agreement_number || reference;
@@ -3905,7 +3907,7 @@ app.get('/api/statement/:applicationId', async (req, res) => {
 
         const { data: app, error: appErr } = await supabaseService
             .from('loan_applications')
-            .select('*, profiles:user_id(full_name, identity_number, phone, email)')
+            .select('*, profiles:user_id(full_name, identity_number, cell_tel_no, email)')
             .eq('id', applicationId)
             .eq('user_id', user.id) // ensure client can only get their own
             .single();
@@ -4043,7 +4045,7 @@ app.post('/api/support/ticket', async (req, res) => {
                     <h2 style="color:#E7762E">New Support Ticket #${ticketRef}</h2>
                     <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
                         <tr><td style="padding:6px;color:#666;width:120px">Client</td><td style="padding:6px;font-weight:600">${clientName}</td></tr>
-                        <tr><td style="padding:6px;color:#666">Phone</td><td style="padding:6px">${profile?.phone || '—'}</td></tr>
+                        <tr><td style="padding:6px;color:#666">Phone</td><td style="padding:6px">${profile?.cell_tel_no || profile?.phone || '—'}</td></tr>
                         <tr><td style="padding:6px;color:#666">Category</td><td style="padding:6px">${category || 'General'}</td></tr>
                         <tr><td style="padding:6px;color:#666">Priority</td><td style="padding:6px">${priority}</td></tr>
                     </table>
@@ -4056,8 +4058,8 @@ app.post('/api/support/ticket', async (req, res) => {
         }
 
         // Confirm to client via SMS
-        if (profile?.phone) {
-            messaging.sendSMS(profile.phone,
+        if (profile?.cell_tel_no || profile?.phone) {
+            messaging.sendSMS(profile.cell_tel_no || profile.phone,
                 `Hi ${clientName?.split(' ')[0] || 'Client'}, your support request (Ref: ${ticketRef}) has been received. We'll respond within 1 business day. – ${company}`
             ).catch(() => {});
         }
@@ -4242,7 +4244,7 @@ app.post('/api/disbursements/payout-csv', async (req, res) => {
             .select(`
                 id, amount, offer_principal, offer_monthly_repayment, offer_total_repayment,
                 term_months, loan_number, created_at, status, branch_id,
-                profiles:user_id ( full_name, identity_number, client_number ),
+                profiles:user_id ( full_name, identity_number ),
                 bank_accounts:bank_account_id (
                     bank_name, account_holder, account_number, branch_code, account_type
                 )

@@ -172,10 +172,9 @@ function renderPageContent() {
             <div>
               <label class="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-1">Payment Type</label>
               <select id="rp-type" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white focus:ring-2 outline-none" style="--tw-ring-color:var(--color-primary)">
-                <option value="installment">Installment</option>
+                <option value="partial">Regular Installment</option>
                 <option value="settlement">Settlement (Full)</option>
                 <option value="arrears">Arrears Payment</option>
-                <option value="partial">Partial Payment</option>
               </select>
             </div>
             <div>
@@ -699,17 +698,17 @@ window.submitAdminPayment = async () => {
         appId = found.id;
 
         const reference = ref || `ADM-${Date.now().toString(36).toUpperCase()}`;
+        // payment_type must be one of: partial, settlement, arrears
+        const validType = ['settlement','arrears','partial'].includes(payType) ? payType : 'partial';
         const { error } = await supabase.from('manual_payments').insert([{
-            application_id: appId,
+            application_id: Number(appId),
             user_id:        found.user_id,
             amount,
-            payment_type:   payType,
-            payment_date:   payDate,
+            payment_type:   validType,
             reference,
-            notes:          notes || null,
+            notes:          notes ? `${notes} (date: ${payDate})` : `Payment date: ${payDate}`,
             status:         'confirmed',
-            confirmed_at:   new Date().toISOString(),
-            created_at:     new Date(`${payDate}T12:00:00`).toISOString()
+            confirmed_at:   new Date().toISOString()
         }]);
         if (error) throw error;
 

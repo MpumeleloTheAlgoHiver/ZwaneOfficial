@@ -89,7 +89,7 @@ export async function createWalkInClient(clientData) {
   const { first, last } = splitFullName(clientData.fullName);
 
   const { data, error } = await supabase
-    .from('consumers') // Write directly to institutional table
+    .from('profiles') // Walk-in client goes to profiles
     .insert([
       {
         id: newId,
@@ -158,7 +158,7 @@ export async function fetchPipelineApplications() {
 export async function fetchLoanApplications() {
   return supabase
     .from('loan_applications')
-    .select('*, profiles:user_id(full_name, client_number, identity_number)')
+    .select('*, profiles:user_id(full_name, identity_number)')
     .order('created_at', { ascending: false });
 }
 
@@ -578,7 +578,7 @@ export async function fetchLoanBook(branchId = null) {
             repayment_start_date, created_at, updated_at,
             is_first_loan, routed_to_head_office,
             offer_principal, offer_monthly_repayment, offer_total_repayment,
-            profiles:user_id ( full_name, identity_number, client_number, branch_id ),
+            profiles:user_id ( full_name, identity_number, branch_id ),
             bank_accounts:bank_account_id ( bank_name, account_number )
         `)
         .in('status', ['DISBURSED', 'IN_ARREARS', 'IN_DEFAULT', 'OFFER_ACCEPTED', 'READY_TO_DISBURSE'])
@@ -608,7 +608,7 @@ export async function fetchLoanBook(branchId = null) {
             ? Math.ceil((maturityDate - now) / 86400000)
             : null;
 
-        const clientNum = app.profiles?.client_number || '';
+        const clientNum = app.profiles?.client_number || 'C' + String(app.id).slice(-4).toUpperCase();
         const loanSeq   = app.loan_number ? `L${String(app.loan_number).padStart(4,'0')}` : '';
         const reference = clientNum && loanSeq ? `${clientNum}-${loanSeq}` : (loanSeq || app.id.slice(0,8));
 
