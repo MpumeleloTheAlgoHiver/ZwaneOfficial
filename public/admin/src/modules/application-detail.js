@@ -25,6 +25,104 @@ import {
 
 let currentApplication = null;
 let actionToConfirm = null;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SACRRA COMPLIANCE GATE
+// Runs before any disbursement/approval to ensure all Layout 700v2 fields exist
+// ─────────────────────────────────────────────────────────────────────────────
+function _luhnOk(id) {
+    if (!/^\d{13}$/.test(id)) return false;
+    let sum = 0;
+    for (let i = 0; i < 12; i++) {
+        let n = parseInt(id[i]);
+        if (i % 2 === 1) { n *= 2; if (n > 9) n -= 9; }
+        sum += n;
+    }
+    return (10 - sum % 10) % 10 === parseInt(id[12]);
+}
+function _dobFromId(id) {
+    if (!/^\d{13}$/.test(id)) return null;
+    const yy = parseInt(id.slice(0,2)), mm = parseInt(id.slice(2,4)), dd = parseInt(id.slice(4,6));
+    const cent = yy >= 26 ? 1900 : 2000;
+    const d = new Date(cent + yy, mm - 1, dd);
+    if (d.getMonth() !== mm - 1) return null;
+    return `${cent + yy}${String(mm).padStart(2,'0')}${String(dd).padStart(2,'0')}`;
+}
+function _genderFromId(id) {
+    return !/^\d{13}$/.test(id) ? null : parseInt(id[6]) < 5 ? 'F' : 'M';
+}
+
+function sacrraGate(app, profile) {
+    const id = String(profile?.identity_number || '').replace(/\s/g, '');
+    const issues = [];
+
+    // 1. SA ID — 13 digits + Luhn
+    if (!id || id.length !== 13) {
+        issues.push({ field: 'identity_number', source: 'profile', label: 'SA ID Number', hint: '13-digit SA ID', value: id || '', type: 'text', pattern: '\\d{13}' });
+    } else if (!_luhnOk(id)) {
+        issues.push({ field: 'identity_number', source: 'profile', label: 'SA ID Number', hint: 'ID fails Luhn checksum — check for typo', value: id, type: 'text', pattern: '\\d{13}' });
+    }
+
+    // 2. Date of birth — derived from ID if possible
+    const dobRaw   = String(profile?.date_of_birth || '').replace(/[-\/\s]/g, '').slice(0, 8);
+    const expectedDob = id.length === 13 ? _dobFromId(id) : null;
+    if (!dobRaw || dobRaw.length !== 8) {
+        issues.push({ field: 'date_of_birth', source: 'profile', label: 'Date of Birth', hint: 'YYYY-MM-DD', value: expectedDob ? `${expectedDob.slice(0,4)}-${expectedDob.slice(4,6)}-${expectedDob.slice(6,8)}` : '', type: 'date' });
+    }
+
+    // 3. Gender — must match ID
+    const gender = String(profile?.gender || '').toUpperCase().charAt(0);
+    const expectedGender = id.length === 13 ? _genderFromId(id) : null;
+    if (!gender || !['M','F'].includes(gender)) {
+        issues.push({ field: 'gender', source: 'profile', label: 'Gender', hint: 'Must be M or F', value: expectedGender || '', type: 'select', options: ['M','F'] });
+    } else if (expectedGender && gender !== expectedGender) {
+        issues.push({ field: 'gender', source: 'profile', label: 'Gender', hint: `ID says ${expectedGender} — please correct`, value: expectedGender, type: 'select', options: ['M','F'] });
+    }
+
+    // 4. Surname (max 25 chars)
+    const surname = String(profile?.last_name || profile?.full_name?.split(' ').pop() || '').trim();
+    if (!surname) {
+        issues.push({ field: 'last_name', source: 'profile', label: 'Surname', hint: 'Max 25 characters', value: '', type: 'text', maxlength: 25 });
+    } else if (surname.length > 25) {
+        issues.push({ field: 'last_name', source: 'profile', label: 'Surname', hint: `Too long: ${surname.length}/25 chars`, value: surname.slice(0, 25), type: 'text', maxlength: 25 });
+    }
+
+    // 5. First names (max 14 chars)
+    const firstName = String(profile?.first_name || profile?.full_name?.split(' ')[0] || '').trim();
+    if (!firstName) {
+        issues.push({ field: 'first_name', source: 'profile', label: 'First Name(s)', hint: 'Max 14 characters', value: '', type: 'text', maxlength: 14 });
+    } else if (firstName.length > 14) {
+        issues.push({ field: 'first_name', source: 'profile', label: 'First Name(s)', hint: `Too long: ${firstName.length}/14 chars`, value: firstName.slice(0, 14), type: 'text', maxlength: 14 });
+    }
+
+    // 6. Residential address
+    if (!String(profile?.address || '').trim()) {
+        issues.push({ field: 'address', source: 'profile', label: 'Street Address', hint: 'Required for SACRRA submission', value: '', type: 'text' });
+    }
+
+    // 7. Suburb
+    if (!String(profile?.suburb_area || '').trim()) {
+        issues.push({ field: 'suburb_area', source: 'profile', label: 'Suburb / Area', hint: 'Required — Experian also needs this', value: '', type: 'text' });
+    }
+
+    // 8. Postal code (4 digits)
+    const postal = String(profile?.postal_code || '').replace(/\s/g, '');
+    if (!postal || !/^\d{4}$/.test(postal)) {
+        issues.push({ field: 'postal_code', source: 'profile', label: 'Postal Code', hint: 'Exactly 4 digits', value: postal || '', type: 'text', pattern: '\\d{4}' });
+    }
+
+    // 9. Monthly installment
+    if (!app?.offer_monthly_repayment || Number(app.offer_monthly_repayment) <= 0) {
+        issues.push({ field: 'offer_monthly_repayment', source: 'application', label: 'Monthly Installment', hint: 'Run affordability & generate offer first', value: '', type: 'number', readonly: true });
+    }
+
+    // 10. Repayment start date (date opened)
+    if (!app?.repayment_start_date) {
+        issues.push({ field: 'repayment_start_date', source: 'application', label: 'Loan Start Date', hint: 'Set from the sidebar date picker', value: '', type: 'date', readonly: true });
+    }
+
+    return { passed: issues.length === 0, issues };
+}
 let isContractDeclinedUI = false;
 let originalStatusBeforeDecline = null;
 let contractStatusPoller = null;
@@ -444,6 +542,31 @@ const pageTemplate = `
 
 
   <div id="feedback-container" class="fixed bottom-6 right-6 z-50 hidden"></div>
+
+  <!-- SACRRA Compliance Gate Modal -->
+  <div id="sacrra-gate-modal" class="hidden fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <div class="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden animate-slide-up">
+      <div class="bg-gradient-to-r from-orange-600 to-orange-500 px-8 py-6">
+        <div class="flex items-center gap-3 mb-1">
+          <span class="material-symbols-outlined text-white text-[28px]">gpp_maybe</span>
+          <h2 class="text-xl font-black text-white">SACRRA Compliance Required</h2>
+        </div>
+        <p class="text-orange-100 text-sm">This loan cannot be approved until all mandatory SACRRA fields are complete. Fill in the missing data below, then approve.</p>
+      </div>
+      <div class="px-8 py-6 max-h-[60vh] overflow-y-auto" id="sacrra-gate-fields"></div>
+      <div class="px-8 py-5 bg-gray-50 border-t border-gray-100 flex items-center justify-between gap-3">
+        <button onclick="window.closeSACRRAGate()" class="px-5 py-2.5 text-sm font-bold text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors">
+          Cancel — Fix Later
+        </button>
+        <button onclick="window.saveSACRRAAndApprove()" id="sacrra-gate-save-btn"
+          class="px-6 py-2.5 text-sm font-black text-white rounded-xl transition-colors flex items-center gap-2"
+          style="background:var(--color-primary)">
+          <span class="material-symbols-outlined text-[18px]">save</span>
+          Save & Approve Loan
+        </button>
+      </div>
+    </div>
+  </div>
   <div id="credit-life-contract-modal" class="fixed inset-0 z-[80] hidden items-center justify-center bg-gray-900/70 p-4">
     <div class="w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-2xl">
       <div class="flex items-center justify-between gap-4 border-b border-outline-variant/10 px-6 py-4">
@@ -1302,54 +1425,155 @@ const closeModal = () => {
   actionToConfirm = null;
 };
 
-// Final Approval with Disbursement
-const approveApplication = async () => {
-  const { data: { user } } = await supabase.auth.getUser();
+// ── SACRRA Gate helpers ───────────────────────────────────────────────────────
+window.closeSACRRAGate = () => {
+    document.getElementById('sacrra-gate-modal')?.classList.add('hidden');
+};
 
-  // 1. Check if disbursement exists
+window.saveSACRRAAndApprove = async () => {
+    const btn = document.getElementById('sacrra-gate-save-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined text-[18px] animate-spin">progress_activity</span> Saving…';
+
+    try {
+        const profileUpdates = {};
+        const appUpdates = {};
+
+        document.querySelectorAll('#sacrra-gate-fields [data-source][data-field]').forEach(input => {
+            const field  = input.dataset.field;
+            const source = input.dataset.source;
+            const val    = input.value?.trim();
+            if (!val) return;
+            if (source === 'profile') profileUpdates[field] = val;
+            if (source === 'application') appUpdates[field] = val;
+        });
+
+        if (Object.keys(profileUpdates).length) {
+            // Rebuild full_name if first/last were set
+            if (profileUpdates.first_name || profileUpdates.last_name) {
+                const fn = profileUpdates.first_name || currentApplication.profiles?.first_name || '';
+                const ln = profileUpdates.last_name  || currentApplication.profiles?.last_name  ||
+                           currentApplication.profiles?.full_name?.split(' ').pop() || '';
+                profileUpdates.full_name = `${fn} ${ln}`.trim();
+            }
+            const { error } = await supabase.from('profiles')
+                .update({ ...profileUpdates, updated_at: new Date().toISOString() })
+                .eq('id', currentApplication.user_id);
+            if (error) throw new Error('Profile save failed: ' + error.message);
+        }
+
+        if (Object.keys(appUpdates).length) {
+            const { error } = await supabase.from('loan_applications')
+                .update({ ...appUpdates, updated_at: new Date().toISOString() })
+                .eq('id', currentApplication.id);
+            if (error) throw new Error('Application save failed: ' + error.message);
+        }
+
+        window.closeSACRRAGate();
+        showFeedback('SACRRA fields saved — proceeding with approval…', 'success');
+
+        // Reload and proceed
+        await loadApplicationData();
+        setTimeout(() => _doApprove(), 600);
+
+    } catch (err) {
+        showFeedback('Save failed: ' + err.message, 'error');
+        btn.disabled = false;
+        btn.innerHTML = '<span class="material-symbols-outlined text-[18px]">save</span> Save & Approve Loan';
+    }
+};
+
+// Internal: perform the actual approval (called after gate passes)
+const _doApprove = async () => {
+  const { data: { user } } = await supabase.auth.getUser();
   const { data: existingDisbursements } = await getDisbursementsByApplication(currentApplication.id);
   if (existingDisbursements && existingDisbursements.length > 0) {
     showFeedback('Disbursement already exists for this application.', 'error');
-    closeModal();
     return;
   }
-
-  // 2. Update application status
   const { data: updatedApp, error } = await updateApplicationStatus(currentApplication.id, 'APPROVED');
-
-  if (error) {
-    showFeedback(error.message, 'error');
-    closeModal();
-    return;
-  }
-
-  // 3. Get CashSend config for fee display
+  if (error) { showFeedback(error.message, 'error'); return; }
   const { data: cashsendConfig } = await getCashSendConfig();
   const bankAccountId = currentApplication.bank_account?.id || null;
-
-  // 4. Create disbursement using new API
-  const disbursementData = {
+  const { data: disbursement, error: disbursementError } = await createDisbursement({
     applicationId: currentApplication.id,
     userId: currentApplication.user_id,
     amount: updatedApp.amount,
-    bankAccountId: bankAccountId,
+    bankAccountId,
     createdBy: user.id
-  };
-
-  const { data: disbursement, error: disbursementError } = await createDisbursement(disbursementData);
-
+  });
   if (disbursementError) {
-    showFeedback("Status updated but disbursement creation failed: " + disbursementError.message, 'error');
+    showFeedback('Status updated but disbursement creation failed: ' + disbursementError.message, 'error');
   } else {
     let message = 'Application approved & disbursement created.';
-    if (disbursement.payout_method === 'cashsend' && disbursement.cashsend_fee) {
+    if (disbursement?.payout_method === 'cashsend' && disbursement?.cashsend_fee) {
       message += ` CashSend fee: R${disbursement.cashsend_fee.toFixed(2)}`;
     }
     showFeedback(message, 'success');
-    loadApplicationData();
   }
-  closeModal();
+  loadApplicationData();
 };
+
+// Final Approval with Disbursement — now runs SACRRA gate first
+const approveApplication = async () => {
+  closeModal();
+
+  const profile = currentApplication?.profiles || {};
+  const app     = currentApplication || {};
+  const gate    = sacrraGate(app, profile);
+
+  if (!gate.passed) {
+    // Render the gate modal with missing fields
+    const fieldsEl = document.getElementById('sacrra-gate-fields');
+    const profileIssues = gate.issues.filter(i => i.source === 'profile');
+    const appIssues     = gate.issues.filter(i => i.source === 'application');
+
+    const renderGroup = (title, issues) => issues.length === 0 ? '' : `
+      <div class="mb-6">
+        <p class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3">${title}</p>
+        <div class="space-y-3">
+          ${issues.map(f => `
+            <div class="p-4 rounded-2xl border-2 ${f.readonly ? 'border-gray-100 bg-gray-50' : 'border-orange-100 bg-orange-50/30'}">
+              <div class="flex items-center justify-between mb-1.5">
+                <label class="text-xs font-black text-gray-800">${f.label}</label>
+                ${f.readonly ? '<span class="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Fix in sidebar</span>' : '<span class="text-[10px] font-bold text-orange-600 bg-orange-100 px-2 py-0.5 rounded-full">Required</span>'}
+              </div>
+              <p class="text-[11px] text-gray-500 mb-2">${f.hint}</p>
+              ${f.readonly
+                ? `<div class="text-xs text-gray-400 italic">${f.value || 'Not set'}</div>`
+                : f.type === 'select'
+                  ? `<select data-field="${f.field}" data-source="${f.source}"
+                        class="w-full border border-orange-200 rounded-xl px-3 py-2 text-sm bg-white focus:ring-2 outline-none" style="--tw-ring-color:var(--color-primary)">
+                        <option value="">— Select —</option>
+                        ${f.options.map(o => `<option value="${o}" ${f.value === o ? 'selected' : ''}>${o}</option>`).join('')}
+                      </select>`
+                  : `<input type="${f.type}" data-field="${f.field}" data-source="${f.source}"
+                        value="${f.value || ''}" ${f.pattern ? `pattern="${f.pattern}"` : ''} ${f.maxlength ? `maxlength="${f.maxlength}"` : ''}
+                        class="w-full border border-orange-200 rounded-xl px-3 py-2 text-sm focus:ring-2 outline-none" style="--tw-ring-color:var(--color-primary)">`
+              }
+            </div>`).join('')}
+        </div>
+      </div>`;
+
+    fieldsEl.innerHTML = `
+      <div class="mb-4 flex items-center gap-2 p-3 bg-red-50 rounded-xl border border-red-100">
+        <span class="material-symbols-outlined text-red-500 text-[20px]">error</span>
+        <p class="text-sm font-bold text-red-700">${gate.issues.length} field${gate.issues.length > 1 ? 's' : ''} must be completed before this loan can be approved.</p>
+      </div>
+      ${renderGroup('Client Profile Fields', profileIssues)}
+      ${renderGroup('Loan / Application Fields', appIssues)}
+    `;
+
+    document.getElementById('sacrra-gate-modal').classList.remove('hidden');
+    return;
+  }
+
+  // Gate passed — approve immediately
+  _doApprove();
+};
+
+// (legacy stub kept for reference — logic moved to approveApplication + _doApprove above)
+// Legacy stub removed — logic consolidated into approveApplication + _doApprove above
 
 const declineApplication = async () => {
   const { error } = await updateApplicationStatus(currentApplication.id, 'DECLINED');
