@@ -128,9 +128,9 @@ function buildSignatureHeaders() {
   const hsh = crypto.createHmac('sha512', config.clientSecret).update(message).digest('base64');
 
   return {
-    [`${prefix}_CLIENTID`]: config.clientId,
-    [`${prefix}_DTS`]: dts,
-    [`${prefix}_HSH`]: hsh
+    [`${prefix}-CLIENTID`]: config.clientId,
+    [`${prefix}-DTS`]: dts,
+    [`${prefix}-HSH`]: hsh
   };
 }
 
