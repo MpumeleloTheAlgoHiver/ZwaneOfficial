@@ -160,6 +160,25 @@ async function listFolder(accessToken, folderId) {
 }
 
 /**
+ * Download the raw text/binary content of a file by its MOVEit file ID.
+ */
+async function downloadFile(accessToken, fileId) {
+    const url = `${config.baseUrl}/api/v1/files/${fileId}/download`;
+    const res = await axios.get(url, {
+        headers:        { Authorization: `Bearer ${accessToken}` },
+        responseType:   'text',
+        timeout:        30000,
+        validateStatus: () => true,
+    });
+
+    if (res.status < 200 || res.status >= 300) {
+        throw new Error(res.data?.message || `MOVEit download failed: ${res.status}`);
+    }
+
+    return res.data; // raw text content
+}
+
+/**
  * One-shot helper: authenticate (no MFA) + upload.
  * Throws if MFA is required — use authenticate() + completeMfa() + uploadFile() flow instead.
  */
@@ -181,6 +200,7 @@ module.exports = {
     completeMfa,
     uploadFile,
     listFolder,
+    downloadFile,
     authenticateAndUpload,
     config,
 };

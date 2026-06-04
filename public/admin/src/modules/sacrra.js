@@ -643,26 +643,59 @@ function renderPipeline(container) {
                             <th class="px-6 py-5">Type</th>
                             <th class="px-6 py-5">Records</th>
                             <th class="px-6 py-5">Status</th>
+                            <th class="px-6 py-5">Response</th>
                             <th class="px-8 py-5 text-right">Submitted At</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-50">
-                        ${history.map(s => `
-                            <tr>
-                                <td class="px-8 py-6 font-bold text-slate-900 text-sm">${s.file_name}</td>
-                                <td class="px-6 py-6"><span class="px-3 py-1 bg-slate-100 rounded-lg text-[10px] font-black text-slate-600 uppercase">${s.submission_type}</span></td>
-                                <td class="px-6 py-6 font-black text-slate-700">${s.record_count}</td>
-                                <td class="px-6 py-6">
+                        ${history.map(s => {
+                            const statusColor = s.status === 'ACCEPTED' ? 'bg-emerald-500' : s.status === 'REJECTED' ? 'bg-red-500' : 'bg-orange-400';
+                            const statusText  = s.status === 'ACCEPTED' ? 'text-emerald-600' : s.status === 'REJECTED' ? 'text-red-600' : 'text-orange-600';
+                            return `
+                            <tr id="sub-row-${s.id}">
+                                <td class="px-8 py-5 font-bold text-slate-900 text-sm max-w-[200px] truncate" title="${s.file_name}">${s.file_name}</td>
+                                <td class="px-6 py-5"><span class="px-3 py-1 bg-slate-100 rounded-lg text-[10px] font-black text-slate-600 uppercase">${s.submission_type}</span></td>
+                                <td class="px-6 py-5 font-black text-slate-700">${s.record_count}</td>
+                                <td class="px-6 py-5">
                                     <div class="flex items-center gap-2">
-                                        <span class="w-1.5 h-1.5 rounded-full ${s.status === 'ACCEPTED' ? 'bg-emerald-500' : 'bg-orange-500'}"></span>
-                                        <span class="text-xs font-bold ${s.status === 'ACCEPTED' ? 'text-emerald-600' : 'text-orange-600'}">${s.status}</span>
+                                        <span class="w-1.5 h-1.5 rounded-full ${statusColor}"></span>
+                                        <span class="text-xs font-bold ${statusText}">${s.status}</span>
                                     </div>
+                                    ${s.notes ? `<p class="text-[10px] text-slate-400 mt-0.5 max-w-[180px] truncate" title="${s.notes}">${s.notes}</p>` : ''}
                                 </td>
-                                <td class="px-8 py-6 text-right text-xs font-bold text-slate-400">${new Date(s.created_at).toLocaleString()}</td>
-                            </tr>
-                        `).join('')}
+                                <td class="px-6 py-5">
+                                    ${s.status === 'PENDING' ? `
+                                        <button onclick="window.checkSACRRAResponse(${s.id}, '${s.file_name}')"
+                                            class="text-[11px] font-bold px-3 py-1.5 rounded-xl border border-orange-200 text-orange-700 bg-orange-50 hover:bg-orange-100 transition-colors flex items-center gap-1">
+                                            <span class="material-symbols-outlined text-[14px]">download</span>
+                                            Check Response
+                                        </button>` : `
+                                        <label class="text-[11px] font-bold px-3 py-1.5 rounded-xl border border-slate-200 text-slate-500 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer flex items-center gap-1">
+                                            <span class="material-symbols-outlined text-[14px]">upload_file</span>
+                                            Re-import
+                                            <input type="file" accept=".txt,.pgp" class="hidden" onchange="window.importResponseFile(event, ${s.id})">
+                                        </label>`}
+                                    <div id="response-status-${s.id}" class="hidden mt-1 text-[10px] text-slate-400"></div>
+                                </td>
+                                <td class="px-8 py-5 text-right text-xs font-bold text-slate-400">${new Date(s.created_at).toLocaleString()}</td>
+                            </tr>`;
+                        }).join('')}
                     </tbody>
                 </table>
+
+                <!-- Manual upload section for first-time use -->
+                <div class="px-8 py-6 border-t border-slate-50 bg-slate-50/50">
+                    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Upload Bureau Response File</p>
+                    <div class="flex items-center gap-4">
+                        <label class="flex items-center gap-2 px-4 py-2.5 bg-white border-2 border-dashed border-slate-200 hover:border-orange-300 rounded-xl cursor-pointer text-sm font-bold text-slate-600 hover:text-orange-700 transition-colors">
+                            <span class="material-symbols-outlined text-[18px]">cloud_upload</span>
+                            Select .TXT Response File from SACRRA/Experian
+                            <input type="file" accept=".txt,.pgp,.csv" class="hidden" onchange="window.importResponseFile(event, null)">
+                        </label>
+                        <p class="text-xs text-slate-400">Experian uploads response files to your MOVEit folder after processing. Download it, then upload here to see acceptance/rejection details.</p>
+                    </div>
+                    <div id="manual-response-status" class="hidden mt-3"></div>
+                </div>
             </div>
         </div>
     `;
@@ -1087,4 +1120,129 @@ function updateTransmitStatus(el, message, type = 'loading') {
         else { icon.textContent = 'sync'; icon.classList.add('animate-spin', 'text-orange-400'); }
     }
     if (type !== 'loading') setTimeout(() => el.remove(), 5000);
+}
+
+// ── SACRRA Response Check & Import ───────────────────────────────────────────
+
+/**
+ * Check MOVEit for a response file matching this submission, download & parse it.
+ */
+window.checkSACRRAResponse = async (submissionId, fileName) => {
+    const statusEl = document.getElementById(`response-status-${submissionId}`);
+    if (statusEl) { statusEl.textContent = 'Checking MOVEit for response…'; statusEl.classList.remove('hidden'); }
+
+    try {
+        const filesRes = await fetch('/api/sacrra/response-files');
+        const filesData = await filesRes.json();
+
+        if (!filesData.success) {
+            if (statusEl) statusEl.textContent = `⚠️ ${filesData.error}`;
+            return;
+        }
+
+        // Find the response file — look for one that matches or is a general response
+        const files    = filesData.files || [];
+        const allFiles = filesData.all_files || [];
+
+        if (files.length === 0 && allFiles.length === 0) {
+            if (statusEl) statusEl.textContent = '📭 No response file found yet — SACRRA may still be processing. Check back in 24hrs.';
+            return;
+        }
+
+        // If response files found, use the most recent one
+        const target = files[0] || allFiles[0];
+        if (!target?.id) {
+            if (statusEl) statusEl.textContent = '📂 Files found but unable to identify a response file. Upload manually below.';
+            return;
+        }
+
+        if (statusEl) statusEl.textContent = `Downloading ${target.name || 'response file'}…`;
+
+        const importRes = await fetch('/api/sacrra/import-response', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ fileId: target.id, submissionId })
+        });
+        const result = await importRes.json();
+        _handleResponseResult(result, submissionId, statusEl);
+
+    } catch (err) {
+        if (statusEl) statusEl.textContent = `❌ Error: ${err.message}`;
+    }
+};
+
+/**
+ * Import a manually uploaded response .TXT file.
+ */
+window.importResponseFile = async (event, submissionId) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const statusEl = submissionId
+        ? document.getElementById(`response-status-${submissionId}`)
+        : document.getElementById('manual-response-status');
+
+    if (statusEl) { statusEl.textContent = `Reading ${file.name}…`; statusEl.classList.remove('hidden'); }
+
+    const content = await file.text();
+
+    try {
+        const importRes = await fetch('/api/sacrra/import-response', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ content, fileName: file.name, submissionId: submissionId || null })
+        });
+        const result = await importRes.json();
+        _handleResponseResult(result, submissionId, statusEl);
+    } catch (err) {
+        if (statusEl) statusEl.textContent = `❌ Error: ${err.message}`;
+    }
+};
+
+function _handleResponseResult(result, submissionId, statusEl) {
+    if (!result.success) {
+        if (statusEl) statusEl.textContent = `❌ ${result.error}`;
+        return;
+    }
+
+    const { total_records, rejections, accepted, status } = result;
+
+    if (status === 'ACCEPTED') {
+        if (statusEl) {
+            statusEl.className = 'mt-1 text-[11px] font-bold text-emerald-600';
+            statusEl.textContent = `✅ All ${total_records} records ACCEPTED by SACRRA`;
+            statusEl.classList.remove('hidden');
+        }
+    } else {
+        if (statusEl) {
+            statusEl.className = 'mt-1 text-[11px] font-bold text-red-600';
+            statusEl.textContent = `⚠️ ${rejections} rejection(s) — see Rejection Parser tab`;
+            statusEl.classList.remove('hidden');
+        }
+    }
+
+    // Update the submission status badge inline
+    if (submissionId) {
+        const row = document.getElementById(`sub-row-${submissionId}`);
+        if (row) {
+            const badge = row.querySelector('.flex.items-center.gap-2');
+            if (badge) {
+                const color = status === 'ACCEPTED' ? 'bg-emerald-500' : 'bg-red-500';
+                const text  = status === 'ACCEPTED' ? 'text-emerald-600' : 'text-red-600';
+                badge.innerHTML = `
+                    <span class="w-1.5 h-1.5 rounded-full ${color}"></span>
+                    <span class="text-xs font-bold ${text}">${status}</span>`;
+            }
+        }
+    }
+
+    // If there are rejections, switch to the rejection parser tab to show them
+    if (rejections > 0) {
+        setTimeout(() => {
+            if (confirm(`${rejections} record(s) rejected by SACRRA. Switch to Rejection Parser tab to see and resolve them?`)) {
+                window.switchSacrraView('parser');
+                window.refreshSacrraData();
+            }
+        }, 500);
+    }
 }

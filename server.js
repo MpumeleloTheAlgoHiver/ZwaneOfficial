@@ -2252,6 +2252,208 @@ app.get('/api/moveit/files', async (req, res) => {
     }
 });
 
+// ─── SACRRA Response / Feedback routes ───────────────────────────────────────
+
+/**
+ * Parse a raw SACRRA Layout 700v2 response file and return structured rejections.
+ * SACRRA response format:
+ *   H — header (pos 1 = 'H')
+ *   E — error/rejection record (pos 1 = 'E')  account ref + error code + message
+ *   I — info record (some bureaus use 'I' for informational)
+ *   T — trailer
+ * Field positions (fixed-width):
+ *   Pos 1:      Record type
+ *   Pos 2-11:   Supplier Reference Number (SRN, 10 chars)
+ *   Pos 12-31:  Account number (20 chars)
+ *   Pos 32-34:  Error code (3 chars, e.g. E01)
+ *   Pos 35-114: Error description (80 chars)
+ */
+function parseSACRRAResponseFile(content) {
+    const SACRRA_ERROR_CODES = {
+        'E01': 'SA ID Number invalid or checksum failed',
+        'E02': 'Date of birth does not match ID number',
+        'E03': 'Gender does not match ID number',
+        'E04': 'Surname missing or exceeds 25 characters',
+        'E05': 'First names missing or exceeds 14 characters',
+        'E06': 'Residential address required',
+        'E07': 'Postal code must be 4 digits',
+        'E08': 'Account/loan number missing',
+        'E09': 'Opening balance invalid or exceeds maximum',
+        'E10': 'Current balance invalid or exceeds maximum',
+        'E11': 'Date account opened missing or invalid format',
+        'E12': 'Term months missing or out of range',
+        'E13': 'Monthly installment invalid',
+        'E14': 'Date format error (must be YYYYMMDD)',
+        'E15': 'Status code invalid',
+        'E16': 'Months in arrears inconsistent with status',
+        'E17': 'Account type code invalid',
+        'E18': 'Subscriber reference number not found',
+        'E19': 'Record length not 700 characters',
+        'E20': 'Duplicate account reference',
+        'E26': 'Field exceeds maximum allowed length',
+        'E99': 'General validation error',
+        'W01': 'Warning: address may be incomplete',
+        'W02': 'Warning: mobile number format suspect',
+    };
+
+    const lines = content.split(/\r?\n/).filter(l => l.trim());
+    const rejections = [];
+    let headerSRN = '';
+    let totalRecords = 0;
+    let rejectedRecords = 0;
+    let acceptedRecords = 0;
+
+    for (const line of lines) {
+        const type = line.charAt(0).toUpperCase();
+
+        if (type === 'H') {
+            headerSRN = line.slice(1, 11).trim();
+        } else if (type === 'T') {
+            // Trailer may contain counts
+            totalRecords    = parseInt(line.slice(1, 9).trim()) || 0;
+            rejectedRecords = parseInt(line.slice(9, 17).trim()) || 0;
+            acceptedRecords = parseInt(line.slice(17,25).trim()) || 0;
+        } else if (type === 'E' || type === 'R') {
+            // Error/Rejection record
+            const srn         = line.slice(1, 11).trim();
+            const accountRef  = line.slice(11, 31).trim();
+            const errorCode   = line.slice(31, 34).trim();
+            const errorMsg    = line.slice(34, 114).trim() || SACRRA_ERROR_CODES[errorCode] || 'Unknown error';
+            const matchKey    = `${srn || headerSRN}-${accountRef}`;
+
+            rejections.push({
+                match_key:     matchKey,
+                account_ref:   accountRef,
+                error_code:    errorCode || 'E99',
+                error_message: errorMsg,
+                description:   SACRRA_ERROR_CODES[errorCode] || errorMsg,
+            });
+        }
+    }
+
+    return {
+        headerSRN,
+        totalRecords:    totalRecords || lines.filter(l => !['H','T'].includes(l.charAt(0).toUpperCase())).length,
+        rejectedRecords: rejectedRecords || rejections.length,
+        acceptedRecords,
+        rejections,
+        raw_line_count:  lines.length,
+    };
+}
+
+// GET /api/sacrra/response-files — list MOVEit for SACRRA response files
+app.get('/api/sacrra/response-files', async (req, res) => {
+    try {
+        const auth = await moveItService.authenticate();
+        if (auth.requiresMfa) {
+            return res.status(401).json({ error: 'MFA required', hint: 'Configure a service account without MFA for automated response checking' });
+        }
+        // Check the same folder — response files are placed there by SACRRA/Experian
+        const folderId = req.query.folderId || process.env.MOVEIT_FOLDER_ID;
+        const files    = await moveItService.listFolder(auth.accessToken, folderId);
+        // Filter to likely response files (SACRRA typically returns files with 'RESP', 'RESPONSE', 'ACK', 'FEEDBACK' in name)
+        const responseFiles = (files || []).filter(f => {
+            const n = (f.name || f.fileName || '').toUpperCase();
+            return n.includes('RESP') || n.includes('ACK') || n.includes('FEEDBACK') || n.includes('REJECT') || n.includes('ERROR');
+        });
+        return res.json({ success: true, files: responseFiles, all_files: files });
+    } catch (err) {
+        return res.status(err.status || 500).json({ success: false, error: err.message });
+    }
+});
+
+// POST /api/sacrra/import-response — parse response file content + store rejections
+// Body: { content: string (raw file text), submissionId?: number, fileName?: string }
+// OR:   { fileId: string (MOVEit file ID to download), submissionId?: number }
+app.post('/api/sacrra/import-response', async (req, res) => {
+    try {
+        const { fileId, fileName, submissionId } = req.body;
+        let content = req.body.content;
+
+        // If fileId given, download from MOVEit
+        if (!content && fileId) {
+            const auth = await moveItService.authenticate();
+            if (auth.requiresMfa) {
+                return res.status(401).json({ error: 'MFA required — cannot auto-download' });
+            }
+            content = await moveItService.downloadFile(auth.accessToken, fileId);
+        }
+
+        if (!content) {
+            return res.status(400).json({ error: 'Provide either content or fileId' });
+        }
+
+        const parsed = parseSACRRAResponseFile(content);
+
+        // Store rejections in sacrra_rejections table
+        let storedCount = 0;
+        if (parsed.rejections.length > 0) {
+            const rows = parsed.rejections.map(r => ({
+                match_key:     r.match_key,
+                error_code:    r.error_code,
+                error_message: r.description || r.error_message,
+                submission_id: submissionId || null,
+                resolved:      false,
+            }));
+
+            // Upsert — avoid duplicates on re-import
+            const { error: insertErr } = await supabaseService
+                .from('sacrra_rejections')
+                .upsert(rows, { onConflict: 'match_key,error_code', ignoreDuplicates: true });
+
+            if (!insertErr) storedCount = rows.length;
+            else console.warn('[sacrra/import-response] insert warning:', insertErr.message);
+        }
+
+        // Update submission status
+        if (submissionId) {
+            const newStatus = parsed.rejections.length === 0 ? 'ACCEPTED' : 'REJECTED';
+            await supabaseService
+                .from('sacrra_submissions')
+                .update({
+                    status: newStatus,
+                    notes:  `${parsed.rejectedRecords} rejection(s) — ${parsed.acceptedRecords} accepted. Imported ${new Date().toLocaleDateString('en-ZA')}.`,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', submissionId);
+        }
+
+        return res.json({
+            success:         true,
+            total_records:   parsed.totalRecords,
+            rejections:      parsed.rejections.length,
+            accepted:        parsed.acceptedRecords,
+            stored:          storedCount,
+            status:          parsed.rejections.length === 0 ? 'ACCEPTED' : 'REJECTED',
+            details:         parsed.rejections,
+        });
+    } catch (err) {
+        console.error('[sacrra/import-response] error:', err.message);
+        return res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// PATCH /api/sacrra/submissions/:id — update submission status manually
+app.patch('/api/sacrra/submissions/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, notes } = req.body;
+        const valid = ['PENDING', 'ACCEPTED', 'REJECTED', 'PARTIAL'];
+        if (status && !valid.includes(status)) {
+            return res.status(400).json({ error: `Status must be one of: ${valid.join(', ')}` });
+        }
+        const update = {};
+        if (status) update.status = status;
+        if (notes)  update.notes  = notes;
+        update.updated_at = new Date().toISOString();
+        const { error } = await supabaseService.from('sacrra_submissions').update(update).eq('id', id);
+        if (error) throw error;
+        return res.json({ success: true });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
 // ─── Capitec payout CSV export ────────────────────────────────────────────────
 // POST /api/payouts/capitec-csv
 // Body: { applicationIds: string[], markDisbursed?: boolean }
