@@ -258,6 +258,222 @@ function renderCreditSummary(rows) {
         ? `Updated: ${formatDate(latest.checked_at)}` : 'No record');
 
     renderMetricsGrid(latest);
+    renderScoreBandRuler(score);
+    renderEligibility(score, latest);
+    renderImprovementTips(score, latest);
+    renderScoreHistory(rows);
+}
+
+// ── Score band ruler — shows where the client sits ───────────────
+function renderScoreBandRuler(score) {
+    const container = document.getElementById('scoreBandRuler');
+    if (!container) return;
+
+    const bands = [
+        { label: 'Very High Risk', min: 300, max: 499, color: '#EF4444' },
+        { label: 'High Risk',      min: 500, max: 599, color: '#F97316' },
+        { label: 'Medium Risk',    min: 600, max: 679, color: '#E7762E' },
+        { label: 'Low Risk',       min: 680, max: 749, color: '#22C55E' },
+        { label: 'Very Low Risk',  min: 750, max: 999, color: '#10B981' }
+    ];
+
+    const validScore = typeof score === 'number';
+    const pct = validScore ? Math.max(0, Math.min(100, ((score - 300) / 699) * 100)) : 0;
+
+    container.innerHTML = `
+        <div style="background:rgba(255,255,255,0.6);backdrop-filter:blur(10px);border:1px solid rgba(15,23,42,0.06);border-radius:24px;padding:24px;margin-top:16px">
+          <h4 style="font-size:13px;font-weight:800;color:#0F172A;margin:0 0 4px;letter-spacing:-0.01em">Where you stand</h4>
+          <p style="font-size:11px;color:#64748B;margin:0 0 18px">Your score range on the credit scale</p>
+
+          <div style="position:relative;height:14px;border-radius:99px;display:flex;overflow:hidden;background:#f3f4f6">
+            ${bands.map(b => {
+                const widthPct = ((b.max - b.min + 1) / 699) * 100;
+                return `<div style="width:${widthPct}%;background:${b.color};height:100%"></div>`;
+            }).join('')}
+            ${validScore ? `
+              <div style="position:absolute;top:-6px;left:${pct}%;transform:translateX(-50%);background:#0F172A;color:#fff;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.2);white-space:nowrap">
+                ${score} ▼
+              </div>` : ''}
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:10px;font-weight:700;color:#94A3B8">
+            <span>300</span><span>500</span><span>600</span><span>680</span><span>750</span><span>999</span>
+          </div>
+        </div>`;
+}
+
+// ── Loan eligibility based on score ──────────────────────────────
+function renderEligibility(score, latest) {
+    const container = document.getElementById('loanEligibility');
+    if (!container) return;
+
+    let max, rate, term, msg, icon, bg;
+    if (typeof score !== 'number') {
+        return container.innerHTML = '';
+    } else if (score < 500) {
+        max = 0;    rate = '—';  term = '—';  icon = 'block';
+        msg = 'Loans currently unavailable. Focus on settling existing debt to rebuild your score.';
+        bg = 'linear-gradient(135deg,#FEE2E2,#FECACA)';
+    } else if (score < 600) {
+        max = 2000; rate = '32%'; term = '1-3 months';  icon = 'warning';
+        msg = 'Small short-term loans available. Demonstrate good repayment history to unlock larger amounts.';
+        bg = 'linear-gradient(135deg,#FFEDD5,#FED7AA)';
+    } else if (score < 680) {
+        max = 8000; rate = '28%'; term = '1-6 months';  icon = 'thumb_up';
+        msg = 'You qualify for our standard loan range. Good payment history will increase your limits.';
+        bg = 'linear-gradient(135deg,#FFF7ED,#FFEDD5)';
+    } else if (score < 750) {
+        max = 15000;rate = '24%'; term = '1-12 months'; icon = 'verified';
+        msg = 'Excellent standing! You qualify for our premium loans with competitive rates.';
+        bg = 'linear-gradient(135deg,#D1FAE5,#A7F3D0)';
+    } else {
+        max = 25000;rate = '20%'; term = '1-24 months'; icon = 'star';
+        msg = 'Top tier credit. You qualify for our highest loan amounts with our best rates.';
+        bg = 'linear-gradient(135deg,#A7F3D0,#6EE7B7)';
+    }
+
+    container.innerHTML = `
+      <div style="background:${bg};border-radius:24px;padding:24px;margin-top:16px;position:relative;overflow:hidden">
+        <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:18px">
+          <div style="background:rgba(255,255,255,0.7);width:42px;height:42px;border-radius:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <span class="material-symbols-outlined" style="font-size:24px;color:#0F172A">${icon}</span>
+          </div>
+          <div>
+            <h4 style="font-size:14px;font-weight:800;color:#0F172A;margin:0;letter-spacing:-0.01em">Your loan eligibility</h4>
+            <p style="font-size:12px;color:#334155;margin:4px 0 0;line-height:1.5">${msg}</p>
+          </div>
+        </div>
+
+        ${max > 0 ? `
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+          <div style="background:rgba(255,255,255,0.65);border-radius:14px;padding:12px;text-align:center">
+            <div style="font-size:10px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:0.05em">Max Loan</div>
+            <div style="font-size:18px;font-weight:900;color:#0F172A;margin-top:4px;letter-spacing:-0.02em">R${(max/1000).toFixed(0)}k</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.65);border-radius:14px;padding:12px;text-align:center">
+            <div style="font-size:10px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:0.05em">Rate p.a.</div>
+            <div style="font-size:18px;font-weight:900;color:#0F172A;margin-top:4px;letter-spacing:-0.02em">${rate}</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.65);border-radius:14px;padding:12px;text-align:center">
+            <div style="font-size:10px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:0.05em">Term</div>
+            <div style="font-size:14px;font-weight:800;color:#0F172A;margin-top:6px;letter-spacing:-0.01em">${term}</div>
+          </div>
+        </div>
+        <button onclick="window.lumaNavigate?.('apply-loan') || (location.href='/user-portal/?page=apply-loan')"
+          style="width:100%;margin-top:14px;padding:12px;background:#0F172A;color:#fff;border:none;border-radius:14px;font-size:13px;font-weight:800;cursor:pointer;letter-spacing:-0.01em">
+          Apply Now →
+        </button>` : ''}
+      </div>`;
+}
+
+// ── Tips to improve credit score ─────────────────────────────────
+function renderImprovementTips(score, latest) {
+    const container = document.getElementById('improvementTips');
+    if (!container) return;
+
+    const arrears = Number(latest?.accounts_with_arrears || 0);
+    const judgments = Number(latest?.total_judgments || 0);
+    const enquiries = Number(latest?.total_enquiries || 0);
+
+    const tips = [];
+
+    if (arrears > 0) {
+        tips.push({ icon:'priority_high', title:'Settle accounts in arrears', desc:`You have ${arrears} account${arrears>1?'s':''} in arrears. Bringing these up to date is the single biggest boost to your score.`, urgent:true });
+    }
+    if (judgments > 0) {
+        tips.push({ icon:'gavel', title:'Resolve judgements', desc:`${judgments} judgement${judgments>1?'s':''} on your record. Contact a debt counsellor to negotiate settlement and have these removed.`, urgent:true });
+    }
+    if (enquiries > 6) {
+        tips.push({ icon:'visibility_off', title:'Limit credit applications', desc:`You have ${enquiries} bureau enquiries. Too many credit applications in a short period hurt your score. Avoid applying for new credit for 3-6 months.`, urgent:false });
+    }
+    if (typeof score === 'number' && score < 680) {
+        tips.push({ icon:'event', title:'Pay every account on time', desc:'Set up debit orders to ensure no payments are missed. Even one late payment can drop your score by 50-100 points.', urgent:false });
+        tips.push({ icon:'trending_down', title:'Keep balances low', desc:'Use less than 30% of any available credit limit. High utilisation signals risk to lenders.', urgent:false });
+    }
+    if (tips.length === 0 && typeof score === 'number') {
+        tips.push({ icon:'check_circle', title:"You're doing great!", desc:'Continue paying all accounts on time and your score will keep growing. Avoid unnecessary credit applications.', urgent:false });
+    }
+
+    if (tips.length === 0) return container.innerHTML = '';
+
+    container.innerHTML = `
+      <div style="background:#fff;border:1px solid rgba(15,23,42,0.06);border-radius:24px;padding:24px;margin-top:16px">
+        <h4 style="font-size:13px;font-weight:800;color:#0F172A;margin:0 0 4px;letter-spacing:-0.01em">How to improve your score</h4>
+        <p style="font-size:11px;color:#64748B;margin:0 0 18px">Personalised actions based on your credit profile</p>
+
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${tips.slice(0,4).map(t => `
+            <div style="display:flex;gap:12px;padding:12px;background:${t.urgent ? '#FEF2F2' : '#F8FAFC'};border-radius:14px;border-left:3px solid ${t.urgent ? '#EF4444' : '#E7762E'}">
+              <div style="background:#fff;width:36px;height:36px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <span class="material-symbols-outlined" style="font-size:20px;color:${t.urgent ? '#EF4444' : '#E7762E'}">${t.icon}</span>
+              </div>
+              <div style="flex:1;min-width:0">
+                <h5 style="font-size:12px;font-weight:800;color:#0F172A;margin:0 0 2px;letter-spacing:-0.01em">${t.title}</h5>
+                <p style="font-size:11px;color:#64748B;margin:0;line-height:1.5">${t.desc}</p>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+}
+
+// ── Score history chart ──────────────────────────────────────────
+function renderScoreHistory(rows) {
+    const container = document.getElementById('scoreHistory');
+    if (!container) return;
+
+    const history = (rows || []).filter(r => typeof r.credit_score === 'number').slice(0, 6).reverse();
+    if (history.length < 2) return container.innerHTML = '';
+
+    const min = Math.min(...history.map(h => h.credit_score)) - 20;
+    const max = Math.max(...history.map(h => h.credit_score)) + 20;
+    const range = Math.max(1, max - min);
+
+    const width = 100, height = 60, pad = 2;
+    const pts = history.map((h, i) => {
+        const x = pad + ((width - pad*2) / (history.length - 1)) * i;
+        const y = pad + ((height - pad*2) * (1 - ((h.credit_score - min) / range)));
+        return { x, y, score: h.credit_score, date: h.checked_at };
+    });
+
+    const pathD = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p.x + ',' + p.y).join(' ');
+    const areaD = pathD + ` L${pts[pts.length-1].x},${height} L${pts[0].x},${height} Z`;
+
+    const first = history[0].credit_score;
+    const last  = history[history.length - 1].credit_score;
+    const delta = last - first;
+    const trend = delta > 0 ? 'up' : delta < 0 ? 'down' : 'neutral';
+    const trendColor = trend === 'up' ? '#10B981' : trend === 'down' ? '#EF4444' : '#64748B';
+
+    container.innerHTML = `
+      <div style="background:#fff;border:1px solid rgba(15,23,42,0.06);border-radius:24px;padding:24px;margin-top:16px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px">
+          <div>
+            <h4 style="font-size:13px;font-weight:800;color:#0F172A;margin:0 0 4px;letter-spacing:-0.01em">Score trend</h4>
+            <p style="font-size:11px;color:#64748B;margin:0">Your last ${history.length} credit checks</p>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:20px;font-weight:900;color:${trendColor};letter-spacing:-0.02em">
+              ${trend === 'up' ? '+' : ''}${delta}
+            </div>
+            <div style="font-size:10px;font-weight:700;color:#94A3B8;text-transform:uppercase">${trend === 'up' ? 'Improving' : trend === 'down' ? 'Declining' : 'Stable'}</div>
+          </div>
+        </div>
+
+        <svg viewBox="0 0 ${width} ${height}" style="width:100%;height:120px">
+          <defs>
+            <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="${trendColor}" stop-opacity="0.3"/>
+              <stop offset="100%" stop-color="${trendColor}" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <path d="${areaD}" fill="url(#scoreGrad)"/>
+          <path d="${pathD}" fill="none" stroke="${trendColor}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          ${pts.map(p => `<circle cx="${p.x}" cy="${p.y}" r="1.5" fill="#fff" stroke="${trendColor}" stroke-width="1.2"/>`).join('')}
+        </svg>
+
+        <div style="display:flex;justify-content:space-between;margin-top:8px">
+          ${history.map(h => `<div style="font-size:9px;color:#94A3B8;font-weight:600">${formatDate(h.checked_at).split(' ').slice(0,2).join(' ')}</div>`).join('')}
+        </div>
+      </div>`;
 }
 
 function renderMetricsGrid(latest) {
