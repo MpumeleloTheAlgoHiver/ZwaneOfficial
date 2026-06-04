@@ -294,8 +294,9 @@ async function checkAuth() {
   }
   
   const role = session.user?.app_metadata?.role || session.user?.user_metadata?.role || 'borrower';
-  if (role !== 'borrower') {
-    console.log('⛔ Access denied. Not a borrower. Role:', role);
+  const ALLOWED_ROLES = ['borrower', 'super_admin', 'admin', 'base_admin', 'owner'];
+  if (!ALLOWED_ROLES.includes(role)) {
+    console.log('⛔ Access denied. Role not permitted:', role);
     await supabase.auth.signOut();
     window.location.replace('/auth/login.html');
     return null;

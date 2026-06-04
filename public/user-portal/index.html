@@ -41,7 +41,7 @@
       }
 
       const role = session.user?.app_metadata?.role || session.user?.user_metadata?.role || 'borrower';
-      if (role !== 'borrower') {
+      if (!['borrower','super_admin','admin','base_admin','owner'].includes(role)) {
         console.log('⛔ Not a borrower - redirecting to login. Role:', role);
         await supabase.auth.signOut();
         window.location.replace('/auth/login.html');

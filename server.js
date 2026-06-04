@@ -815,13 +815,42 @@ app.post('/api/credit-check', async (req, res) => {
         }
 
         const authHeader = req.headers.authorization || '';
-        const authToken = authHeader.startsWith('Bearer ')
-            ? authHeader.slice(7)
-            : null;
+        const authToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+        // Enrich address fields from the stored profile if missing
+        // Experian requires Address2 (suburb) — pull it from profiles.suburb_area
+        const enrichedUserData = { ...userData };
+        if (enrichedUserData.user_id) {
+            const { data: profile } = await supabaseService
+                .from('profiles')
+                .select('address, suburb_area, postal_code, cell_tel_no, date_of_birth, gender')
+                .eq('id', enrichedUserData.user_id)
+                .maybeSingle();
+            if (profile) {
+                // Merge missing fields from DB profile
+                if (!enrichedUserData.address1 && profile.address) enrichedUserData.address1 = profile.address;
+                if (!enrichedUserData.address2 && profile.suburb_area) enrichedUserData.address2 = profile.suburb_area;
+                if (!enrichedUserData.postal_code && profile.postal_code) enrichedUserData.postal_code = profile.postal_code;
+                if (!enrichedUserData.cell_tel_no && profile.cell_tel_no) enrichedUserData.cell_tel_no = profile.cell_tel_no;
+                if (!enrichedUserData.date_of_birth && profile.date_of_birth) {
+                    // Convert ISO date to YYYYMMDD
+                    enrichedUserData.date_of_birth = (profile.date_of_birth || '').replace(/-/g, '').slice(0, 8);
+                }
+                if (!enrichedUserData.gender && profile.gender) enrichedUserData.gender = profile.gender;
+                // Always set address2 to suburb if empty (Experian requires it)
+                if (!enrichedUserData.address2 || enrichedUserData.address2.trim() === '') {
+                    enrichedUserData.address2 = enrichedUserData.address1 || 'Not Provided';
+                }
+            }
+        }
+        // Final fallback: Experian rejects empty Address2
+        if (!enrichedUserData.address2 || enrichedUserData.address2.trim() === '') {
+            enrichedUserData.address2 = enrichedUserData.address1 || 'Not Provided';
+        }
 
         const result = await tracked(
             { service: 'experian', operation: 'credit_check', applicationId: String(applicationId) },
-            () => creditCheckService.performCreditCheck(userData, applicationId, authToken)
+            () => creditCheckService.performCreditCheck(enrichedUserData, applicationId, authToken)
         );
 
         return res.json(result);
@@ -2988,24 +3017,27 @@ app.post('/api/applications/:id/evaluate', async (req, res) => {
         const { data: app, error: appErr } = await supabaseService
             .from('loan_applications')
             .select(`
-                id, user_id, amount, term_months, bureau_score,
+                id, user_id, amount, term_months, bureau_score_band,
                 profiles:user_id (
                     id, full_name, date_of_birth
-                ),
-                financial_profiles:user_id (
-                    monthly_income, monthly_expenses, monthly_debt_repayments
                 )
             `)
             .eq('id', id)
             .maybeSingle();
 
-        if (appErr || !app) return res.status(404).json({ error: 'Application not found' });
+        if (appErr || !app) return res.status(404).json({ error: 'Application not found', detail: appErr?.message });
 
-        const profile   = Array.isArray(app.profiles)   ? app.profiles[0]   : app.profiles;
-        const financial = Array.isArray(app.financial_profiles) ? app.financial_profiles[0] : app.financial_profiles;
+        // Load financial profile separately to avoid join issues
+        const { data: financial } = await supabaseService
+            .from('financial_profiles')
+            .select('monthly_income, monthly_expenses, monthly_debt_repayments')
+            .eq('user_id', app.user_id)
+            .maybeSingle();
+
+        const profile = Array.isArray(app.profiles) ? app.profiles[0] : app.profiles;
 
         // 2. Determine credit score (from application or latest credit check)
-        let creditScore = app.bureau_score;
+        let creditScore = app.bureau_score_band ? null : null; // bureau_score_band is a label, not a number
         if (!creditScore) {
             const { data: cc } = await supabaseService
                 .from('credit_checks')

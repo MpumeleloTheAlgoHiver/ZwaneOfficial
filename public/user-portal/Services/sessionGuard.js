@@ -23,7 +23,7 @@ export async function enforceSession() {
 
     // 2. Verify user still exists and has borrower role (role lives in JWT app_metadata)
     const role = session.user?.app_metadata?.role || session.user?.user_metadata?.role || 'borrower';
-    if (role !== 'borrower') {
+    if (!['borrower','super_admin','admin','base_admin','owner'].includes(role)) {
       console.log('🔒 Not a borrower - access denied. Role:', role);
       await supabase.auth.signOut();
       window.location.replace('/auth/login.html');

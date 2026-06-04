@@ -326,6 +326,7 @@ function prefillCreditFormFields() {
     document.getElementById('gender').value = gender.startsWith('F') ? 'F' : (gender.startsWith('M') ? 'M' : '');
     document.getElementById('date_of_birth').value = formatDateForInput(user.date_of_birth);
     document.getElementById('address1').value = user.address_line1 || user.address || '';
+    document.getElementById('address2').value = user.suburb_area || user.suburb || user.city || '';
     document.getElementById('postal_code').value = user.postal_code || user.zip_code || '';
 
     document.getElementById('credit_consent').checked = true;
