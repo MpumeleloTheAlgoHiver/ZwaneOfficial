@@ -55,6 +55,7 @@ const truid = require('./services/truidService');
 const creditCheckService = require('./services/creditCheckService');
 const sureSystemsService = require('./services/sureSystemsService');
 const messaging          = require('./services/messagingService');
+const pushNotifications  = require('./services/pushNotificationService');
 const moveItService = require('./services/moveItService');
 const { supabase, supabaseService } = require('./config/supabaseServer');
 const { startNotificationScheduler } = require('./services/notificationScheduler');
@@ -904,6 +905,24 @@ app.post('/api/notifications/status-change', async (req, res) => {
         const ref      = app.loan_number || applicationId.slice(-8).toUpperCase();
         const amount   = Number(app.amount || 0);
         const monthly  = Number(app.offer_monthly_repayment || 0);
+
+        // Build push notification payload for this status change
+        const fmtR = v => `R ${Number(v).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
+        const pushPayloads = {
+            OFFERED:    { title: '🎉 Loan Approved!',  body: `Your loan of ${fmtR(amount)} has been approved. Monthly: ${fmtR(monthly)}`, url: '/user-portal/?page=dashboard', requireInteraction: true },
+            APPROVED:   { title: '🎉 Loan Approved!',  body: `Your loan of ${fmtR(amount)} has been approved. Monthly: ${fmtR(monthly)}`, url: '/user-portal/?page=dashboard', requireInteraction: true },
+            DISBURSED:  { title: '💰 Money sent!',     body: `${fmtR(amount)} is on its way to your account.`,                              url: '/user-portal/?page=dashboard', requireInteraction: true },
+            REJECTED:   { title: 'Application Update', body: 'Your loan application was not approved. Tap for details.',                   url: '/user-portal/?page=dashboard' },
+            DECLINED:   { title: 'Application Update', body: 'Your loan application was not approved. Tap for details.',                   url: '/user-portal/?page=dashboard' },
+            IN_ARREARS: { title: '⚠️ Payment Overdue', body: `Your payment of ${fmtR(monthly)} is overdue. Tap to settle.`,                  url: '/user-portal/?page=payments', requireInteraction: true }
+        };
+
+        // Fire push notification (non-blocking)
+        const pushPayload = pushPayloads[newStatus];
+        if (pushPayload) {
+            pushNotifications.sendToUser(app.user_id, { ...pushPayload, tag: `loan-${newStatus}-${applicationId}` })
+                .catch(e => console.warn('[push]', e.message));
+        }
 
         if (!to) return res.json({ sent: false, reason: 'No phone number on profile' });
 
@@ -4122,6 +4141,73 @@ app.post('/api/support/ticket', async (req, res) => {
 });
 
 // POST /api/messaging/send — manual send (admin tool)
+// ═══════════════════════════════════════════════════════════════
+// PUSH NOTIFICATIONS (Web Push API)
+// ═══════════════════════════════════════════════════════════════
+
+// GET /api/push/public-key — clients fetch the VAPID public key to subscribe
+app.get('/api/push/public-key', (req, res) => {
+    res.json({ publicKey: pushNotifications.getPublicKey() });
+});
+
+// POST /api/push/subscribe — save a client's push subscription
+app.post('/api/push/subscribe', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization || '';
+        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        if (!token) return res.status(401).json({ error: 'Authentication required' });
+
+        const { data: { user }, error: authErr } = await supabaseService.auth.getUser(token);
+        if (authErr || !user) return res.status(401).json({ error: 'Invalid session' });
+
+        const subscription = req.body;
+        if (!subscription?.endpoint) return res.status(400).json({ error: 'Subscription endpoint required' });
+
+        const saved = await pushNotifications.saveSubscription(user.id, {
+            ...subscription,
+            userAgent: req.headers['user-agent']
+        });
+        res.json({ success: true, id: saved.id });
+    } catch (err) {
+        console.error('[push/subscribe]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/push/unsubscribe — remove a subscription
+app.post('/api/push/unsubscribe', async (req, res) => {
+    try {
+        const { endpoint } = req.body;
+        if (!endpoint) return res.status(400).json({ error: 'Endpoint required' });
+        await pushNotifications.removeSubscription(endpoint);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/push/test — send a test notification to current user
+app.post('/api/push/test', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization || '';
+        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        if (!token) return res.status(401).json({ error: 'Authentication required' });
+
+        const { data: { user } } = await supabaseService.auth.getUser(token);
+        if (!user) return res.status(401).json({ error: 'Invalid session' });
+
+        const result = await pushNotifications.sendToUser(user.id, {
+            title: 'Zwane Financial Services',
+            body:  'Push notifications are working! 🎉',
+            url:   '/user-portal/?page=dashboard',
+            tag:   'test-notification'
+        });
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.post('/api/messaging/send', async (req, res) => {
     try {
         const { to, message, channel = 'both' } = req.body;

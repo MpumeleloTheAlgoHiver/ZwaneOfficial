@@ -894,7 +894,27 @@ function renderSecurityTab() {
       <h3>Security Settings</h3>
       <p>Manage your account security and password preferences</p>
     </div>
-    
+
+    <!-- Push notifications toggle -->
+    <div class="inner-card" id="push-notifications-card" style="margin-bottom:24px">
+      <h4 style="font-size: 1.25rem; font-weight: 600; color: var(--color-primary); margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+        <i class="fa-solid fa-bell"></i> Push Notifications
+      </h4>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;padding:16px;background:#F8FAFC;border-radius:12px;border:1px solid rgba(15,23,42,0.05)">
+        <div style="flex:1;min-width:0">
+          <p style="margin:0 0 4px;font-weight:700;color:#0F172A;font-size:14px" id="push-status-label">Loading...</p>
+          <p style="margin:0;font-size:12px;color:#64748B;line-height:1.5">Get instant alerts when your loan is approved, payment is confirmed, or your account needs attention.</p>
+        </div>
+        <button id="push-toggle-btn" onclick="window.togglePushNotifications()"
+          style="flex-shrink:0;padding:10px 18px;background:var(--color-primary,#E7762E);color:#fff;border:none;border-radius:12px;font-weight:700;cursor:pointer;font-size:13px">
+          Enable
+        </button>
+      </div>
+      <button id="push-test-btn" onclick="window.testPushNotification()" style="display:none;width:100%;margin-top:10px;padding:10px;background:transparent;color:var(--color-primary,#E7762E);border:1px dashed var(--color-primary,#E7762E);border-radius:10px;font-weight:700;cursor:pointer;font-size:12px">
+        Send a test notification
+      </button>
+    </div>
+
     <div class="inner-card">
       <h4 style="font-size: 1.25rem; font-weight: 600; color: var(--color-primary); margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
         <i class="fa-solid fa-shield-halved"></i> Change Password
@@ -1893,6 +1913,78 @@ window.addEventListener('pageLoaded', (e) => {
     initProfilePage();
   }
 });
+
+// ── Push Notifications ─────────────────────────────────────────
+async function refreshPushUI() {
+    const label   = document.getElementById('push-status-label');
+    const btn     = document.getElementById('push-toggle-btn');
+    const testBtn = document.getElementById('push-test-btn');
+    if (!label || !btn) return;
+
+    if (!window.zwanePush?.supported) {
+        label.textContent = 'Not supported in this browser';
+        btn.disabled = true; btn.style.opacity = '0.5'; btn.textContent = 'Unavailable';
+        return;
+    }
+
+    const subscribed = await window.zwanePush.isSubscribed();
+    const permission = Notification.permission;
+
+    if (subscribed && permission === 'granted') {
+        label.textContent = '✓ Notifications enabled';
+        label.style.color = '#10B981';
+        btn.textContent = 'Disable';
+        btn.style.background = '#FEF2F2';
+        btn.style.color = '#EF4444';
+        if (testBtn) testBtn.style.display = 'block';
+    } else if (permission === 'denied') {
+        label.textContent = 'Blocked — enable in browser settings';
+        label.style.color = '#EF4444';
+        btn.textContent = 'Blocked';
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        if (testBtn) testBtn.style.display = 'none';
+    } else {
+        label.textContent = 'Notifications disabled';
+        label.style.color = '#0F172A';
+        btn.textContent = 'Enable';
+        btn.style.background = 'var(--color-primary, #E7762E)';
+        btn.style.color = '#fff';
+        if (testBtn) testBtn.style.display = 'none';
+    }
+}
+
+window.togglePushNotifications = async function() {
+    if (!window.zwanePush) return;
+    const subscribed = await window.zwanePush.isSubscribed();
+    if (subscribed) {
+        await window.zwanePush.unsubscribe();
+    } else {
+        await window.zwanePush.askPermission();
+    }
+    setTimeout(refreshPushUI, 300);
+};
+
+window.testPushNotification = async function() {
+    try {
+        const r = await window.zwanePush.sendTest();
+        if (r.sent > 0) {
+            // visual feedback
+        } else if (r.reason) {
+            alert(`No notifications sent: ${r.reason}`);
+        } else if (r.disabled) {
+            alert('Push notifications are not configured on the server.');
+        }
+    } catch (e) {
+        alert('Test failed: ' + e.message);
+    }
+};
+
+// Refresh push UI when profile renders security tab
+const _origRenderSecurityTab = window.renderSecurityTab;
+setInterval(() => {
+    if (document.getElementById('push-toggle-btn')) refreshPushUI();
+}, 2000);
 
 // ── Phone OTP Verification ─────────────────────────────────────
 window.sendPhoneOTP = async function() {
