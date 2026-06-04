@@ -520,21 +520,39 @@ function buildSureSystemsMandateRequestFromContext({ application, bankAccount, p
         : (accountTypeMap[String(accountTypeRaw).toLowerCase()] || 1);
     const installmentCount = Number(overrides.noOfInstallments || application.term_months || 1);
 
+    // Values matched to working SureSystems example
     return {
-        clientNo: String(overrides.clientNo || application.user_id || application.id).replace(/[^a-zA-Z0-9 ]/g, '').slice(0, 15),
-        frontEndUserName: overrides.frontEndUserName
-            || (profile?.email ? profile.email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').slice(0, 30) || 'webuser' : 'webuser'),
-        debtorAccountName: overrides.debtorAccountName || bankAccount.account_holder || profile?.full_name || '',
+        // messageInfo overrides
+        frontEndUserName: overrides.frontEndUserName || process.env.SURESYSTEMS_BASIC_AUTH_USERNAME || 'algohiveuat',
+
+        // mandate fields
+        clientNo:               String(overrides.clientNo || application.user_id || application.id).replace(/[^a-zA-Z0-9 ]/g, '').slice(0, 15),
+        userReference:          overrides.userReference || `APP${String(application.id).slice(0, 7)}`,
+        debtorAccountName:      overrides.debtorAccountName || bankAccount.account_holder || profile?.full_name || '',
         debtorIdentificationNo: String(debtorIdentificationNo || ''),
-        debtorAccountNumber: String(overrides.debtorAccountNumber || bankAccount.account_number || ''),
-        debtorBranchNumber: String(overrides.debtorBranchNumber || bankAccount.branch_code || ''),
+        debtorAccountNumber:    String(overrides.debtorAccountNumber || bankAccount.account_number || ''),
+        debtorBranchNumber:     String(overrides.debtorBranchNumber || bankAccount.branch_code || ''),
         debtorAccountType,
-        debtorEmail: overrides.debtorEmail || profile?.email || '',
-        amount: loanAmount,
+        debtorTelephone:        overrides.debtorTelephone || profile?.cell_tel_no || '',
+        debtorEmail:            overrides.debtorEmail || profile?.email || '',
+
+        // Amounts — initialAmount must be 0 per working example
+        amount:         loanAmount,
+        initialAmount:  0,
+
+        // Dates — YYYYMMDD format, no dashes
         collectionDate,
-        dateList: collectionDate,
-        noOfInstallments: installmentCount,
-        userReference: overrides.userReference || `APP${String(application.id).slice(0, 7)}`
+        mandateInitiationDate: sureSystemsService.getToday(),
+        dateList: '',  // empty per working example
+
+        // Mandate settings matched to working example
+        noOfInstallments:          installmentCount,
+        origin:                    15,      // was 0 — working example uses 15
+        typeOfAuthorizationRequired: 3,     // was 1 — working example uses 3 (DebiCheck)
+        debitSequenceType:         'RCUR',  // was OOFF — recurring for installment loans
+        authorizationIndicator:    '0229',  // was 0226 — working example uses 0229
+        maximumCollectionAmount:   Math.ceil(loanAmount * 1.5),
+        collectionDay:             new Date(collectionDate).getDate() || new Date().getDate()
     };
 }
 
