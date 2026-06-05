@@ -1,8 +1,9 @@
-const crypto = require('crypto');
-const axios = require('axios');
-const https = require('https');
-const fs = require('fs');
-const path = require('path');
+const crypto   = require('crypto');
+const CryptoJS = require('crypto-js'); // matches SureSystems' Postman script exactly
+const axios    = require('axios');
+const https    = require('https');
+const fs       = require('fs');
+const path     = require('path');
 
 const readEnv = (key, fallback = '') => {
   const value = process.env[key];
@@ -122,14 +123,28 @@ function buildBasicAuthHeader() {
 }
 
 function buildSignatureHeaders() {
-  // SureSystems expects these exact header names (confirmed by their support):
-  //   dsClientId  — the client ID
-  //   dsDTS       — timestamp: "YYYY-MM-DD HH:MM:SS.mmm"
-  //   dsHMAC      — HMAC-SHA512(clientId + dts, clientSecret) base64-encoded
-  // Format: "YYYY-MM-DD HH:MM:SS" — no milliseconds, matching SureSystems expected format
-  const dts = new Date().toISOString().replace('T', ' ').replace('Z', '').substring(0, 19);
-  const message = `${config.clientId}${dts}`;
-  const hmac = crypto.createHmac('sha512', config.clientSecret).update(message).digest('base64');
+  // Implemented using SureSystems' exact Postman pre-request script
+  // provided by Rhinus @ SureSystems support, June 2026:
+  //
+  //   dsDTSCalc = yyyy-mm-dd hh:mi:ss
+  //   HMACSHA512_String = dsClientId + dsDTS
+  //   dsHMAC = CryptoJS.HmacSHA512(message, clientSecret) -> Base64
+
+  const now  = new Date();
+  const dd   = String(now.getDate()).padStart(2, '0');
+  const mm   = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const hh   = String(now.getHours()).padStart(2, '0');
+  const mi   = String(now.getMinutes()).padStart(2, '0');
+  const ss   = String(now.getSeconds()).padStart(2, '0');
+
+  const dts      = `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+  const sigInput = config.clientId + dts;
+
+  // CryptoJS matches their Postman script exactly
+  const hmac = CryptoJS.enc.Base64.stringify(
+    CryptoJS.HmacSHA512(sigInput, config.clientSecret)
+  );
 
   return {
     'dsClientId': config.clientId,
