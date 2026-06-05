@@ -553,7 +553,13 @@ function buildSureSystemsMandateRequestFromContext({ application, bankAccount, p
         debitSequenceType:         'RCUR',  // was OOFF — recurring for installment loans
         authorizationIndicator:    '0229',  // was 0226 — working example uses 0229
         maximumCollectionAmount:   Math.ceil(loanAmount * 1.5),
-        collectionDay:             new Date(collectionDate).getDate() || new Date().getDate()
+        // Parse YYYYMMDD format correctly — new Date("20260620") is invalid, need "2026-06-20"
+        collectionDay:             (() => {
+            const d = collectionDate && collectionDate.length === 8
+                ? new Date(`${collectionDate.slice(0,4)}-${collectionDate.slice(4,6)}-${collectionDate.slice(6,8)}`)
+                : new Date(collectionDate);
+            return (d && !isNaN(d.getTime())) ? d.getDate() : new Date().getDate();
+        })()
     };
 }
 
