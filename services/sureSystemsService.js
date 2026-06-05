@@ -126,7 +126,8 @@ function buildSignatureHeaders() {
   //   dsClientId  — the client ID
   //   dsDTS       — timestamp: "YYYY-MM-DD HH:MM:SS.mmm"
   //   dsHMAC      — HMAC-SHA512(clientId + dts, clientSecret) base64-encoded
-  const dts = new Date().toISOString().replace('T', ' ').replace('Z', '').substring(0, 23);
+  // Format: "YYYY-MM-DD HH:MM:SS" — no milliseconds, matching SureSystems expected format
+  const dts = new Date().toISOString().replace('T', ' ').replace('Z', '').substring(0, 19);
   const message = `${config.clientId}${dts}`;
   const hmac = crypto.createHmac('sha512', config.clientSecret).update(message).digest('base64');
 
