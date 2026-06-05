@@ -147,9 +147,10 @@ function buildSignatureHeaders() {
   );
 
   return {
-    'dsClientId': config.clientId,
-    'dsDTS':      dts,
-    'dsHMAC':     hmac
+    'dsClientId':     config.clientId,
+    'dsClientSecret': config.clientSecret,
+    'dsDTS':          dts,
+    'dsHMAC':         hmac
   };
 }
 
