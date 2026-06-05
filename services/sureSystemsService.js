@@ -198,14 +198,13 @@ async function request(endpoint, payload) {
     ...buildSignatureHeaders()
   };
 
-  // Log outbound SureSystems request
+  // Log outbound SureSystems request — including all headers for debugging
+  const safeHeaders = { ...headers, Authorization: '[REDACTED]' };
   console.log('=============================================');
   console.log('[SureSystems DEBUG] EXACT REQUEST URL:', url);
+  console.log('[SureSystems DEBUG] HEADERS:', JSON.stringify(safeHeaders, null, 2));
+  console.log('[SureSystems DEBUG] PAYLOAD:', JSON.stringify(payload, null, 2));
   console.log('=============================================');
-  console.log('[SureSystems] Outbound Request:', {
-    url,
-    payload
-  });
 
   try {
     const response = await axios.post(url, payload, {
