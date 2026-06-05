@@ -122,15 +122,18 @@ function buildBasicAuthHeader() {
 }
 
 function buildSignatureHeaders() {
-  const prefix = config.headerPrefix;
+  // SureSystems expects these exact header names (confirmed by their support):
+  //   dsClientId  — the client ID
+  //   dsDTS       — timestamp: "YYYY-MM-DD HH:MM:SS.mmm"
+  //   dsHMAC      — HMAC-SHA512(clientId + dts, clientSecret) base64-encoded
   const dts = new Date().toISOString().replace('T', ' ').replace('Z', '').substring(0, 23);
   const message = `${config.clientId}${dts}`;
-  const hsh = crypto.createHmac('sha512', config.clientSecret).update(message).digest('base64');
+  const hmac = crypto.createHmac('sha512', config.clientSecret).update(message).digest('base64');
 
   return {
-    [`${prefix}-CLIENTID`]: config.clientId,
-    [`${prefix}-DTS`]: dts,
-    [`${prefix}-HSH`]: hsh
+    'dsClientId': config.clientId,
+    'dsDTS':      dts,
+    'dsHMAC':     hmac
   };
 }
 
