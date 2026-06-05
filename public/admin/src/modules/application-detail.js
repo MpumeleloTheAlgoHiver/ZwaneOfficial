@@ -546,24 +546,31 @@ const pageTemplate = `
   <!-- SACRRA Compliance Gate Modal -->
   <div id="sacrra-gate-modal" class="hidden fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
     <div class="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden animate-slide-up">
-      <div class="bg-gradient-to-r from-orange-600 to-orange-500 px-8 py-6">
+      <div class="bg-gradient-to-r from-amber-500 to-orange-500 px-8 py-6">
         <div class="flex items-center gap-3 mb-1">
           <span class="material-symbols-outlined text-white text-[28px]">gpp_maybe</span>
-          <h2 class="text-xl font-black text-white">SACRRA Compliance Required</h2>
+          <h2 class="text-xl font-black text-white">SACRRA Fields Incomplete</h2>
         </div>
-        <p class="text-orange-100 text-sm">This loan cannot be approved until all mandatory SACRRA fields are complete. Fill in the missing data below, then approve.</p>
+        <p class="text-amber-100 text-sm">Some fields required for the monthly SACRRA bureau submission are missing. <strong class="text-white">The loan can still be approved now</strong> — fix before submission day, or fill in below.</p>
       </div>
-      <div class="px-8 py-6 max-h-[60vh] overflow-y-auto" id="sacrra-gate-fields"></div>
-      <div class="px-8 py-5 bg-gray-50 border-t border-gray-100 flex items-center justify-between gap-3">
-        <button onclick="window.closeSACRRAGate()" class="px-5 py-2.5 text-sm font-bold text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors">
-          Cancel — Fix Later
+      <div class="px-8 py-6 max-h-[55vh] overflow-y-auto" id="sacrra-gate-fields"></div>
+      <div class="px-8 py-5 bg-gray-50 border-t border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+        <button onclick="window.closeSACRRAGate()" class="px-5 py-2.5 text-sm font-bold text-gray-500 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors">
+          Cancel
         </button>
-        <button onclick="window.saveSACRRAAndApprove()" id="sacrra-gate-save-btn"
-          class="px-6 py-2.5 text-sm font-black text-white rounded-xl transition-colors flex items-center gap-2"
-          style="background:var(--color-primary)">
-          <span class="material-symbols-outlined text-[18px]">save</span>
-          Save & Approve Loan
-        </button>
+        <div class="flex items-center gap-3 flex-wrap">
+          <button onclick="window.approveAnywaySkipSACRRA()" id="sacrra-approve-anyway-btn"
+            class="px-5 py-2.5 text-sm font-bold text-amber-700 border-2 border-amber-200 bg-amber-50 hover:bg-amber-100 rounded-xl transition-colors flex items-center gap-2">
+            <span class="material-symbols-outlined text-[16px]">bolt</span>
+            Approve Now — Fix SACRRA Later
+          </button>
+          <button onclick="window.saveSACRRAAndApprove()" id="sacrra-gate-save-btn"
+            class="px-6 py-2.5 text-sm font-black text-white rounded-xl transition-colors flex items-center gap-2"
+            style="background:var(--color-primary)">
+            <span class="material-symbols-outlined text-[18px]">save</span>
+            Fix &amp; Approve
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -1430,6 +1437,19 @@ window.closeSACRRAGate = () => {
     document.getElementById('sacrra-gate-modal')?.classList.add('hidden');
 };
 
+window.approveAnywaySkipSACRRA = async () => {
+    window.closeSACRRAGate();
+    showFeedback('Approving loan — remember to complete SACRRA fields before monthly submission.', 'success');
+    // Flag the application so the SACRRA Rejection Parser surfaces it
+    await supabase.from('sacrra_rejections').upsert([{
+        match_key:     `PENDING-${currentApplication?.id}`,
+        error_code:    'W00',
+        error_message: `Application ${currentApplication?.loan_number || currentApplication?.id} approved with incomplete SACRRA fields. Fix before monthly submission.`,
+        resolved:      false,
+    }], { onConflict: 'match_key,error_code', ignoreDuplicates: true }).catch(() => {});
+    _doApprove();
+};
+
 window.saveSACRRAAndApprove = async () => {
     const btn = document.getElementById('sacrra-gate-save-btn');
     btn.disabled = true;
@@ -1556,9 +1576,12 @@ const approveApplication = async () => {
       </div>`;
 
     fieldsEl.innerHTML = `
-      <div class="mb-4 flex items-center gap-2 p-3 bg-red-50 rounded-xl border border-red-100">
-        <span class="material-symbols-outlined text-red-500 text-[20px]">error</span>
-        <p class="text-sm font-bold text-red-700">${gate.issues.length} field${gate.issues.length > 1 ? 's' : ''} must be completed before this loan can be approved.</p>
+      <div class="mb-4 flex items-center gap-2 p-3 bg-amber-50 rounded-xl border border-amber-200">
+        <span class="material-symbols-outlined text-amber-500 text-[20px]">warning</span>
+        <div>
+          <p class="text-sm font-bold text-amber-800">${gate.issues.length} field${gate.issues.length > 1 ? 's' : ''} needed for the monthly SACRRA submission.</p>
+          <p class="text-xs text-amber-600 mt-0.5">You can approve the loan now and fix these before submission day, or fill them in below.</p>
+        </div>
       </div>
       ${renderGroup('Client Profile Fields', profileIssues)}
       ${renderGroup('Loan / Application Fields', appIssues)}
