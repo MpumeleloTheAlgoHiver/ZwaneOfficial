@@ -1194,7 +1194,7 @@ app.post('/api/suresystems/mandates/check-status', async (req, res) => {
     try {
         const applicationId = normalizeApplicationId(req.body?.applicationId);
         const contractReference = req.body?.contractReference || null;
-        const frontEndUserName = req.body?.frontEndUserName || 'webuser';
+        const frontEndUserName = req.body?.frontEndUserName || undefined;
         const mode = (req.body?.mode || 'finalfate').toString().toLowerCase();
 
         if (!contractReference) {
@@ -1471,10 +1471,6 @@ app.get('/api/suresystems/mandates/history', async (req, res) => {
                     user_id,
                     amount,
                     status
-                ),
-                profiles:user_id (
-                    full_name,
-                    email
                 )
             `)
             .order('updated_at', { ascending: false })
@@ -1486,8 +1482,8 @@ app.get('/api/suresystems/mandates/history', async (req, res) => {
 
         return res.json({ success: true, data: data || [] });
     } catch (error) {
-        console.error('SureSystems history fetch error:', error);
-        return res.status(500).json({ success: false, error: 'Unable to load mandate history' });
+        console.error('SureSystems history fetch error:', error?.message || error);
+        return res.status(500).json({ success: false, error: 'Unable to load mandate history', detail: error?.message || String(error) });
     }
 });
 

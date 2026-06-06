@@ -147,10 +147,10 @@ function buildSignatureHeaders() {
   );
 
   return {
-    'dsClientId':     config.clientId,
-    'dsClientSecret': config.clientSecret,
-    'dsDTS':          dts,
-    'dsHMAC':         hmac
+    'SS_SD_SWITCH_ClientId':     config.clientId,
+    'SS_SD_SWITCH_ClientSecret': config.clientSecret,
+    'SS_SD_SWITCH_DTS':          dts,
+    'SS_SD_SWITCH_HSH':          hmac
   };
 }
 
@@ -262,6 +262,8 @@ function buildMandatePayload(input = {}) {
     products[`product${i}Amount`] = 0;
   }
 
+  const maximumCollectionAmount = Math.max(1, Math.ceil(safeAmount * 1.5));
+
   return {
     contractReference,
     payload: {
@@ -279,24 +281,24 @@ function buildMandatePayload(input = {}) {
         frequencyCode:               Number(input.frequencyCode || 4),
         installmentAmount:           safeAmount,
         noOfInstallments:            Number(input.noOfInstallments || 1),
-        origin:                      Number(input.origin ?? 15),            // 15 per working example
+        origin:                      Number(input.origin ?? 15),
         binNumber:                   input.binNumber || '',
         panTrailer:                  input.panTrailer || '',
         contractReference,
         magId:                       Number(input.magId || 45),
         debitValueType:              Number(input.debitValueType || 1),
-        typeOfAuthorizationRequired: Number(input.typeOfAuthorizationRequired ?? 3), // 3 per working example
-        initialAmount:               Number(input.initialAmount ?? 0),      // 0 per working example
+        typeOfAuthorizationRequired: Number(input.typeOfAuthorizationRequired ?? 3),
+        initialAmount:               Number(input.initialAmount ?? 0),
         firstCollectionDate:         collectionDate,
-        maximumCollectionAmount:     Number(input.maximumCollectionAmount || Math.ceil(safeAmount * 1.5)),
+        maximumCollectionAmount:     input.maximumCollectionAmount != null ? Number(input.maximumCollectionAmount) : maximumCollectionAmount,
         adjustmentCategory:          Number(input.adjustmentCategory || 1),
         adjustmentAmount:            Number(input.adjustmentAmount || 0),
         adjustmentRate:              Number(input.adjustmentRate || 0),
-        collectionDay:               Number(input.collectionDay || new Date().getDate()),
+        collectionDay:               Number(input.collectionDay || (collectionDate && collectionDate.length === 8 ? parseInt(collectionDate.slice(-2), 10) : new Date().getDate())),
         dateAdjustmentRuleIndicator: Number(input.dateAdjustmentRuleIndicator || 1),
         trackingIndicator:           Number(input.trackingIndicator || 1),
         numberOfTrackingDays:        Number(input.numberOfTrackingDays || 3),
-        debitSequenceType:           input.debitSequenceType || 'RCUR',     // RCUR per working example
+        debitSequenceType:           input.debitSequenceType || 'RCUR',
         debtorAccountName:           input.debtorAccountName || '',
         debtorIdentificationType:    Number(input.debtorIdentificationType || 1),
         debtorIdentificationNo:      input.debtorIdentificationNo || '',
@@ -307,8 +309,9 @@ function buildMandatePayload(input = {}) {
         debtorTelephone:             input.debtorTelephone || '',
         debtorEmail:                 input.debtorEmail || '',
         mandateInitiationDate:       input.mandateInitiationDate || getToday(),
-        authorizationIndicator:      input.authorizationIndicator || '0229', // 0229 per working example
-        dateList:                    input.dateList ?? '',  // empty per working example
+        authorizationIndicator:      input.authorizationIndicator || '0229',
+        dateList:                    input.dateList ?? '',
+        ...products,
       }
     }
   };
@@ -355,8 +358,8 @@ async function checkFinalFate({ contractReference, frontEndUserName } = {}) {
   const payload = {
     contractReference,
     merchantGid: config.merchantGid,
-    frontEndUserName: frontEndUserName || 'webuser',
-    remoteGid: config.remoteGid
+    remoteGid:   config.remoteGid,
+    frontEndUserName: frontEndUserName || config.systemUsername || 'algohiveuat'
   };
 
   const response = await request('/mandates/finalfate', payload);
@@ -375,11 +378,11 @@ async function downloadPayments({ frontEndUserName } = {}) {
 }
 
 async function mandateEnquiry(input = {}) {
+  const { frontEndUserName: _ignored, ...rest } = input;
   const payload = {
     merchantGid: config.merchantGid,
     remoteGid: config.remoteGid,
-    frontEndUserName: input.frontEndUserName || 'webuser',
-    ...input
+    ...rest
   };
 
   const response = await request('/mandates/batch/mandateenquiry', payload);
@@ -390,7 +393,7 @@ async function cancelMandate(input = {}) {
   const payload = {
     merchantGid: config.merchantGid,
     remoteGid: config.remoteGid,
-    frontEndUserName: input.frontEndUserName || 'webuser',
+    frontEndUserName: input.frontEndUserName || config.systemUsername || 'algohiveuat',
     ...input
   };
 
@@ -399,11 +402,11 @@ async function cancelMandate(input = {}) {
 }
 
 async function createInstallmentRequest(input = {}) {
+  const { frontEndUserName: _a, ...rest } = input;
   const payload = {
     merchantGid: config.merchantGid,
     remoteGid: config.remoteGid,
-    frontEndUserName: input.frontEndUserName || config.systemUsername,
-    ...input
+    ...rest
   };
 
   const response = await request('/installments/batch/installment', payload);
@@ -411,11 +414,11 @@ async function createInstallmentRequest(input = {}) {
 }
 
 async function updateInstallmentRequest(input = {}) {
+  const { frontEndUserName: _a, ...rest } = input;
   const payload = {
     merchantGid: config.merchantGid,
     remoteGid: config.remoteGid,
-    frontEndUserName: input.frontEndUserName || config.systemUsername,
-    ...input
+    ...rest
   };
 
   const response = await request('/installments/batch/update', payload);
@@ -423,11 +426,11 @@ async function updateInstallmentRequest(input = {}) {
 }
 
 async function cancelInstallment(input = {}) {
+  const { frontEndUserName: _a, ...rest } = input;
   const payload = {
     merchantGid: config.merchantGid,
     remoteGid: config.remoteGid,
-    frontEndUserName: input.frontEndUserName || config.systemUsername,
-    ...input
+    ...rest
   };
 
   const response = await request('/installments/cancel', payload);

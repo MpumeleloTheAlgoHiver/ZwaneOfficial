@@ -81,11 +81,12 @@ async function run() {
   // ── STEP 4: All HTTP Headers ────────────────────────────────────
   console.log('\n── STEP 4: HTTP HEADERS ──────────────────────────────────────');
   const headers = {
-    'Content-Type' : 'application/json',
-    'Authorization': authHeader,
-    'dsClientId'   : CFG.clientId,
-    'dsDTS'        : dts,
-    'dsHMAC'       : hmac,
+    'Content-Type'             : 'application/json',
+    'Authorization'            : authHeader,
+    'SS_SD_SWITCH_ClientId'    : CFG.clientId,
+    'SS_SD_SWITCH_ClientSecret': CFG.clientSecret,
+    'SS_SD_SWITCH_DTS'         : dts,
+    'SS_SD_SWITCH_HSH'         : hmac,
   };
   Object.entries(headers).forEach(([k, v]) => {
     const display = k === 'Authorization' ? 'Basic [' + basicB64 + ']' : v;

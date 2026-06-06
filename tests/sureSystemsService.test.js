@@ -161,12 +161,13 @@ section('Auth: buildSignatureHeaders');
 
 {
   const headers = t.buildSignatureHeaders();
-  assert('SS_CLIENTID' in headers, 'has SS_CLIENTID header');
-  assert('SS_DTS' in headers, 'has SS_DTS header');
-  assert('SS_HSH' in headers, 'has SS_HSH header');
-  assertEq(headers.SS_CLIENTID, 'client123', 'SS_CLIENTID matches client ID');
-  assert(headers.SS_DTS.length >= 19, 'SS_DTS is datetime string (>= 19 chars)');
-  assert(headers.SS_HSH.length > 20, 'SS_HSH is a non-trivial hash string');
+  assert('SS_SD_SWITCH_ClientId' in headers, 'has SS_SD_SWITCH_ClientId header');
+  assert('SS_SD_SWITCH_ClientSecret' in headers, 'has SS_SD_SWITCH_ClientSecret header');
+  assert('SS_SD_SWITCH_DTS' in headers, 'has SS_SD_SWITCH_DTS header');
+  assert('SS_SD_SWITCH_HSH' in headers, 'has SS_SD_SWITCH_HSH header');
+  assertEq(headers.SS_SD_SWITCH_ClientId, 'client123', 'SS_SD_SWITCH_ClientId matches client ID');
+  assert(headers.SS_SD_SWITCH_DTS.length >= 19, 'SS_SD_SWITCH_DTS is datetime string (>= 19 chars)');
+  assert(headers.SS_SD_SWITCH_HSH.length > 20, 'SS_SD_SWITCH_HSH is a non-trivial hash string');
 }
 
 // =============================================
@@ -218,7 +219,7 @@ section('Mandate Payload: buildMandatePayload — basic');
   assert(m !== undefined, 'payload.mandate exists');
   assertEq(m.clientNo, 'CLT001', 'mandate.clientNo');
   assertEq(m.installmentAmount, 5000, 'mandate.installmentAmount = 5000');
-  assertEq(m.initialAmount, 5000, 'mandate.initialAmount = 5000');
+  assertEq(m.initialAmount, 0, 'mandate.initialAmount = 0 (default per working example)');
   assertEq(m.maximumCollectionAmount, 7500, 'mandate.maximumCollectionAmount = 5000 * 1.5');
   assertEq(m.debtorAccountName, 'John Doe', 'mandate.debtorAccountName');
   assertEq(m.debtorEmail, 'john@example.com', 'mandate.debtorEmail');
@@ -239,7 +240,7 @@ section('Mandate Payload: zero amount → maximumCollectionAmount floors at 1');
 {
   const { payload } = t.buildMandatePayload({ amount: 0 });
   assertEq(payload.mandate.installmentAmount, 0, 'installmentAmount = 0');
-  assertEq(payload.mandate.maximumCollectionAmount, 1, 'maximumCollectionAmount floors at 1 (not 0)');
+  assertEq(payload.mandate.maximumCollectionAmount, 1, 'maximumCollectionAmount floors at 1');
 }
 
 section('Mandate Payload: negative amount');
@@ -323,8 +324,8 @@ section('Full flow: mandate payload → correct API structure');
   assertEq(payload.mandate.noOfInstallments, 12, 'noOfInstallments = 12');
   assertEq(payload.mandate.frequencyCode, 4, 'frequencyCode = 4');
   assertEq(payload.mandate.firstCollectionDate, '20250715', 'firstCollectionDate passed through');
-  assertEq(payload.mandate.dateList, '20250715', 'dateList matches collection date');
-  assertEq(payload.mandate.debitSequenceType, 'OOFF', 'default debitSequenceType = OOFF');
+  assertEq(payload.mandate.dateList, '', 'dateList defaults to empty (per working example)');
+  assertEq(payload.mandate.debitSequenceType, 'RCUR', 'default debitSequenceType = RCUR (per working example)');
   assertEq(payload.mandate.entryClass, '0033', 'default entryClass = 0033');
   assertEq(payload.mandate.magId, 45, 'default magId = 45');
 }
