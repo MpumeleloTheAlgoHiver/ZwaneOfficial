@@ -2343,6 +2343,133 @@ function parseSACRRAResponseFile(content) {
     };
 }
 
+// ════════════════════════════════════════════════════════════════
+// SACRRA Bureau Management
+// ════════════════════════════════════════════════════════════════
+
+// GET /api/sacrra/bureaux — list all bureau configs
+app.get('/api/sacrra/bureaux', async (req, res) => {
+    try {
+        const { data, error } = await supabaseService
+            .from('sacrra_bureaux')
+            .select('*')
+            .order('bureau_key');
+        if (error) throw error;
+        // Mask sensitive fields in the list view
+        const masked = (data || []).map(b => ({
+            ...b,
+            submission_password: b.submission_password ? '••••••••' : null,
+            pgp_public_key:      b.pgp_public_key ? b.pgp_public_key.slice(0, 60) + '...' : null
+        }));
+        res.json({ data: masked });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT /api/sacrra/bureaux/:bureauKey — update bureau config
+app.put('/api/sacrra/bureaux/:bureauKey', async (req, res) => {
+    try {
+        const { bureauKey } = req.params;
+        const allowed = ['is_enabled', 'supplier_ref_number', 'pgp_public_key',
+            'submission_method', 'submission_email', 'submission_host',
+            'submission_username', 'submission_password', 'submission_folder'];
+        const payload = {};
+        for (const k of allowed) {
+            if (req.body[k] !== undefined && req.body[k] !== '••••••••') payload[k] = req.body[k] || null;
+        }
+        payload.updated_at = new Date().toISOString();
+        const { data, error } = await supabaseService
+            .from('sacrra_bureaux')
+            .update(payload)
+            .eq('bureau_key', bureauKey)
+            .select()
+            .single();
+        if (error) throw error;
+        res.json({ data, success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/sacrra/submit/:bureauKey — submit the SACRRA file to one bureau
+// Body: { fileContent (plain text), fileName }
+app.post('/api/sacrra/submit/:bureauKey', async (req, res) => {
+    const startTime = Date.now();
+    try {
+        const { bureauKey } = req.params;
+        const { fileContent, fileName } = req.body;
+        if (!fileContent || !fileName) return res.status(400).json({ error: 'fileContent and fileName required' });
+
+        // 1. Load bureau config
+        const { data: bureau, error: bureauErr } = await supabaseService
+            .from('sacrra_bureaux')
+            .select('*')
+            .eq('bureau_key', bureauKey)
+            .single();
+        if (bureauErr || !bureau) return res.status(404).json({ error: 'Bureau not found' });
+        if (!bureau.is_enabled)   return res.status(400).json({ error: `Bureau ${bureauKey} is disabled` });
+        if (!bureau.pgp_public_key) return res.status(400).json({ error: 'No PGP public key configured for this bureau' });
+
+        // 2. Encrypt with bureau's PGP key
+        const openpgp = require('openpgp');
+        const publicKey = await openpgp.readKey({ armoredKey: bureau.pgp_public_key });
+        const encrypted = await openpgp.encrypt({
+            message:     await openpgp.createMessage({ text: fileContent }),
+            encryptionKeys: publicKey
+        });
+
+        const pgpFileName = fileName.replace(/\.txt$/i, '.pgp');
+        let result = { method: bureau.submission_method };
+
+        // 3. Submit via the bureau's configured method
+        if (bureau.submission_method === 'moveit') {
+            const auth = await moveItService.authenticate();
+            const upload = await moveItService.uploadFile({
+                accessToken: auth.access_token,
+                folderId:    bureau.submission_folder || process.env.MOVEIT_FOLDER_ID,
+                fileName:    pgpFileName,
+                content:     Buffer.from(encrypted)
+            });
+            result.uploadedFileId = upload?.fileId || upload?.id;
+
+        } else if (bureau.submission_method === 'email') {
+            if (!bureau.submission_email) throw new Error('No submission email configured');
+            const { Resend } = require('resend');
+            const resend = new Resend(process.env.RESEND_API_KEY);
+            const send = await resend.emails.send({
+                from:    process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+                to:      bureau.submission_email,
+                subject: `SACRRA Layout 700v2 Submission — ${process.env.COMPANY_NAME || 'AlgoLend'} — ${new Date().toISOString().slice(0,10)}`,
+                text:    `Please find attached the encrypted SACRRA Layout 700v2 submission.\n\nSupplier Reference: ${bureau.supplier_ref_number || 'N/A'}\nFile: ${pgpFileName}\nSubmitted: ${new Date().toISOString()}\n\nThis file is PGP-encrypted with your public key.`,
+                attachments: [{ filename: pgpFileName, content: Buffer.from(encrypted) }]
+            });
+            result.emailId = send?.data?.id || send?.id;
+        } else {
+            throw new Error(`Unsupported submission method: ${bureau.submission_method}`);
+        }
+
+        // 4. Update last_submitted_at on the bureau row
+        await supabaseService.from('sacrra_bureaux').update({
+            last_submitted_at:      new Date().toISOString(),
+            last_submission_status: 'success',
+            last_submission_note:   `Submitted ${pgpFileName} via ${bureau.submission_method}`
+        }).eq('bureau_key', bureauKey);
+
+        result.durationMs = Date.now() - startTime;
+        result.success = true;
+        res.json(result);
+
+    } catch (err) {
+        console.error(`[sacrra/submit/${req.params.bureauKey}]`, err.message);
+        await supabaseService.from('sacrra_bureaux').update({
+            last_submission_status: 'failed',
+            last_submission_note:   err.message
+        }).eq('bureau_key', req.params.bureauKey).catch(()=>{});
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // GET /api/sacrra/response-files — list MOVEit for SACRRA response files
 app.get('/api/sacrra/response-files', async (req, res) => {
     try {

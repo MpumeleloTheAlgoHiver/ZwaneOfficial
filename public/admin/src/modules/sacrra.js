@@ -146,6 +146,7 @@ export async function init(container) {
 
 function setupGlobalHandlers() {
     window.switchSacrraView = (view) => { sacrraState.view = view; renderView(); };
+    window.buildSacrraFileContent = buildSacrraFileContent;
     window.refreshSacrraData = async () => { await fetchData(); renderView(); };
     window.setExportType = (type) => { 
         sacrraState.exportSettings.type = type; 
@@ -284,7 +285,8 @@ function renderView() {
         <div class="space-y-1 mb-6">
             ${renderNavItem('overview', 'dashboard', 'Dashboard')}
             ${renderNavItem('pipeline', 'account_tree', 'Submissions')}
-            ${renderNavItem('parser', 'error', 'Rejections')}
+            ${renderNavItem('bureaux',  'verified',     'Bureaux')}
+            ${renderNavItem('parser',   'error',        'Rejections')}
         </div>
         <!-- Back to admin -->
         <div class="border-t border-slate-100 pt-4">
@@ -305,7 +307,8 @@ function renderView() {
     switch (sacrraState.view) {
         case 'overview': renderOverview(canvas); break;
         case 'pipeline': renderPipeline(canvas); break;
-        case 'parser': renderParser(canvas); break;
+        case 'bureaux':  renderBureaux(canvas); break;
+        case 'parser':   renderParser(canvas); break;
         default: renderOverview(canvas);
     }
 }
@@ -701,6 +704,192 @@ function renderPipeline(container) {
     `;
 }
 
+// ════════════════════════════════════════════════════════════════
+// BUREAUX — configure & submit to each credit bureau
+// ════════════════════════════════════════════════════════════════
+async function renderBureaux(container) {
+    container.innerHTML = `
+        <div class="flex flex-col gap-6">
+            <div class="bg-white p-8 rounded-[32px] border border-slate-100">
+                <div class="flex items-start justify-between mb-2">
+                    <div>
+                        <h2 class="text-2xl font-black text-slate-900 tracking-tight">Bureau Configuration</h2>
+                        <p class="text-sm text-slate-500 mt-1">Each bureau needs: Supplier Reference Number, PGP public key, and submission method</p>
+                    </div>
+                    <button onclick="window.submitToAllBureaux()"
+                        class="px-5 py-3 bg-[#a04100] text-white rounded-2xl font-bold text-sm hover:bg-[#7a3000] transition-all flex items-center gap-2 shadow-lg shadow-orange-900/20">
+                        <span class="material-symbols-outlined text-[18px]">send</span>
+                        Submit File to All Bureaux
+                    </button>
+                </div>
+            </div>
+            <div id="bureaux-list" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="text-slate-400 text-sm">Loading...</div>
+            </div>
+        </div>
+    `;
+
+    try {
+        const res = await fetch('/api/sacrra/bureaux');
+        const { data, error } = await res.json();
+        if (error) throw new Error(error);
+        renderBureauCards(data || []);
+    } catch (err) {
+        document.getElementById('bureaux-list').innerHTML = `
+            <div class="col-span-2 bg-red-50 border border-red-200 p-6 rounded-2xl text-red-800 text-sm">
+                <strong>Could not load bureaux.</strong><br>${err.message}<br><br>
+                <em>Run <code class="bg-red-100 px-2 py-1 rounded">sql/sacrra_bureaux.sql</code> in Supabase first.</em>
+            </div>`;
+    }
+}
+
+function renderBureauCards(bureaux) {
+    const el = document.getElementById('bureaux-list');
+    if (!el) return;
+    el.innerHTML = bureaux.map(b => {
+        const lastSubmit = b.last_submitted_at
+            ? new Date(b.last_submitted_at).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })
+            : '—';
+        const statusColor = b.last_submission_status === 'success' ? 'green'
+            : b.last_submission_status === 'failed' ? 'red' : 'slate';
+        const hasKey = !!b.pgp_public_key;
+        const ready  = hasKey && b.supplier_ref_number && (b.submission_email || b.submission_folder);
+        return `
+        <div class="bg-white p-6 rounded-[28px] border ${ready ? 'border-green-100' : 'border-orange-100'} relative">
+            <div class="flex items-start justify-between mb-4">
+                <div>
+                    <div class="flex items-center gap-2 mb-1">
+                        <h3 class="text-lg font-black text-slate-900">${b.bureau_name}</h3>
+                        ${ready ? '<span class="bg-green-50 text-green-700 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase">Ready</span>'
+                                : '<span class="bg-orange-50 text-orange-700 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase">Setup needed</span>'}
+                    </div>
+                    <p class="text-xs text-slate-400 font-mono">${b.bureau_key}</p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" ${b.is_enabled ? 'checked' : ''}
+                        onchange="window.toggleBureau('${b.bureau_key}', this.checked)" class="sr-only peer">
+                    <div class="w-9 h-5 bg-slate-200 peer-checked:bg-[#a04100] rounded-full peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all"></div>
+                </label>
+            </div>
+
+            <div class="space-y-3 mb-4">
+                <div>
+                    <label class="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Supplier Reference Number</label>
+                    <input id="srn-${b.bureau_key}" value="${b.supplier_ref_number || ''}" placeholder="e.g. ZWN0001234"
+                        class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono">
+                </div>
+
+                <div>
+                    <label class="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Submission Method</label>
+                    <select id="method-${b.bureau_key}" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                        <option value="email"  ${b.submission_method === 'email'  ? 'selected' : ''}>Email (manual)</option>
+                        <option value="moveit" ${b.submission_method === 'moveit' ? 'selected' : ''}>MOVEit MFT (automated)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Submission Email</label>
+                    <input id="email-${b.bureau_key}" type="email" value="${b.submission_email || ''}" placeholder="sacrra@${b.bureau_key}.co.za"
+                        class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                </div>
+
+                <div>
+                    <label class="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">PGP Public Key</label>
+                    <textarea id="pgp-${b.bureau_key}" rows="3" placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----..."
+                        class="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono">${b.pgp_public_key && b.pgp_public_key.includes('...') ? '' : (b.pgp_public_key || '')}</textarea>
+                    ${hasKey ? '<p class="text-[10px] text-green-600 mt-1">✓ Key configured (paste a new one to replace)</p>' : '<p class="text-[10px] text-orange-600 mt-1">No key set — encryption will fail</p>'}
+                </div>
+            </div>
+
+            <div class="border-t border-slate-100 pt-4 flex items-center justify-between">
+                <div class="text-[10px] text-slate-400">
+                    Last submitted: <span class="text-${statusColor}-600 font-bold">${lastSubmit}</span>
+                    ${b.last_submission_status === 'failed' && b.last_submission_note ? `<br><span class="text-red-500">${b.last_submission_note.slice(0,60)}</span>` : ''}
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="window.saveBureau('${b.bureau_key}')"
+                        class="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-bold text-slate-700">Save</button>
+                    <button onclick="window.submitOneBureau('${b.bureau_key}')" ${!ready ? 'disabled' : ''}
+                        class="px-3 py-2 bg-[#a04100] hover:bg-[#7a3000] disabled:bg-slate-200 disabled:cursor-not-allowed disabled:text-slate-400 rounded-lg text-xs font-bold text-white">Submit</button>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+window.toggleBureau = async (key, enabled) => {
+    await fetch(`/api/sacrra/bureaux/${key}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ is_enabled: enabled })
+    });
+};
+
+window.saveBureau = async (key) => {
+    const payload = {
+        supplier_ref_number: document.getElementById(`srn-${key}`).value.trim() || null,
+        submission_method:   document.getElementById(`method-${key}`).value,
+        submission_email:    document.getElementById(`email-${key}`).value.trim() || null
+    };
+    const pgpVal = document.getElementById(`pgp-${key}`).value.trim();
+    if (pgpVal && pgpVal.startsWith('-----')) payload.pgp_public_key = pgpVal;
+
+    const res = await fetch(`/api/sacrra/bureaux/${key}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload)
+    });
+    const { success, error } = await res.json();
+    if (success) {
+        renderBureaux(document.getElementById('sacrra-canvas') || document.querySelector('main'));
+    } else {
+        alert('Save failed: ' + error);
+    }
+};
+
+window.submitOneBureau = async (key) => {
+    if (!confirm(`Generate the SACRRA file and submit to ${key}?\n\nThis will encrypt the file with their PGP key and ${
+        document.getElementById(`method-${key}`)?.value === 'email' ? 'send via email' : 'upload via MOVEit'
+    }.`)) return;
+
+    // Reuse existing file generation
+    if (typeof window.buildSacrraFileContent !== 'function') {
+        // Quick fix: import the build function from sacrra module if exposed
+        alert('Generate the file from Dashboard first, then return here to submit.');
+        return;
+    }
+    try {
+        const settings = { type: 'MONTHLY', prefix: 'D' };
+        const fileContent = await window.buildSacrraFileContent(settings);
+        const fileName = `SACRRA_MONTHLY_${new Date().toISOString().slice(0,10).replace(/-/g,'')}.txt`;
+        const res = await fetch(`/api/sacrra/submit/${key}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ fileContent, fileName })
+        });
+        const result = await res.json();
+        if (result.success) {
+            alert(`✅ Submitted to ${key} successfully\nMethod: ${result.method}\nDuration: ${result.durationMs}ms`);
+            renderBureaux(document.getElementById('sacrra-canvas') || document.querySelector('main'));
+        } else {
+            alert(`❌ Failed: ${result.error}`);
+        }
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+};
+
+window.submitToAllBureaux = async () => {
+    if (!confirm('Generate the SACRRA file and submit to ALL enabled bureaux?\n\nDisabled bureaux will be skipped.')) return;
+    const res = await fetch('/api/sacrra/bureaux');
+    const { data } = await res.json();
+    const enabled = (data || []).filter(b => b.is_enabled);
+    if (enabled.length === 0) { alert('No bureaux enabled.'); return; }
+    for (const b of enabled) {
+        await window.submitOneBureau(b.bureau_key);
+    }
+};
+
 function renderParser(container) {
     container.innerHTML = `
         <div class="flex flex-col gap-8">
@@ -801,6 +990,7 @@ function deriveTitle(gender) {
 }
 
 // ── Build the fixed-width 700-char file content ───────────────────────
+// Exposed on window for bureau-submit flows
 async function buildSacrraFileContent(settings) {
     // Spec: SACRRA Layout 700v2 v2.8 — exact byte positions
     // Alpha fields: LEFT-aligned, space-padded
