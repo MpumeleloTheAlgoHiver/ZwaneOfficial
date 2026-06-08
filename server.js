@@ -36,6 +36,30 @@ if (!process.env.SUPABASE_SERVICE_ROLE_KEY ||
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Trust the proxy so rate-limiter and IP-based logging see the real client IP on Vercel
+app.set('trust proxy', 1);
+
+// ── Brute-force protection for authentication endpoints ──────────────
+// 10 requests per 5 minutes per IP — blocks credential stuffing without
+// hurting legitimate users who fat-finger their password a couple times.
+const rateLimit = require('express-rate-limit');
+const authLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many login attempts. Please wait 5 minutes and try again.' },
+    skipSuccessfulRequests: true   // don't count successful logins toward limit
+});
+
+const otpLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many OTP requests. Please wait 10 minutes.' }
+});
+
 // Middleware
 app.use(express.json({
     verify: (req, res, buf) => {
@@ -2104,6 +2128,15 @@ app.get('/login.html', (req, res) => {
 });
 app.get('/auth.html', (req, res) => {
     res.redirect('/auth/login.html');
+});
+
+// Public config endpoint — safe to expose. Used by the login page to enable
+// Cloudflare Turnstile when a site key is configured.
+app.get('/api/public/config', (req, res) => {
+    res.set('Cache-Control', 'public, max-age=300');
+    res.json({
+        turnstileSiteKey: process.env.CLOUDFLARE_TURNSTILE_SITE_KEY || ''
+    });
 });
 
 
@@ -4279,7 +4312,7 @@ app.get('/api/audit-log', async (req, res) => {
 // ================================================================
 
 // POST /api/messaging/otp — send OTP to a phone number
-app.post('/api/messaging/otp', async (req, res) => {
+app.post('/api/messaging/otp', otpLimiter, async (req, res) => {
     try {
         const { phone } = req.body;
         if (!phone) return res.status(400).json({ error: 'phone is required' });
@@ -4291,7 +4324,7 @@ app.post('/api/messaging/otp', async (req, res) => {
 });
 
 // POST /api/messaging/verify-otp
-app.post('/api/messaging/verify-otp', (req, res) => {
+app.post('/api/messaging/verify-otp', authLimiter, (req, res) => {
     const { phone, otp } = req.body;
     if (!phone || !otp) return res.status(400).json({ error: 'phone and otp required' });
     const result = messaging.verifyOTP(phone, otp);

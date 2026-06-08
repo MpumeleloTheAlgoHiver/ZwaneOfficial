@@ -815,9 +815,18 @@ async function renderSystemSettingsTab() {
                 <h4 class="text-lg font-headline font-bold text-on-surface mb-4 border-b border-outline-variant/10 pb-2">Company Legal Details</h4>
                 <p class="text-xs text-gray-400 mb-4">These details appear in loan contracts and NCA disclosures generated via DocuSeal.</p>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Legal Entity Name (Pty Ltd)</label>
+                        <input type="text" id="legal-entity-name-input" value="${escapeHtmlAttr(systemSettingsDraft.legal_entity_name || '')}" class="w-full border-gray-300 rounded-lg p-2.5 text-sm focus:ring-orange-500 focus:border-orange-500" placeholder="Zwane Financial Services (Pty) Ltd">
+                        <p class="text-xs text-gray-400 mt-1">Appears on login page and contracts: "{Legal Entity} t/a {Trading Name}".</p>
+                    </div>
                     <div>
                         <label class="block text-xs font-bold text-gray-500 uppercase mb-1">NCR Registration Number</label>
                         <input type="text" id="ncr-number-input" value="${escapeHtmlAttr(systemSettingsDraft.ncr_number || '')}" class="w-full border-gray-300 rounded-lg p-2.5 text-sm focus:ring-orange-500 focus:border-orange-500" placeholder="NCRCP12345">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">FSP Number</label>
+                        <input type="text" id="fsp-number-input" value="${escapeHtmlAttr(systemSettingsDraft.fsp_number || '')}" class="w-full border-gray-300 rounded-lg p-2.5 text-sm focus:ring-orange-500 focus:border-orange-500" placeholder="12345">
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Company Registration Number</label>
@@ -997,8 +1006,10 @@ async function renderSystemSettingsTab() {
     });
 
     document.getElementById('company-name-input')?.addEventListener('input', (e) => commitThemeDraft({ company_name: e.target.value }));
-    document.getElementById('ncr-number-input')?.addEventListener('input', (e) => commitThemeDraft({ ncr_number: e.target.value }));
-    document.getElementById('company-reg-input')?.addEventListener('input', (e) => commitThemeDraft({ company_reg_number: e.target.value }));
+    document.getElementById('ncr-number-input')?.addEventListener('input',          (e) => commitThemeDraft({ ncr_number: e.target.value }));
+    document.getElementById('fsp-number-input')?.addEventListener('input',          (e) => commitThemeDraft({ fsp_number: e.target.value }));
+    document.getElementById('legal-entity-name-input')?.addEventListener('input',  (e) => commitThemeDraft({ legal_entity_name: e.target.value }));
+    document.getElementById('company-reg-input')?.addEventListener('input',         (e) => commitThemeDraft({ company_reg_number: e.target.value }));
     document.getElementById('company-vat-input')?.addEventListener('input', (e) => commitThemeDraft({ company_vat_number: e.target.value }));
     document.getElementById('provider-branch-code-input')?.addEventListener('input', (e) => commitThemeDraft({ provider_branch_code: e.target.value }));
     document.getElementById('company-phone-input')?.addEventListener('input', (e) => commitThemeDraft({ company_phone: e.target.value }));

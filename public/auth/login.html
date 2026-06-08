@@ -43,6 +43,13 @@
           <p>Loading...</p>
         </div>
     </div>
+    <script>
+      // Load safe-to-expose public config (e.g. Cloudflare Turnstile site key)
+      window.__ZWANE_CONFIG__ = { turnstileSiteKey: '' };
+      fetch('/api/public/config').then(r => r.json()).then(c => {
+        window.__ZWANE_CONFIG__ = { ...window.__ZWANE_CONFIG__, ...c };
+      }).catch(() => {});
+    </script>
     <script type="module" src="/auth/auth.js"></script>
 </body>
 </html>

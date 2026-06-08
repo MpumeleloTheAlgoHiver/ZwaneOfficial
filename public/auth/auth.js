@@ -242,6 +242,17 @@ function render() {
     const wallpaperAttr = escapeAttr(wallpaper);
     const overlayColorAttr = escapeAttr(overlayColor);
     const companyName = escapeHtml(getActiveCompanyName());
+    // Compliance — pulled from system_settings (set in admin → Settings → Legal Details)
+    const settings = brandingTheme || getCachedTheme() || DEFAULT_SYSTEM_SETTINGS;
+    const legalEntityName = escapeHtml(settings.legal_entity_name || settings.company_reg_name || settings.company_name || companyName);
+    const fspNumber       = escapeHtml(settings.fsp_number || '');
+    const ncrNumber       = escapeHtml(settings.ncr_number || '');
+    // Build the inline regulatory tag for the left panel
+    const regTagParts = [];
+    if (ncrNumber) regTagParts.push('NCR Registered');
+    if (fspNumber) regTagParts.push(`FSP ${fspNumber}`);
+    if (ncrNumber) regTagParts.push(ncrNumber);
+    const leftFooterText = regTagParts.length ? regTagParts.join(' · ') : 'Registered Credit Provider';
 
     let mainHeading, subHeading, buttonText;
     
@@ -417,7 +428,7 @@ function render() {
         .auth-field input {
             width: 100%;
             padding: 13px 16px;
-            border: 1.5px solid #e2e8f0;
+            border: 1.5px solid #cbd5e1; /* WCAG-AA contrast — was #e2e8f0 (too faint) */
             border-radius: 12px;
             font-size: 14px; font-weight: 400; color: #0F172A;
             background: #fff;
@@ -425,15 +436,42 @@ function render() {
             transition: border-color .2s, box-shadow .2s;
             font-family: 'IBM Plex Sans', sans-serif;
         }
+        .auth-field input:hover { border-color: #94a3b8; }
         .auth-field input::placeholder { color: #94a3b8; }
         .auth-field input:focus {
             border-color: var(--color-primary, #E7762E);
             box-shadow: 0 0 0 3px rgba(231,118,46,0.12);
         }
 
-        /* Forgot link */
-        .auth-forgot {
-            display: flex; justify-content: flex-end; margin-top: -10px; margin-bottom: 18px;
+        /* Password field with visibility toggle */
+        .auth-password-wrap { position: relative; }
+        .auth-password-wrap input { padding-right: 44px; }
+        .auth-password-toggle {
+            position: absolute; right: 14px; top: 50%;
+            transform: translateY(-50%);
+            background: none; border: none; padding: 6px; cursor: pointer;
+            color: #94a3b8;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 6px;
+            transition: color .15s, background .15s;
+        }
+        .auth-password-toggle:hover { color: var(--color-primary, #E7762E); background: rgba(231,118,46,0.06); }
+        .auth-password-toggle i { font-size: 15px; }
+
+        /* Remember Me + Forgot row */
+        .auth-row {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-top: -4px; margin-bottom: 22px;
+        }
+        .auth-remember {
+            display: flex; align-items: center; gap: 8px; cursor: pointer;
+            font-size: 13px; font-weight: 500; color: #475569;
+            user-select: none;
+        }
+        .auth-remember input[type="checkbox"] {
+            width: 16px; height: 16px;
+            accent-color: var(--color-primary, #E7762E);
+            cursor: pointer; margin: 0;
         }
         .auth-forgot button {
             background: none; border: none; padding: 0; cursor: pointer;
@@ -516,7 +554,7 @@ function render() {
                     <div id="carousel-dots"></div>
                 </div>
                 <div class="auth-left-footer">
-                    NCR Registered · FSP 53423 · NCRCP13510
+                    ${leftFooterText}
                 </div>
             </div>
         </div>
@@ -559,14 +597,29 @@ function render() {
                     ${viewState !== 'forgot' ? `
                     <div class="auth-field">
                         <label for="password">Password</label>
-                        <input id="password" name="password" type="password" autocomplete="current-password" required placeholder="••••••••">
+                        <div class="auth-password-wrap">
+                            <input id="password" name="password" type="password" autocomplete="${viewState === 'signup' ? 'new-password' : 'current-password'}" required placeholder="••••••••">
+                            <button type="button" class="auth-password-toggle" id="btn-toggle-password"
+                                    aria-label="Show password" tabindex="-1">
+                                <i class="fa-regular fa-eye"></i>
+                            </button>
+                        </div>
                         ${viewState === 'signup' ? '<p style="font-size:12px;color:#94a3b8;margin-top:6px;">Minimum 6 characters.</p>' : ''}
                     </div>` : ''}
 
                     ${viewState === 'login' ? `
-                    <div class="auth-forgot">
-                        <button type="button" id="btn-to-forgot">Forgot Password?</button>
+                    <div class="auth-row">
+                        <label class="auth-remember">
+                            <input type="checkbox" id="remember-me" checked>
+                            Remember me
+                        </label>
+                        <div class="auth-forgot">
+                            <button type="button" id="btn-to-forgot">Forgot Password?</button>
+                        </div>
                     </div>` : ''}
+
+                    <!-- Cloudflare Turnstile (renders only if site key is configured) -->
+                    <div id="cf-turnstile-container" style="margin-bottom: 16px;"></div>
 
                     <button type="submit" class="auth-submit">
                         <span id="auth-button-content">${buttonText}</span>
@@ -578,9 +631,9 @@ function render() {
                 <div class="auth-switch">${getFooterText()}</div>
 
                 <div class="auth-legal">
-                    ${companyName} is an authorised financial services<br>
-                    provider (FSP 53423) · NCRCP13510<br>
-                    © 2025 ${companyName}. All rights reserved.
+                    ${legalEntityName} t/a ${companyName} is an authorised<br>
+                    Financial Services Provider${fspNumber ? ` (FSP ${fspNumber})` : ''}${ncrNumber ? ` and registered Credit Provider (${ncrNumber})` : ''}.<br>
+                    © ${new Date().getFullYear()} ${companyName}. All rights reserved.
                 </div>
 
             </div>
@@ -622,6 +675,49 @@ function attachListeners() {
     addClick('btn-to-signup', 'signup');
     addClick('btn-to-login', 'login');
     addClick('btn-to-forgot', 'forgot');
+
+    // Password visibility toggle
+    const toggleBtn = document.getElementById('btn-toggle-password');
+    const pwField   = document.getElementById('password');
+    if (toggleBtn && pwField) {
+        toggleBtn.addEventListener('click', () => {
+            const isPw = pwField.type === 'password';
+            pwField.type = isPw ? 'text' : 'password';
+            toggleBtn.setAttribute('aria-label', isPw ? 'Hide password' : 'Show password');
+            const icon = toggleBtn.querySelector('i');
+            if (icon) icon.className = isPw ? 'fa-regular fa-eye-slash' : 'fa-regular fa-eye';
+            // Keep keyboard focus in the password field
+            pwField.focus();
+            pwField.setSelectionRange(pwField.value.length, pwField.value.length);
+        });
+    }
+
+    // Restore email if "Remember me" was previously checked
+    const emailField   = document.getElementById('email-address');
+    const rememberCb   = document.getElementById('remember-me');
+    if (emailField && !emailField.value) {
+        const remembered = localStorage.getItem('zw_remember_email');
+        if (remembered) emailField.value = remembered;
+        if (rememberCb)  rememberCb.checked = !!remembered;
+    }
+
+    // Cloudflare Turnstile — renders only if site key is configured
+    const cfContainer = document.getElementById('cf-turnstile-container');
+    if (cfContainer) {
+        const siteKey = (window.__ZWANE_CONFIG__ || {}).turnstileSiteKey || '';
+        if (siteKey) {
+            if (!document.getElementById('cf-turnstile-script')) {
+                const s = document.createElement('script');
+                s.id = 'cf-turnstile-script';
+                s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+                s.async = true; s.defer = true;
+                document.head.appendChild(s);
+            }
+            cfContainer.innerHTML = `<div class="cf-turnstile" data-sitekey="${siteKey}" data-theme="light" data-size="flexible"></div>`;
+        } else {
+            cfContainer.style.display = 'none';
+        }
+    }
 }
 
 // ============================================
@@ -641,11 +737,18 @@ async function handleAuth(e) {
         if (viewState === 'login') {
             const password = e.target.password.value;
             const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-            
+
             if (error) throw error;
 
+            // Persist email if "Remember me" is checked
+            const rememberCb = document.getElementById('remember-me');
+            try {
+                if (rememberCb?.checked) localStorage.setItem('zw_remember_email', email);
+                else                     localStorage.removeItem('zw_remember_email');
+            } catch (_) { /* localStorage blocked */ }
+
             const isAllowed = await resolveAdminAccess(data?.session, 'base_admin');
-            
+
             window.location.replace(isAllowed ? '/admin/dashboard' : '/user-portal/index.html');
 
         } else if (viewState === 'signup') {
