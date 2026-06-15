@@ -273,7 +273,7 @@ function buildMandatePayload(input = {}) {
         messageDate: getToday(),
         messageTime: getNow(),
         systemUserName: config.systemUsername,
-        frontEndUserName: input.frontEndUserName || config.systemUsername || 'algohiveuat'
+        frontEndUserName: input.frontEndUserName || config.systemUsername || config.systemUsername
       },
       mandate: {
         clientNo:                    input.clientNo || 'WEB001',
@@ -287,7 +287,7 @@ function buildMandatePayload(input = {}) {
         contractReference,
         magId:                       Number(input.magId || 45),
         debitValueType:              Number(input.debitValueType || 1),
-        typeOfAuthorizationRequired: Number(input.typeOfAuthorizationRequired ?? 3),
+        typeOfAuthorizationRequired: Number(input.typeOfAuthorizationRequired ?? 6),
         initialAmount:               Number(input.initialAmount ?? 0),
         firstCollectionDate:         collectionDate,
         maximumCollectionAmount:     input.maximumCollectionAmount != null ? Number(input.maximumCollectionAmount) : maximumCollectionAmount,
@@ -309,7 +309,7 @@ function buildMandatePayload(input = {}) {
         debtorTelephone:             input.debtorTelephone || '',
         debtorEmail:                 input.debtorEmail || '',
         mandateInitiationDate:       input.mandateInitiationDate || getToday(),
-        authorizationIndicator:      input.authorizationIndicator || '0229',
+        authorizationIndicator:      input.authorizationIndicator || '0227',
         dateList:                    input.dateList ?? '',
         ...products,
       }
@@ -359,7 +359,7 @@ async function checkFinalFate({ contractReference, frontEndUserName } = {}) {
     contractReference,
     merchantGid: config.merchantGid,
     remoteGid:   config.remoteGid,
-    frontEndUserName: frontEndUserName || config.systemUsername || 'algohiveuat'
+    frontEndUserName: frontEndUserName || config.systemUsername || config.systemUsername
   };
 
   const response = await request('/mandates/finalfate', payload);
@@ -380,8 +380,13 @@ async function downloadPayments({ frontEndUserName } = {}) {
 async function mandateEnquiry(input = {}) {
   const { frontEndUserName: _ignored, ...rest } = input;
   const payload = {
-    merchantGid: config.merchantGid,
-    remoteGid: config.remoteGid,
+    merchantGid:        config.merchantGid,
+    remoteGid:          config.remoteGid,
+    magId:              config.magId || 45,
+    debtorAccountNumber: '',
+    frequencyCode:      '',
+    fromDate:           '',
+    toDate:             '',
     ...rest
   };
 
@@ -393,7 +398,7 @@ async function cancelMandate(input = {}) {
   const payload = {
     merchantGid: config.merchantGid,
     remoteGid: config.remoteGid,
-    frontEndUserName: input.frontEndUserName || config.systemUsername || 'algohiveuat',
+    frontEndUserName: input.frontEndUserName || config.systemUsername || config.systemUsername,
     ...input
   };
 
@@ -402,10 +407,15 @@ async function cancelMandate(input = {}) {
 }
 
 async function createInstallmentRequest(input = {}) {
+  if (!input.contractReference) {
+    const error = new Error('contractReference is required');
+    error.status = 400;
+    throw error;
+  }
   const { frontEndUserName: _a, ...rest } = input;
   const payload = {
     merchantGid: config.merchantGid,
-    remoteGid: config.remoteGid,
+    remoteGid:   config.remoteGid,
     ...rest
   };
 
@@ -414,25 +424,41 @@ async function createInstallmentRequest(input = {}) {
 }
 
 async function updateInstallmentRequest(input = {}) {
-  const { frontEndUserName: _a, ...rest } = input;
+  const installments = input.installment || input.installments || [];
   const payload = {
-    merchantGid: config.merchantGid,
-    remoteGid: config.remoteGid,
-    ...rest
+    messageInfo: {
+      merchantGid:      config.merchantGid,
+      remoteGid:        config.remoteGid,
+      messageDate:      getToday(),
+      messageTime:      getNow(),
+      systemUserName:   config.systemUsername || config.systemUsername,
+      frontEndUserName: input.frontEndUserName || config.systemUsername || config.systemUsername
+    },
+    installment: installments
   };
-
   const response = await request('/installments/batch/update', payload);
   return { response };
 }
 
 async function cancelInstallment(input = {}) {
-  const { frontEndUserName: _a, ...rest } = input;
+  if (!input.contractReference) {
+    const error = new Error('contractReference is required');
+    error.status = 400;
+    throw error;
+  }
+  if (!input.installmentNo) {
+    const error = new Error('installmentNo is required');
+    error.status = 400;
+    throw error;
+  }
   const payload = {
-    merchantGid: config.merchantGid,
-    remoteGid: config.remoteGid,
-    ...rest
+    merchantGid:      config.merchantGid,
+    remoteGid:        config.remoteGid,
+    contractReference: input.contractReference,
+    installmentNo:    Number(input.installmentNo),
+    action:           input.action || 'C',
+    frontEndUserName: input.frontEndUserName || config.systemUsername || config.systemUsername
   };
-
   const response = await request('/installments/cancel', payload);
   return { response };
 }

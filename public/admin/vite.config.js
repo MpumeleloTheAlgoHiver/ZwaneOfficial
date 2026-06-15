@@ -37,6 +37,7 @@ export default {
         // Compliance
         sacrra:          resolve(__dirname, 'sacrra.html'),
         sacrraValidator: resolve(__dirname, 'sacrra-validator.html'),
+        mandates:        resolve(__dirname, 'mandates.html'),
 
         // Configuration
         creditRules: resolve(__dirname, 'credit-rules.html'),

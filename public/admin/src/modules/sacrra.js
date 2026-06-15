@@ -1016,8 +1016,9 @@ async function buildSacrraFileContent(settings) {
     const monthEnd     = dt(lastDay.toISOString().slice(0,10).replace(/-/g,''));
     const creationDate = dt(new Date().toISOString().slice(0,10).replace(/-/g,''));
 
-    // Supplier Reference Number — 10 chars, RIGHT-aligned (issued by SACRRA)
-    const srn = (sacrraState.members[0]?.f02_supplier_ref || '').trim().padStart(10, ' ').slice(-10);
+    // Supplier Reference Number — 10 chars, LEFT-aligned (alpha field per SACRRA Layout 700v2)
+    const srnRaw = (sacrraState.members[0]?.f02_supplier_ref || '').trim();
+    const srn    = srnRaw.padEnd(10, ' ').slice(0, 10);
 
     // Trading name — pulled from theme (same source as sidebar/navbar branding)
     const _theme = await ensureThemeLoaded().catch(() => null);
@@ -1028,12 +1029,13 @@ async function buildSacrraFileContent(settings) {
 
     // ── HEADER (700 chars) ────────────────────────────────────────────────
     // Pos 1:     H
-    // Pos 2-11:  SRN (A10, right-aligned)
+    // Pos 2-11:  SRN (A10, LEFT-aligned, e.g. "TT0109    ")
     // Pos 12-19: MONTH END DATE (N8, CCYYMMDD)
     // Pos 20-21: VERSION NUMBER (N2) = "06" for Layout 700v2
     // Pos 22-29: FILE CREATION DATE (N8, CCYYMMDD)
     // Pos 30-89: TRADING NAME/BRAND NAME (A60)
     // Pos 90-700: FILLER spaces
+    // Expected (after H): TT0109    202606030620260603ZWANE FINANCIAL SERVICES
     let content = ('H' + srn + monthEnd + '06' + creationDate + tradingName).padEnd(700, ' ').slice(0,700) + '\r\n';
 
     // Branch code from system_settings (SACRRA-assigned, 7 chars, stored as sacrra_branch_code)
@@ -1056,7 +1058,9 @@ async function buildSacrraFileContent(settings) {
         const rawReason   = (m.f30_loan_reason || '').trim();
         const loanReason  = aL(rawReason || 'O', 2);  // Default 'O ' = standard personal loan
 
-        const isPositive  = ['C','T','V'].includes(rawStatus);  // Closed, Settled, Cancelled = zero balances
+        // SACRRA rule: Current Balance must = 0 when Balance Indicator = D for these status codes:
+        // A, B, C, F, G, H, K, M, P, T, U, V, X — set indicator to 'P' and zero all financials
+        const isPositive  = ['C','T','V','P'].includes(rawStatus);
         const saId        = (m.f10_id_number || '').replace(/\D/g,'').padStart(13,'0').slice(0,13);
         const accountNo   = aL(m.f40_account_number || m.internal_id || '', 25);
 
@@ -1102,7 +1106,7 @@ async function buildSacrraFileContent(settings) {
         r += aL(accountType, 2);               // 368-369:  TYPE OF ACCOUNT (M=1-month, P=Personal)
         r += nR((m.f43_date_opened||'').replace(/-/g,'') || '0', 8); // 370-377: DATE OPENED
         r += nR('0', 8);                       // 378-385:  DEFERRED PAYMENT DATE (00000000 unless deferred)
-        r += nR((m.f46_first_payment_date||'').replace(/-/g,'') || '0', 8); // 386-393: DATE LAST PAYMENT
+        r += nR((m.f46_last_payment_date||'').replace(/-/g,'') || '0', 8); // 386-393: DATE LAST PAYMENT
         r += openBal;                          // 394-402:  OPENING BALANCE (N9 whole rands)
         r += currBal;                          // 403-411:  CURRENT BALANCE (N9 whole rands)
         r += aL(isPositive ? 'P' : 'D', 1);   // 412:      BALANCE INDICATOR D=Debit P=Paid/Credit
@@ -1157,10 +1161,13 @@ window.generateSacrraFile = async () => {
         if (!confirm(`⚠️ Compliance issues detected:\n• ${msg.join('\n• ')}\n\nThese records will likely be rejected by the bureaux. Generate file anyway?`)) return;
     }
 
-    const settings  = sacrraState.exportSettings;
-    const dateStr   = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const plainName = `SACRRA_${settings.type}_${dateStr}.txt`;
-    const pgpName   = `SACRRA_${settings.type}_${dateStr}.pgp`;
+    const settings   = sacrraState.exportSettings;
+    const dateStr    = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const srnForFile = (sacrraState.members[0]?.f02_supplier_ref || '').trim();
+    const typeChar   = settings.type === 'MONTHLY' ? 'M' : 'D';
+    // Filename format per SACRRA/SureSystems: {SRN}_ALL_T702_{M|D}_{YYYYMMDD}_1_1
+    const plainName  = `${srnForFile}_ALL_T702_${typeChar}_${dateStr}_1_1`;
+    const pgpName    = `${srnForFile}_ALL_T702_${typeChar}_${dateStr}_1_1.pgp`;
 
     // Build fixed-width content
     const fileContent = await buildSacrraFileContent(settings);

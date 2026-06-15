@@ -190,6 +190,10 @@ function renderPage() {
                 <span id="test-lab-badge" class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-gray-800 text-gray-200">Idle</span>
               </div>
               <pre id="test-lab-output" class="text-xs text-green-400 font-mono whitespace-pre-wrap break-words min-h-[240px]"></pre>
+              <div id="signature-display" class="hidden mt-4 border-t border-gray-800 pt-4">
+                <p class="text-[10px] font-bold uppercase tracking-widest text-gray-500 mb-2">TT3 Cardholder Signature</p>
+                <img id="signature-img" src="" alt="Signature" class="max-w-full bg-white rounded-lg border border-gray-700 p-2" style="image-rendering:pixelated;" />
+              </div>
             </div>
           </div>
         </section>
@@ -693,6 +697,8 @@ function getTestOverrides() {
 function setLabOutput(label, payload, tone = 'idle') {
   const output = document.getElementById('test-lab-output');
   const badge = document.getElementById('test-lab-badge');
+  const sigDisplay = document.getElementById('signature-display');
+  if (sigDisplay) sigDisplay.classList.add('hidden');
   if (output) {
     output.textContent = typeof payload === 'string' ? payload : prettyJson(payload);
   }
@@ -706,6 +712,15 @@ function setLabOutput(label, payload, tone = 'idle') {
     badge.className = `px-2.5 py-1 rounded-full text-[10px] font-bold ${classes[tone] || classes.idle}`;
     badge.textContent = label;
   }
+}
+
+function renderSignature(payload) {
+  const sigB64 = payload?.providerResponse?.signatureStorage || payload?.signatureStorage;
+  const sigDisplay = document.getElementById('signature-display');
+  const sigImg = document.getElementById('signature-img');
+  if (!sigB64 || !sigDisplay || !sigImg) return;
+  sigImg.src = `data:image/bmp;base64,${sigB64}`;
+  sigDisplay.classList.remove('hidden');
 }
 
 async function handlePreviewPayload() {
@@ -814,6 +829,7 @@ async function runStatusAction(mode) {
       body: JSON.stringify({ applicationId, contractReference, frontEndUserName, mode })
     });
     setLabOutput(mode === 'enquiry' ? 'Enquiry complete' : 'Final fate complete', payload, 'success');
+    if (mode === 'finalfate') renderSignature(payload);
     window.showToast?.(payload.message || 'Status check complete', 'success');
     await loadMandates();
     if (state.currentMandate?.id) {

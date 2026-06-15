@@ -6,13 +6,9 @@ const crypto = require('crypto');
 // Load .env from root if present (Replit secrets take priority)
 require('dotenv').config();
 
-// Normalize Supabase env vars so all modules see consistent, working credentials.
-// The frontend uses VITE_SUPABASE_* names; mirror them onto the legacy SUPABASE_* names
-// (and vice versa) so older modules that read process.env.SUPABASE_* keep working.
-const _FALLBACK_SUPABASE_URL = "https://jmnjkxfxenrudpvjprcu.supabase.co";
-const _FALLBACK_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptbmpreGZ4ZW5ydWRwdmpwcmN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUxODkzNzUsImV4cCI6MjA4MDc2NTM3NX0.X4ZdxzHF0b9GnHklObpIHqnhWvtKjdZnLoah0EVTvHs";
-const _resolvedUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || _FALLBACK_SUPABASE_URL;
-const _resolvedAnon = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || _FALLBACK_SUPABASE_ANON_KEY;
+// Mirror VITE_SUPABASE_* onto SUPABASE_* so older modules stay consistent.
+const _resolvedUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const _resolvedAnon = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 process.env.SUPABASE_URL = _resolvedUrl;
 process.env.VITE_SUPABASE_URL = _resolvedUrl;
 process.env.SUPABASE_ANON_KEY = _resolvedAnon;
@@ -60,6 +56,24 @@ const otpLimiter = rateLimit({
     message: { error: 'Too many OTP requests. Please wait 10 minutes.' }
 });
 
+// General API limiter — prevents bulk scraping / abuse of data endpoints
+const apiLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests. Please slow down.' }
+});
+
+// Sensitive action limiter — credit checks, evaluations, KYC
+const sensitiveLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests for this action. Please wait.' }
+});
+
 // Middleware
 app.use(express.json({
     verify: (req, res, buf) => {
@@ -69,6 +83,8 @@ app.use(express.json({
         }
     }
 }));
+
+app.use('/api', apiLimiter);
 
 // --- User Portal API routes (Your code) ---
 const tillSlipRoute = require('./public/user/routes/tillSlipRoute');
@@ -83,6 +99,18 @@ const pushNotifications  = require('./services/pushNotificationService');
 const moveItService = require('./services/moveItService');
 const { supabase, supabaseService } = require('./config/supabaseServer');
 const { startNotificationScheduler } = require('./services/notificationScheduler');
+
+// ── Shared admin auth middleware ──────────────────────────────────────
+// Validates Supabase JWT from Authorization: Bearer <token>.
+// Applied to all admin-only API route groups below.
+async function requireAdminAuth(req, res, next) {
+    const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+    if (!token) return res.status(401).json({ error: 'Authentication required' });
+    const { data: { user }, error } = await supabaseService.auth.getUser(token);
+    if (error || !user) return res.status(401).json({ error: 'Invalid or expired session' });
+    req.adminUser = user;
+    next();
+}
 const { logApiCall, tracked } = require('./services/apiUsageLogger');
 
 const DOCUSEAL_API_KEY = process.env.DOCUSEAL_API_KEY;
@@ -526,6 +554,33 @@ async function loadSureSystemsMandateContext(applicationId) {
     };
 }
 
+function generateDateList(firstCollectionDateStr, noOfInstallments, frequencyCode) {
+    const year  = parseInt(firstCollectionDateStr.substring(0, 4));
+    const month = parseInt(firstCollectionDateStr.substring(4, 6)) - 1;
+    const day   = parseInt(firstCollectionDateStr.substring(6, 8));
+    let current = new Date(year, month, day);
+    const dates = [];
+
+    for (let i = 0; i < noOfInstallments; i++) {
+        const y = current.getFullYear();
+        const m = String(current.getMonth() + 1).padStart(2, '0');
+        const d = String(current.getDate()).padStart(2, '0');
+        dates.push(`${y}${m}${d}`);
+
+        if (frequencyCode === 4) {
+            // Monthly — preserve original day, clamp to end of month
+            const origDay = day;
+            current.setDate(1);
+            current.setMonth(current.getMonth() + 1);
+            const lastDay = new Date(current.getFullYear(), current.getMonth() + 1, 0).getDate();
+            current.setDate(Math.min(origDay, lastDay));
+        } else if (frequencyCode === 1) {
+            current.setDate(current.getDate() + 7);
+        }
+    }
+    return dates.join(',');
+}
+
 function buildSureSystemsMandateRequestFromContext({ application, bankAccount, profile }, overrides = {}) {
     if (!application || !bankAccount) {
         throw new Error('Application and bank account context are required');
@@ -562,21 +617,30 @@ function buildSureSystemsMandateRequestFromContext({ application, bankAccount, p
         debtorEmail:            overrides.debtorEmail || profile?.email || '',
 
         // Amounts — initialAmount must be 0 per working example
-        amount:         loanAmount,
+        amount:         Number(overrides.amount || loanAmount),
         initialAmount:  0,
 
         // Dates — YYYYMMDD format, no dashes
         collectionDate,
         mandateInitiationDate: sureSystemsService.getToday(),
-        dateList: '',  // empty per working example
+        dateList: overrides.dateList !== undefined
+            ? overrides.dateList
+            : generateDateList(
+                collectionDate,
+                installmentCount,
+                Number(overrides.frequencyCode || 4)
+              ),
 
-        // Mandate settings matched to working example
-        noOfInstallments:          installmentCount,
-        origin:                    15,      // was 0 — working example uses 15
-        typeOfAuthorizationRequired: 3,     // was 1 — working example uses 3 (DebiCheck)
-        debitSequenceType:         'RCUR',  // was OOFF — recurring for installment loans
-        authorizationIndicator:    '0229',  // was 0226 — working example uses 0229
-        maximumCollectionAmount:   Math.ceil(loanAmount * 1.5),
+        // Mandate settings — overrides take priority, then TT1 defaults
+        noOfInstallments:            installmentCount,
+        origin:                      15,
+        typeOfAuthorizationRequired: overrides.typeOfAuthorizationRequired != null ? Number(overrides.typeOfAuthorizationRequired) : 6,
+        debitSequenceType:           overrides.debitSequenceType || 'RCUR',
+        authorizationIndicator:      overrides.authorizationIndicator || '0227',
+        binNumber:                   overrides.binNumber || '',
+        panTrailer:                  overrides.panTrailer || '',
+        debtorIdentificationType:    overrides.debtorIdentificationType != null ? Number(overrides.debtorIdentificationType) : 1,
+        maximumCollectionAmount:     overrides.maximumCollectionAmount != null ? Number(overrides.maximumCollectionAmount) : Math.ceil(loanAmount * 1.5),
         // Parse YYYYMMDD format correctly — new Date("20260620") is invalid, need "2026-06-20"
         collectionDay:             (() => {
             const d = collectionDate && collectionDate.length === 8
@@ -655,7 +719,7 @@ app.get('/api/system-settings', async (req, res) => {
 });
 
 // KYC API routes
-app.post('/api/kyc/create-session', async (req, res) => {
+app.post('/api/kyc/create-session', sensitiveLimiter, async (req, res) => {
     try {
         const result = await kyc.createSession(req.body);
         return res.json(result);
@@ -803,7 +867,7 @@ app.post('/api/truid/webhook', async (req, res) => {
 });
 
 // Banking API endpoints
-app.post('/api/banking/initiate', async (req, res) => {
+app.post('/api/banking/initiate', sensitiveLimiter, async (req, res) => {
     try {
         const result = await truid.initiateCollection(req.body || {});
         return res.json(result);
@@ -855,7 +919,7 @@ app.post('/api/banking/capture', async (req, res) => {
 });
 
 // Credit Check API endpoint
-app.post('/api/credit-check', async (req, res) => {
+app.post('/api/credit-check', sensitiveLimiter, async (req, res) => {
     try {
         const { applicationId, userData } = req.body;
 
@@ -1007,7 +1071,7 @@ app.post('/api/notifications/check-edit-window', async (req, res) => {
 });
 
 // Loan affordability calculation endpoint
-app.post('/api/calculate-affordability', (req, res) => {
+app.post('/api/calculate-affordability', sensitiveLimiter, (req, res) => {
     try {
         const {
             monthly_income,
@@ -1047,6 +1111,15 @@ app.post('/api/calculate-affordability', (req, res) => {
         return res.status(500).json({ error: error.message || 'Calculation failed' });
     }
 });
+
+// ── Admin-only API route guards ───────────────────────────────────────
+// All routes under these prefixes require a valid Supabase session.
+app.use('/api/suresystems', requireAdminAuth);
+app.use('/api/sacrra', requireAdminAuth);
+app.use('/api/moveit', requireAdminAuth);
+app.use('/api/payouts', requireAdminAuth);
+app.use('/api/notifications', requireAdminAuth);
+app.use('/api/admin', requireAdminAuth);
 
 // SureSystems API proxy endpoints
 app.get('/api/suresystems/config', (req, res) => {
@@ -1608,96 +1681,32 @@ app.delete('/api/docuseal/submissions/:submissionId', async (req, res) => {
 // DocuSeal Webhook Receiver – updates docuseal_submissions when DocuSeal sends events
 app.post('/api/docuseal/webhook', async (req, res) => {
     try {
-        // Verify webhook signature if secret is configured
         const secret = process.env.DOCUSEAL_WEBHOOK_SECRET;
-        const testHeaderName = (process.env.DOCUSEAL_TEST_HEADER_NAME || '').trim();
-        const testHeaderValue = (process.env.DOCUSEAL_TEST_HEADER_VALUE || '').trim();
-        const testHeaderIncoming = testHeaderName ? req.headers[testHeaderName.toLowerCase()] : undefined;
-        const testHeaderMatched = Boolean(
-            testHeaderName
-            && testHeaderValue
-            && typeof testHeaderIncoming !== 'undefined'
-            && String(testHeaderIncoming).trim() === testHeaderValue
-        );
-
-        // If no signature secret is configured, allow custom header auth as primary guard.
-        // If custom header env vars are configured but header does not match, reject request.
-        if (!secret && testHeaderName && testHeaderValue && !testHeaderMatched) {
-            console.warn('DocuSeal webhook rejected: custom test header did not match', {
-                expectedTestHeader: testHeaderName,
-                receivedTestHeader: typeof testHeaderIncoming === 'undefined' ? null : String(testHeaderIncoming),
-                headers: req.headers
-            });
-            return res.status(401).json({ error: 'Invalid webhook header' });
-        }
-
-        if (!secret && testHeaderName && testHeaderValue && testHeaderMatched) {
-            console.log('Accepted DocuSeal webhook via custom test header', testHeaderName);
-        }
-
         if (secret) {
             const sigHeader = (req.headers['x-docuseal-signature'] || req.headers['x-signature'] || req.headers['x-hub-signature'] || '').toString();
             if (!sigHeader) {
-                // Allow a simple test header fallback (not secure) during debugging if configured
-                if (testHeaderName && testHeaderValue) {
-                    if (testHeaderMatched) {
-                        console.log('Accepted DocuSeal webhook via custom test header', testHeaderName);
-                        // treat as valid and skip HMAC validation
-                    } else {
-                        console.warn('Missing DocuSeal signature header and test header did not match', {
-                            expectedTestHeader: testHeaderName,
-                            headers: req.headers,
-                            rawBodyLength: req.rawBody ? req.rawBody.length : 0,
-                            bodySample: (() => {
-                                try { return JSON.stringify(req.body).slice(0, 1000); } catch (e) { return '<non-serializable body>'; }
-                            })()
-                        });
-                        return res.status(401).json({ error: 'Missing signature header' });
-                    }
-                } else {
-                    // Log full headers + small body sample to help debug what DocuSeal is sending
-                    console.warn('Missing DocuSeal signature header', {
-                        headers: req.headers,
-                        rawBodyLength: req.rawBody ? req.rawBody.length : 0,
-                        bodySample: (() => {
-                            try { return JSON.stringify(req.body).slice(0, 1000); } catch (e) { return '<non-serializable body>'; }
-                        })()
-                    });
-                    return res.status(401).json({ error: 'Missing signature header' });
-                }
+                return res.status(401).json({ error: 'Missing signature header' });
             }
 
-            // Strip common prefix (e.g. 'sha256=') if present
             let received = sigHeader.startsWith('sha256=') ? sigHeader.slice(7) : sigHeader;
-
-            // Compute expected digests
             const computedHex = crypto.createHmac('sha256', secret).update(req.rawBody || Buffer.from('')).digest('hex');
             const computedBase64 = crypto.createHmac('sha256', secret).update(req.rawBody || Buffer.from('')).digest('base64');
 
             let valid = false;
             try {
-                // Try hex comparison (timing-safe)
                 const rec = Buffer.from(received, 'hex');
                 const comp = Buffer.from(computedHex, 'hex');
                 if (rec.length === comp.length && crypto.timingSafeEqual(rec, comp)) valid = true;
             } catch (e) {}
             try {
-                // Try base64 comparison (timing-safe)
                 const recB = Buffer.from(received, 'base64');
                 const compB = Buffer.from(computedBase64, 'base64');
                 if (recB.length === compB.length && crypto.timingSafeEqual(recB, compB)) valid = true;
             } catch (e) {}
-            // Fallback string compare for plain header formats
             if (received === computedHex || received === computedBase64) valid = true;
 
             if (!valid) {
-                // Debug fallback: if custom test header matches, allow request even when signature is invalid
-                if (testHeaderMatched) {
-                    console.warn('DocuSeal signature invalid, but accepted via custom test header', testHeaderName);
-                } else {
-                    console.warn('Invalid DocuSeal webhook signature');
-                    return res.status(401).json({ error: 'Invalid signature' });
-                }
+                return res.status(401).json({ error: 'Invalid signature' });
             }
         }
 
@@ -2128,6 +2137,11 @@ app.get('/login.html', (req, res) => {
 });
 app.get('/auth.html', (req, res) => {
     res.redirect('/auth/login.html');
+});
+
+// Health check — used by uptime monitoring
+app.get('/api/health', (req, res) => {
+    res.json({ ok: true, ts: new Date().toISOString() });
 });
 
 // Public config endpoint — safe to expose. Used by the login page to enable
@@ -3414,7 +3428,7 @@ app.get('/api/my-eligibility', async (req, res) => {
 
 // POST /api/applications/:id/evaluate — run rules engine against a saved application
 // Fetches credit score + financial profile from DB, runs evaluate-credit, stores result
-app.post('/api/applications/:id/evaluate', async (req, res) => {
+app.post('/api/applications/:id/evaluate', sensitiveLimiter, async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -4710,7 +4724,7 @@ app.post('/api/admin/invite-staff', async (req, res) => {
 // ── Vercel Cron endpoints (replaces setInterval for serverless) ───
 // Called by Vercel Cron every 6 hours instead of setInterval
 app.get('/api/cron/notifications', async (req, res) => {
-    if (process.env.VERCEL && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET || ''}`) {
+    if (!process.env.CRON_SECRET || req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
     try {
@@ -4725,7 +4739,7 @@ app.get('/api/cron/notifications', async (req, res) => {
 });
 
 app.get('/api/cron/flag-defaults', async (req, res) => {
-    if (process.env.VERCEL && req.headers.authorization !== `Bearer ${process.env.CRON_SECRET || ''}`) {
+    if (!process.env.CRON_SECRET || req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
     try {
@@ -4908,6 +4922,13 @@ app.post('/api/export/:type', async (req, res) => {
 });
 
 // --- 8. Start Server ---
+process.on('unhandledRejection', (reason) => {
+    console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+    console.error('[uncaughtException]', err);
+});
+
 // On Vercel, the module is imported directly — no listen() needed.
 // Locally, listen() starts the server and the scheduler.
 if (process.env.VERCEL) {
