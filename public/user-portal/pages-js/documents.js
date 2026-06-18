@@ -573,7 +573,7 @@ window.openAddBankAccountModal = function() {
        </div>
        <div class="form-group">
            <label>Branch Code</label>
-           <input type="text" id="branchCode" required class="modern-input" placeholder="e.g. 250655">
+           <input type="text" id="branchCode" required class="modern-input" placeholder="Auto-filled when you pick your bank">
        </div>
        <div class="form-group">
            <label>Account Type</label>
@@ -593,6 +593,34 @@ window.openAddBankAccountModal = function() {
     </form>`;
 
     openUniversalModal('Add Bank Account', formHTML, false);
+
+    const BRANCH_CODES = {
+        'FNB': '250655',
+        'Standard Bank': '051001',
+        'ABSA': '632005',
+        'Nedbank': '198765',
+        'Capitec': '470010',
+        'Investec': '580105',
+        'TymeBank': '678910',
+        'Discovery Bank': '679000',
+        'African Bank': '430000',
+    };
+
+    document.getElementById('bankName')?.addEventListener('change', (e) => {
+        const code = BRANCH_CODES[e.target.value];
+        const branchField = document.getElementById('branchCode');
+        if (branchField && code) {
+            branchField.value = code;
+            branchField.readOnly = true;
+            branchField.style.background = 'var(--surface-container, #f3f4f6)';
+            branchField.style.color = 'var(--outline, #6b7280)';
+        } else if (branchField) {
+            branchField.value = '';
+            branchField.readOnly = false;
+            branchField.style.background = '';
+            branchField.style.color = '';
+        }
+    });
 };
 
 window.saveNewBankAccount = async function(e) {

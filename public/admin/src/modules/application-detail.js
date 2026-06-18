@@ -463,6 +463,15 @@ const pageTemplate = `
                 </div>
             </div>
            </div>
+
+           <div id="mandate-status-card" class="glass-card rounded-2xl p-6">
+            <h3 class="font-headline font-bold text-on-surface mb-4 flex items-center gap-2 text-xs uppercase tracking-widest">
+              <span class="material-symbols-outlined text-[16px]" style="color:var(--color-primary)">autorenew</span> Debit Order
+            </h3>
+            <div id="mandate-card-body" class="text-sm text-outline bg-surface-container border border-dashed border-outline-variant/30 rounded-xl px-4 py-6 text-center">
+              Loading debit order status...
+            </div>
+           </div>
     </div>
 
     <div class="lg:col-span-4">
@@ -2939,6 +2948,157 @@ window.exportAuditTrail = function() {
 };
 // ─────────────────────────────────────────────────────────────────
 
+const MANDATE_ERROR_MAP = [
+  [/account.not.found|invalid.account/i, 'The client\'s bank account number was not found. Ask them to double-check and update it.'],
+  [/insufficient.funds|no.funds/i, 'The account had insufficient funds at the time of the mandate attempt.'],
+  [/account.closed|closed.account/i, 'The bank account appears to be closed. A new account is needed.'],
+  [/wrong.branch|invalid.branch/i, 'The branch code is incorrect for the selected bank.'],
+  [/not.authenticated|authentication.failed/i, 'The client\'s bank has not authenticated the debit order yet. This can take 1–2 business days.'],
+  [/duplicate/i, 'A mandate for this application already exists. Use the existing contract reference.'],
+  [/config|credentials|503|unavailable/i, 'SureSystems is not reachable right now. Check the provider connection and try again.'],
+];
+
+function mandateFriendlyError(raw) {
+  if (!raw) return 'An unexpected error occurred. Check the Mandates log for details.';
+  for (const [pattern, msg] of MANDATE_ERROR_MAP) {
+    if (pattern.test(raw)) return msg;
+  }
+  return raw;
+}
+
+const renderMandateCard = async (app) => {
+  const body = document.getElementById('mandate-card-body');
+  if (!body) return;
+
+  const isEligible = ['OFFER_ACCEPTED', 'READY_TO_DISBURSE', 'ACTIVE', 'DISBURSED'].includes(app?.status);
+
+  if (!isEligible) {
+    body.className = 'text-sm text-outline bg-surface-container border border-dashed border-outline-variant/30 rounded-xl px-4 py-6 text-center';
+    body.innerHTML = 'Debit order is set up once the contract is signed.';
+    return;
+  }
+
+  try {
+    const { data: records, error } = await supabase
+      .from('suresystems_mandates')
+      .select('status, contract_reference, message, activated_at, updated_at')
+      .eq('application_id', app.id)
+      .order('updated_at', { ascending: false })
+      .limit(1);
+
+    if (error) throw error;
+
+    const mandate = records?.[0];
+
+    if (!mandate) {
+      body.className = 'rounded-xl';
+      body.innerHTML = `
+        <div class="flex items-start justify-between gap-4 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
+          <div class="flex items-start gap-3">
+            <span class="material-symbols-outlined text-yellow-600 mt-0.5">warning</span>
+            <div>
+              <p class="text-sm font-semibold text-yellow-900">No debit order loaded yet</p>
+              <p class="text-xs text-yellow-700 mt-1">The mandate hasn't been sent to SureSystems. Load it now to activate collections.</p>
+            </div>
+          </div>
+          <button onclick="window.retryMandate(${app.id})" id="mandate-action-btn"
+            class="shrink-0 px-3 py-2 text-xs font-bold rounded-xl text-white transition-colors"
+            style="background:var(--color-primary)">
+            <span class="material-symbols-outlined text-[14px] align-middle mr-1">send</span> Load mandate
+          </button>
+        </div>`;
+      return;
+    }
+
+    const status = (mandate.status || 'unknown').toLowerCase();
+    const contractRef = mandate.contract_reference || null;
+    const activatedAt = mandate.activated_at
+      ? new Date(mandate.activated_at).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' })
+      : null;
+
+    if (status === 'success') {
+      body.className = 'rounded-xl';
+      body.innerHTML = `
+        <div class="p-4 bg-green-50 border border-green-200 rounded-xl space-y-3">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-green-600">check_circle</span>
+            <span class="text-sm font-bold text-green-900">Debit order active</span>
+          </div>
+          ${contractRef ? `<div class="flex items-center justify-between text-xs"><span class="text-outline">Contract ref</span><span class="font-mono font-bold text-on-surface">${contractRef}</span></div>` : ''}
+          ${activatedAt ? `<div class="flex items-center justify-between text-xs"><span class="text-outline">Activated</span><span class="font-medium text-on-surface">${activatedAt}</span></div>` : ''}
+        </div>`;
+      return;
+    }
+
+    if (status === 'pending') {
+      body.className = 'rounded-xl';
+      body.innerHTML = `
+        <div class="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-3">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-blue-600 animate-spin" style="animation-duration:2s">progress_activity</span>
+            <span class="text-sm font-bold text-blue-900">Awaiting bank authentication</span>
+          </div>
+          <p class="text-xs text-blue-700">The mandate has been sent. The client's bank typically responds within 1–2 business days.</p>
+          ${contractRef ? `<div class="flex items-center justify-between text-xs"><span class="text-outline">Contract ref</span><span class="font-mono font-bold text-on-surface">${contractRef}</span></div>` : ''}
+        </div>`;
+      return;
+    }
+
+    // failed or unknown
+    const friendlyMsg = mandateFriendlyError(mandate.message);
+    body.className = 'rounded-xl';
+    body.innerHTML = `
+      <div class="p-4 bg-red-50 border border-red-200 rounded-xl space-y-3">
+        <div class="flex items-start justify-between gap-4">
+          <div class="flex items-start gap-2">
+            <span class="material-symbols-outlined text-red-600 mt-0.5">error</span>
+            <div>
+              <p class="text-sm font-bold text-red-900">Debit order failed</p>
+              <p class="text-xs text-red-700 mt-1">${friendlyMsg}</p>
+            </div>
+          </div>
+          <button onclick="window.retryMandate(${app.id})" id="mandate-action-btn"
+            class="shrink-0 px-3 py-2 text-xs font-bold rounded-xl bg-red-600 text-white hover:bg-red-700 transition-colors">
+            <span class="material-symbols-outlined text-[14px] align-middle mr-1">refresh</span> Retry
+          </button>
+        </div>
+        ${contractRef ? `<div class="flex items-center justify-between text-xs border-t border-red-200 pt-2"><span class="text-outline">Last ref</span><span class="font-mono font-bold text-on-surface">${contractRef}</span></div>` : ''}
+      </div>`;
+
+  } catch (err) {
+    console.error('renderMandateCard error:', err);
+    body.className = 'text-sm text-outline bg-surface-container border border-dashed border-outline-variant/30 rounded-xl px-4 py-4 text-center';
+    body.innerHTML = 'Could not load debit order status.';
+  }
+};
+
+window.retryMandate = async (appId) => {
+  const btn = document.getElementById('mandate-action-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined text-[14px] align-middle animate-spin">progress_activity</span> Loading...';
+  }
+  try {
+    const res = await fetch('/api/suresystems/activate-application', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ applicationId: appId })
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok || payload?.success === false) {
+      throw new Error(payload?.error || payload?.message || 'Mandate load failed');
+    }
+    showFeedback('Debit order mandate loaded successfully.', 'success');
+    await renderMandateCard(currentApplication);
+  } catch (err) {
+    showFeedback(mandateFriendlyError(err.message), 'error');
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<span class="material-symbols-outlined text-[14px] align-middle mr-1">refresh</span> Retry';
+    }
+  }
+};
+
 const loadApplicationData = async () => {
   const urlParams = new URLSearchParams(window.location.search);
   const appId = urlParams.get('id');
@@ -2972,6 +3132,7 @@ const loadApplicationData = async () => {
       // Part 1: Side Panel with Tiered Rates (Step 5)
       renderSidePanel(data); 
       renderContractRepaymentScheduler(data);
+      renderMandateCard(data); // non-blocking
 
       // 3. Initialize Signatures & Visibility
       await initDocuSealCard();
