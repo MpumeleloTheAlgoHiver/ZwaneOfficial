@@ -788,36 +788,84 @@ const showFeedback = (message, type = 'success') => {
 const initDocuSealCard = async () => {
   const emptyState = document.getElementById('contract-status-empty');
   const statusSection = document.getElementById('contract-status-section');
+  if (!currentApplication) return;
 
-  // Check if DocuSeal is configured
-  if (!isDocuSealConfigured()) {
-    stopContractStatusPolling();
+  const signedAt = currentApplication.contract_signed_at;
+  const sigUrl   = currentApplication.contract_signature_url;
+
+  if (signedAt) {
+    // Signed in-house
     if (statusSection) statusSection.classList.add('hidden');
     if (emptyState) {
       emptyState.classList.remove('hidden');
+      const date = new Date(signedAt).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
       emptyState.innerHTML = `
-        <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-left">
-          <div class="flex items-start gap-3">
-            <span class="material-symbols-outlined text-yellow-600 text-xl mt-0.5">warning</span>
-            <div>
-              <h4 class="font-semibold text-yellow-900 mb-1">DocuSeal Not Configured</h4>
-              <p class="text-sm text-yellow-700">
-                E-signature features are currently disabled. Please configure DocuSeal API credentials to enable contract tracking.
-              </p>
-            </div>
+        <div class="rounded-xl border border-green-200 bg-green-50 p-4 space-y-3">
+          <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-green-600">verified</span>
+            <span class="text-sm font-bold text-green-900">Agreement Signed</span>
           </div>
-        </div>
-      `;
+          <div class="flex items-center justify-between text-xs border-t border-green-200 pt-2">
+            <span class="text-outline">Signed on</span>
+            <span class="font-semibold text-on-surface">${date}</span>
+          </div>
+          ${sigUrl ? `
+          <div class="border-t border-green-200 pt-2">
+            <p class="text-[10px] text-outline uppercase tracking-widest mb-2">Client Signature</p>
+            <img src="${sigUrl}" alt="Client signature" class="max-h-16 border border-outline-variant/20 rounded-lg bg-white p-1">
+          </div>` : ''}
+          <button onclick="window.open('/api/contracts/${currentApplication.id}/preview','_blank')"
+            class="w-full py-2 text-xs font-bold rounded-xl border border-green-300 text-green-800 hover:bg-green-100 transition-all flex items-center justify-center gap-1">
+            <span class="material-symbols-outlined text-[14px]">open_in_new</span> View Agreement
+          </button>
+        </div>`;
     }
     return;
   }
 
+  // Not yet signed — show preview + status
+  if (statusSection) statusSection.classList.add('hidden');
   if (emptyState) {
     emptyState.classList.remove('hidden');
-    emptyState.textContent = 'No contracts sent yet.';
+    const canSend = ['BUREAU_OK', 'APPROVED', 'OFFERED', 'CONTRACT_SIGN'].includes(currentApplication.status);
+    emptyState.innerHTML = `
+      <div class="space-y-3">
+        <p class="text-sm text-outline text-center py-2">Not yet signed by client.</p>
+        <button onclick="window.open('/api/contracts/${currentApplication.id}/preview','_blank')"
+          class="w-full py-2.5 text-xs font-bold rounded-xl border border-outline-variant/30 text-on-surface-variant hover:bg-surface-container-low transition-all flex items-center justify-center gap-1">
+          <span class="material-symbols-outlined text-[14px]">open_in_new</span> Preview Agreement
+        </button>
+        ${canSend ? `
+        <button onclick="window.notifyClientToSign(${currentApplication.id})" id="notify-sign-btn"
+          class="w-full py-2.5 text-xs font-bold rounded-xl text-white transition-all flex items-center justify-center gap-1"
+          style="background:var(--color-primary)">
+          <span class="material-symbols-outlined text-[14px]">send</span> Send Signing Link to Client
+        </button>` : ''}
+      </div>`;
   }
+};
 
-  await loadContractStatus();
+window.notifyClientToSign = async (appId) => {
+  const btn = document.getElementById('notify-sign-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="material-symbols-outlined text-[14px] align-middle animate-spin">progress_activity</span> Sending...'; }
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch('/api/messaging/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+      body: JSON.stringify({
+        userId: currentApplication?.user_id,
+        message: `Hi ${currentApplication?.profiles?.full_name?.split(' ')[0] || 'there'}, your loan agreement is ready to sign. Please log in to your portal and sign your agreement to proceed. ${window.location.origin}/user-portal/?page=sign-contract`,
+        channel: 'sms'
+      })
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(payload?.error || 'Send failed');
+    showFeedback('Signing link sent to client via SMS.', 'success');
+  } catch (err) {
+    showFeedback('Could not send SMS: ' + err.message, 'error');
+    if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-symbols-outlined text-[14px]">send</span> Send Signing Link to Client'; }
+  }
 };
 
 const handleSendContract = async (triggerButton = null) => {

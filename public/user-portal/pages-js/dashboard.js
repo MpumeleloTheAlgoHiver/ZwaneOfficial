@@ -937,6 +937,44 @@ async function loadDashboardData() {
             }
         }
 
+        // Check for unsigned agreement — show prominent banner if found
+        const { data: unsignedApps } = await supabase
+            .from('loan_applications')
+            .select('id, status, amount, purpose')
+            .eq('user_id', session.user.id)
+            .in('status', ['OFFERED', 'CONTRACT_SIGN'])
+            .is('contract_signed_at', null)
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        const signBanner = document.getElementById('sign-agreement-banner');
+        if (unsignedApps?.[0] && signBanner) {
+            const ua = unsignedApps[0];
+            const amt = `R ${parseFloat(ua.amount || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
+            signBanner.style.display = 'block';
+            signBanner.innerHTML = `
+              <div style="background:linear-gradient(135deg,#fff7ed,#fef3c7);border:2px solid #f97316;border-radius:18px;
+                          padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+                <div style="display:flex;align-items:center;gap:14px">
+                  <div style="width:48px;height:48px;background:#f97316;border-radius:14px;display:flex;align-items:center;
+                              justify-content:center;flex-shrink:0">
+                    <i class="fas fa-file-signature" style="font-size:20px;color:#fff"></i>
+                  </div>
+                  <div>
+                    <p style="font-size:15px;font-weight:800;color:#9a3412;margin:0 0 2px">Action Required: Sign Your Agreement</p>
+                    <p style="font-size:13px;color:#c2410c;margin:0">Your loan offer of <strong>${amt}</strong> is ready — sign to proceed.</p>
+                  </div>
+                </div>
+                <button onclick="if(typeof loadPage==='function')loadPage('sign-contract');else window.location.href='/user-portal/?page=sign-contract'"
+                  style="background:#f97316;color:#fff;border:none;padding:12px 22px;border-radius:12px;
+                         font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0">
+                  Sign Now <i class="fas fa-arrow-right" style="margin-left:6px"></i>
+                </button>
+              </div>`;
+        } else if (signBanner) {
+            signBanner.style.display = 'none';
+        }
+
         const { data: applications } = await supabase.from('loan_applications').select('*').eq('user_id', session.user.id).neq('status', 'OFFERED').neq('status', 'DISBURSED').order('created_at', { ascending: false }).limit(5);
         if (applications && applications.length > 0) {
             dashboardData.applications = applications.map(app => ({

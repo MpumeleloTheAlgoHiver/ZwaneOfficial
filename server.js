@@ -4929,6 +4929,69 @@ process.on('uncaughtException', (err) => {
     console.error('[uncaughtException]', err);
 });
 
+// ─── In-house contract signing ───────────────────────────────────────────────
+// POST /api/contracts/sign  (user-portal, no admin auth required — OTP-gated at the portal level)
+app.post('/api/contracts/sign', async (req, res) => {
+    try {
+        const { applicationId, signatureDataUrl } = req.body || {};
+        if (!applicationId || !signatureDataUrl) {
+            return res.status(400).json({ error: 'applicationId and signatureDataUrl are required' });
+        }
+        if (!signatureDataUrl.startsWith('data:image/png;base64,')) {
+            return res.status(400).json({ error: 'signatureDataUrl must be a PNG data URL' });
+        }
+
+        // Verify application exists and is in a signable state
+        const { data: app, error: appErr } = await supabaseService
+            .from('loan_applications')
+            .select('id, status, user_id, contract_signed_at')
+            .eq('id', applicationId)
+            .maybeSingle();
+
+        if (appErr || !app) return res.status(404).json({ error: 'Application not found' });
+        if (app.contract_signed_at) return res.status(409).json({ error: 'Contract already signed' });
+
+        const signable = ['OFFERED', 'CONTRACT_SIGN', 'OFFER_ACCEPTED'];
+        if (!signable.includes(app.status)) {
+            return res.status(400).json({ error: `Application status "${app.status}" is not signable` });
+        }
+
+        // Save signature PNG to Supabase Storage
+        const base64Data = signatureDataUrl.replace('data:image/png;base64,', '');
+        const buffer = Buffer.from(base64Data, 'base64');
+        const filePath = `signatures/${applicationId}/contract-signature.png`;
+
+        const { error: storageErr } = await supabaseService.storage
+            .from('documents')
+            .upload(filePath, buffer, { contentType: 'image/png', upsert: true });
+
+        if (storageErr) throw new Error('Failed to save signature: ' + storageErr.message);
+
+        const { data: { publicUrl } } = supabaseService.storage
+            .from('documents')
+            .getPublicUrl(filePath);
+
+        const now = new Date().toISOString();
+        const { error: updateErr } = await supabaseService
+            .from('loan_applications')
+            .update({
+                contract_signed_at: now,
+                contract_signature_url: publicUrl,
+                status: 'OFFER_ACCEPTED',
+                updated_at: now
+            })
+            .eq('id', applicationId);
+
+        if (updateErr) throw new Error('Failed to update application: ' + updateErr.message);
+
+        return res.json({ success: true, signedAt: now, signatureUrl: publicUrl });
+    } catch (err) {
+        console.error('Contract sign error:', err.message);
+        return res.status(500).json({ error: err.message || 'Failed to process signature' });
+    }
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
 // On Vercel, the module is imported directly — no listen() needed.
 // Locally, listen() starts the server and the scheduler.
 if (process.env.VERCEL) {
