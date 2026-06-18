@@ -2949,21 +2949,21 @@ window.exportAuditTrail = function() {
 // ─────────────────────────────────────────────────────────────────
 
 const MANDATE_ERROR_MAP = [
-  [/account.not.found|invalid.account/i, 'The client\'s bank account number was not found. Ask them to double-check and update it.'],
-  [/insufficient.funds|no.funds/i, 'The account had insufficient funds at the time of the mandate attempt.'],
-  [/account.closed|closed.account/i, 'The bank account appears to be closed. A new account is needed.'],
-  [/wrong.branch|invalid.branch/i, 'The branch code is incorrect for the selected bank.'],
-  [/not.authenticated|authentication.failed/i, 'The client\'s bank has not authenticated the debit order yet. This can take 1–2 business days.'],
-  [/duplicate/i, 'A mandate for this application already exists. Use the existing contract reference.'],
-  [/config|credentials|503|unavailable/i, 'SureSystems is not reachable right now. Check the provider connection and try again.'],
+  [/account.not.found|invalid.account/i, 'The client\'s bank account number was not found. Please ask them to check their account details and update.'],
+  [/insufficient.funds|no.funds/i, 'The account did not have enough funds when we tried. Please try again or contact the client.'],
+  [/account.closed|closed.account/i, 'This bank account is closed. Please ask the client to provide a new account.'],
+  [/wrong.branch|invalid.branch/i, 'The branch code does not match the selected bank. Please update the bank details.'],
+  [/not.authenticated|authentication.failed/i, 'The client\'s bank needs to approve this. This usually happens within 1–2 business days.'],
+  [/duplicate/i, 'A debit order for this client already exists.'],
+  [/config|credentials|503|unavailable/i, 'We could not reach the payment provider right now. Please try again in a few minutes.'],
 ];
 
 function mandateFriendlyError(raw) {
-  if (!raw) return 'An unexpected error occurred. Check the Mandates log for details.';
+  if (!raw) return 'Something went wrong. Please try again or contact support.';
   for (const [pattern, msg] of MANDATE_ERROR_MAP) {
     if (pattern.test(raw)) return msg;
   }
-  return raw;
+  return 'Something went wrong. Please try again or contact support.';
 }
 
 const renderMandateCard = async (app) => {
@@ -2973,8 +2973,8 @@ const renderMandateCard = async (app) => {
   const isEligible = ['OFFER_ACCEPTED', 'READY_TO_DISBURSE', 'ACTIVE', 'DISBURSED'].includes(app?.status);
 
   if (!isEligible) {
-    body.className = 'text-sm text-outline bg-surface-container border border-dashed border-outline-variant/30 rounded-xl px-4 py-6 text-center';
-    body.innerHTML = 'Debit order is set up once the contract is signed.';
+    body.className = 'text-sm text-outline text-center py-4';
+    body.innerHTML = 'Debit order will be set up after the client signs the agreement.';
     return;
   }
 
@@ -2991,110 +2991,124 @@ const renderMandateCard = async (app) => {
     const mandate = records?.[0];
 
     if (!mandate) {
-      body.className = 'rounded-xl';
+      body.className = '';
       body.innerHTML = `
-        <div class="flex items-start justify-between gap-4 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
-          <div class="flex items-start gap-3">
-            <span class="material-symbols-outlined text-yellow-600 mt-0.5">warning</span>
+        <div class="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <div class="flex items-center gap-3 mb-3">
+            <span class="material-symbols-outlined text-amber-500 text-[22px]">pending_actions</span>
             <div>
-              <p class="text-sm font-semibold text-yellow-900">No debit order loaded yet</p>
-              <p class="text-xs text-yellow-700 mt-1">The mandate hasn't been sent to SureSystems. Load it now to activate collections.</p>
+              <p class="text-sm font-bold text-amber-900">Debit order not set up yet</p>
+              <p class="text-xs text-amber-700 mt-0.5">Click the button below to set up the client's monthly debit order.</p>
             </div>
           </div>
-          <button onclick="window.retryMandate(${app.id})" id="mandate-action-btn"
-            class="shrink-0 px-3 py-2 text-xs font-bold rounded-xl text-white transition-colors"
+          <button onclick="window.setupMandate(${app.id})" id="mandate-action-btn"
+            class="w-full py-2.5 text-sm font-bold rounded-xl text-white transition-all active:scale-95"
             style="background:var(--color-primary)">
-            <span class="material-symbols-outlined text-[14px] align-middle mr-1">send</span> Load mandate
+            Set Up Debit Order
           </button>
         </div>`;
       return;
     }
 
     const status = (mandate.status || 'unknown').toLowerCase();
-    const contractRef = mandate.contract_reference || null;
     const activatedAt = mandate.activated_at
       ? new Date(mandate.activated_at).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' })
-      : null;
+      : mandate.updated_at
+        ? new Date(mandate.updated_at).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' })
+        : null;
 
     if (status === 'success') {
-      body.className = 'rounded-xl';
+      body.className = '';
       body.innerHTML = `
-        <div class="p-4 bg-green-50 border border-green-200 rounded-xl space-y-3">
-          <div class="flex items-center gap-2">
-            <span class="material-symbols-outlined text-green-600">check_circle</span>
-            <span class="text-sm font-bold text-green-900">Debit order active</span>
+        <div class="rounded-2xl border border-green-200 bg-green-50 p-5 space-y-3">
+          <div class="flex items-center gap-3">
+            <span class="material-symbols-outlined text-green-600 text-[22px]">check_circle</span>
+            <div>
+              <p class="text-sm font-bold text-green-900">Debit order is active</p>
+              <p class="text-xs text-green-700">Monthly collections are set up and ready.</p>
+            </div>
           </div>
-          ${contractRef ? `<div class="flex items-center justify-between text-xs"><span class="text-outline">Contract ref</span><span class="font-mono font-bold text-on-surface">${contractRef}</span></div>` : ''}
-          ${activatedAt ? `<div class="flex items-center justify-between text-xs"><span class="text-outline">Activated</span><span class="font-medium text-on-surface">${activatedAt}</span></div>` : ''}
+          ${activatedAt ? `
+          <div class="flex items-center justify-between text-xs pt-1 border-t border-green-200">
+            <span class="text-green-800 font-medium">Activated on</span>
+            <span class="font-semibold text-green-900">${activatedAt}</span>
+          </div>` : ''}
         </div>`;
       return;
     }
 
     if (status === 'pending') {
-      body.className = 'rounded-xl';
+      body.className = '';
       body.innerHTML = `
-        <div class="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-3">
-          <div class="flex items-center gap-2">
-            <span class="material-symbols-outlined text-blue-600 animate-spin" style="animation-duration:2s">progress_activity</span>
-            <span class="text-sm font-bold text-blue-900">Awaiting bank authentication</span>
+        <div class="rounded-2xl border border-blue-200 bg-blue-50 p-5 space-y-3">
+          <div class="flex items-center gap-3">
+            <span class="material-symbols-outlined text-blue-500 text-[22px]" style="animation:spin 2s linear infinite">progress_activity</span>
+            <div>
+              <p class="text-sm font-bold text-blue-900">Waiting for bank approval</p>
+              <p class="text-xs text-blue-700">The client's bank is reviewing the debit order. This usually takes 1–2 business days.</p>
+            </div>
           </div>
-          <p class="text-xs text-blue-700">The mandate has been sent. The client's bank typically responds within 1–2 business days.</p>
-          ${contractRef ? `<div class="flex items-center justify-between text-xs"><span class="text-outline">Contract ref</span><span class="font-mono font-bold text-on-surface">${contractRef}</span></div>` : ''}
+          ${activatedAt ? `
+          <div class="flex items-center justify-between text-xs pt-1 border-t border-blue-200">
+            <span class="text-blue-800 font-medium">Submitted on</span>
+            <span class="font-semibold text-blue-900">${activatedAt}</span>
+          </div>` : ''}
         </div>`;
       return;
     }
 
     // failed or unknown
     const friendlyMsg = mandateFriendlyError(mandate.message);
-    body.className = 'rounded-xl';
+    body.className = '';
     body.innerHTML = `
-      <div class="p-4 bg-red-50 border border-red-200 rounded-xl space-y-3">
-        <div class="flex items-start justify-between gap-4">
-          <div class="flex items-start gap-2">
-            <span class="material-symbols-outlined text-red-600 mt-0.5">error</span>
-            <div>
-              <p class="text-sm font-bold text-red-900">Debit order failed</p>
-              <p class="text-xs text-red-700 mt-1">${friendlyMsg}</p>
-            </div>
+      <div class="rounded-2xl border border-red-200 bg-red-50 p-5 space-y-3">
+        <div class="flex items-start gap-3">
+          <span class="material-symbols-outlined text-red-500 text-[22px] mt-0.5">error</span>
+          <div>
+            <p class="text-sm font-bold text-red-900">Debit order failed</p>
+            <p class="text-xs text-red-700 mt-1">${friendlyMsg}</p>
           </div>
-          <button onclick="window.retryMandate(${app.id})" id="mandate-action-btn"
-            class="shrink-0 px-3 py-2 text-xs font-bold rounded-xl bg-red-600 text-white hover:bg-red-700 transition-colors">
-            <span class="material-symbols-outlined text-[14px] align-middle mr-1">refresh</span> Retry
-          </button>
         </div>
-        ${contractRef ? `<div class="flex items-center justify-between text-xs border-t border-red-200 pt-2"><span class="text-outline">Last ref</span><span class="font-mono font-bold text-on-surface">${contractRef}</span></div>` : ''}
+        <button onclick="window.setupMandate(${app.id})" id="mandate-action-btn"
+          class="w-full py-2.5 text-sm font-bold rounded-xl bg-red-600 text-white hover:bg-red-700 transition-all active:scale-95">
+          Try Again
+        </button>
       </div>`;
 
   } catch (err) {
     console.error('renderMandateCard error:', err);
-    body.className = 'text-sm text-outline bg-surface-container border border-dashed border-outline-variant/30 rounded-xl px-4 py-4 text-center';
+    body.className = 'text-sm text-outline text-center py-4';
     body.innerHTML = 'Could not load debit order status.';
   }
 };
 
-window.retryMandate = async (appId) => {
+window.setupMandate = async (appId) => {
   const btn = document.getElementById('mandate-action-btn');
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = '<span class="material-symbols-outlined text-[14px] align-middle animate-spin">progress_activity</span> Loading...';
+    btn.textContent = 'Setting up...';
   }
   try {
+    const { data: { session } } = await supabase.auth.getSession();
     const res = await fetch('/api/suresystems/activate-application', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session?.access_token}`
+      },
       body: JSON.stringify({ applicationId: appId })
     });
     const payload = await res.json().catch(() => ({}));
     if (!res.ok || payload?.success === false) {
-      throw new Error(payload?.error || payload?.message || 'Mandate load failed');
+      throw new Error(payload?.error || payload?.message || 'Setup failed');
     }
-    showFeedback('Debit order mandate loaded successfully.', 'success');
+    showFeedback('Debit order has been set up successfully.', 'success');
     await renderMandateCard(currentApplication);
   } catch (err) {
     showFeedback(mandateFriendlyError(err.message), 'error');
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = '<span class="material-symbols-outlined text-[14px] align-middle mr-1">refresh</span> Retry';
+      btn.textContent = 'Try Again';
     }
   }
 };
