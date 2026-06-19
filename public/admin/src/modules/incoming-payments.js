@@ -1,6 +1,7 @@
 import { initLayout } from '../shared/layout.js';
 import { formatCurrency, formatDate } from '../shared/utils.js';
 import { supabase } from '../services/supabaseClient.js';
+import { apiFetch } from '../shared/apiFetch.js';
 import {
   fetchPayments,
   fetchAnalyticsData
@@ -88,10 +89,9 @@ function renderPendingPanel() {
 window.confirmManualPayment = async (id, payType, clientName) => {
   if (!confirm(`Confirm ${payType === 'settlement' ? 'SETTLEMENT' : 'payment'} from ${clientName}?\n\nThis will:\n• Mark as confirmed\n• Post to Cash Ledger\n• Send SMS to client${payType === 'settlement' ? '\n• Set loan status to SETTLED' : ''}`)) return;
 
-  const { data: { session } } = await supabase.auth.getSession();
-  const res = await fetch(`/api/admin/payment/confirm/${id}`, {
+  const res = await apiFetch(`/api/admin/payment/confirm/${id}`, {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json' }
   });
   const json = await res.json();
   if (json.success) {

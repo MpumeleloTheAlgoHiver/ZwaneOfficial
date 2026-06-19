@@ -2,6 +2,7 @@
 import { initLayout }    from '../shared/layout.js';
 import { fetchLoanBook, fetchBranches } from '../services/dataService.js';
 import { formatCurrency, formatDate, STATUS_DISPLAY } from '../shared/utils.js';
+import { apiFetch } from '../shared/apiFetch.js';
 
 let allLoans      = [];
 let filteredLoans = [];
@@ -275,7 +276,7 @@ function sortBy(key) {
 async function sendReminder(applicationId, clientName, monthly) {
     if (!confirm(`Send SMS payment reminder to ${clientName}?`)) return;
     try {
-        const res = await fetch('/api/notifications/status-change', {
+        const res = await apiFetch('/api/notifications/status-change', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ applicationId, newStatus: 'IN_ARREARS' })

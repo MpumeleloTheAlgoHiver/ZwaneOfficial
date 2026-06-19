@@ -1,6 +1,7 @@
 import { supabase } from '../services/supabaseClient.js';
 import { ensureThemeLoaded, getCompanyName } from '../shared/theme.js';
 import * as openpgp from 'openpgp';
+import { apiFetch } from '../shared/apiFetch.js';
 
 const sacrraState = {
     view: 'overview',
@@ -730,7 +731,7 @@ async function renderBureaux(container) {
     `;
 
     try {
-        const res = await fetch('/api/sacrra/bureaux');
+        const res = await apiFetch('/api/sacrra/bureaux');
         const { data, error } = await res.json();
         if (error) throw new Error(error);
         renderBureauCards(data || []);
@@ -818,7 +819,7 @@ function renderBureauCards(bureaux) {
 }
 
 window.toggleBureau = async (key, enabled) => {
-    await fetch(`/api/sacrra/bureaux/${key}`, {
+    await apiFetch(`/api/sacrra/bureaux/${key}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ is_enabled: enabled })
@@ -834,7 +835,7 @@ window.saveBureau = async (key) => {
     const pgpVal = document.getElementById(`pgp-${key}`).value.trim();
     if (pgpVal && pgpVal.startsWith('-----')) payload.pgp_public_key = pgpVal;
 
-    const res = await fetch(`/api/sacrra/bureaux/${key}`, {
+    const res = await apiFetch(`/api/sacrra/bureaux/${key}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(payload)
@@ -862,7 +863,7 @@ window.submitOneBureau = async (key) => {
         const settings = { type: 'MONTHLY', prefix: 'D' };
         const fileContent = await window.buildSacrraFileContent(settings);
         const fileName = `SACRRA_MONTHLY_${new Date().toISOString().slice(0,10).replace(/-/g,'')}.txt`;
-        const res = await fetch(`/api/sacrra/submit/${key}`, {
+        const res = await apiFetch(`/api/sacrra/submit/${key}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ fileContent, fileName })
@@ -881,7 +882,7 @@ window.submitOneBureau = async (key) => {
 
 window.submitToAllBureaux = async () => {
     if (!confirm('Generate the SACRRA file and submit to ALL enabled bureaux?\n\nDisabled bureaux will be skipped.')) return;
-    const res = await fetch('/api/sacrra/bureaux');
+    const res = await apiFetch('/api/sacrra/bureaux');
     const { data } = await res.json();
     const enabled = (data || []).filter(b => b.is_enabled);
     if (enabled.length === 0) { alert('No bureaux enabled.'); return; }
@@ -1261,7 +1262,7 @@ async function transmitToMoveIt(fileName, fileContent) {
 
     try {
         // Step 1: Authenticate
-        const authRes = await fetch('/api/moveit/auth', { method: 'POST' });
+        const authRes = await apiFetch('/api/moveit/auth', { method: 'POST' });
         const authData = await authRes.json();
 
         let accessToken;
@@ -1272,7 +1273,7 @@ async function transmitToMoveIt(fileName, fileContent) {
             const otp = prompt('Enter the OTP code sent to your email:');
             if (!otp) { updateTransmitStatus(statusEl, 'Transmission cancelled.', 'warn'); return; }
 
-            const mfaRes  = await fetch('/api/moveit/auth/mfa', {
+            const mfaRes  = await apiFetch('/api/moveit/auth/mfa', {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body:    JSON.stringify({ mfaToken: authData.mfaToken, otpCode: otp }),
@@ -1294,7 +1295,7 @@ async function transmitToMoveIt(fileName, fileContent) {
             ? btoa(unescape(encodeURIComponent(fileContent)))
             : btoa(String.fromCharCode(...new Uint8Array(await fileContent.arrayBuffer())));
 
-        const uploadRes  = await fetch('/api/moveit/upload', {
+        const uploadRes  = await apiFetch('/api/moveit/upload', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ accessToken, fileName, fileContent: contentBase64 }),
@@ -1347,7 +1348,7 @@ window.checkSACRRAResponse = async (submissionId, fileName) => {
     if (statusEl) { statusEl.textContent = 'Checking MOVEit for response…'; statusEl.classList.remove('hidden'); }
 
     try {
-        const filesRes = await fetch('/api/sacrra/response-files');
+        const filesRes = await apiFetch('/api/sacrra/response-files');
         const filesData = await filesRes.json();
 
         if (!filesData.success) {
@@ -1373,7 +1374,7 @@ window.checkSACRRAResponse = async (submissionId, fileName) => {
 
         if (statusEl) statusEl.textContent = `Downloading ${target.name || 'response file'}…`;
 
-        const importRes = await fetch('/api/sacrra/import-response', {
+        const importRes = await apiFetch('/api/sacrra/import-response', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ fileId: target.id, submissionId })
@@ -1402,7 +1403,7 @@ window.importResponseFile = async (event, submissionId) => {
     const content = await file.text();
 
     try {
-        const importRes = await fetch('/api/sacrra/import-response', {
+        const importRes = await apiFetch('/api/sacrra/import-response', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ content, fileName: file.name, submissionId: submissionId || null })

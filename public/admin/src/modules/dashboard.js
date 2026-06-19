@@ -10,6 +10,7 @@ import {
   fetchPortfolioAnalytics,
   fetchFinancialTrends
 } from '../services/dataService.js';
+import { apiFetch } from '../shared/apiFetch.js';
 
 // ---------- Shared Animation Config ----------
 const APEX_ANIM = {
@@ -48,7 +49,7 @@ const getThemeColors = () => {
 
 async function fetchSureSystemsActivationStatus() {
   try {
-    const response = await fetch('/api/suresystems/activation-status');
+    const response = await apiFetch('/api/suresystems/activation-status');
     if (!response.ok) {
       throw new Error(`SureSystems status fetch failed (${response.status})`);
     }

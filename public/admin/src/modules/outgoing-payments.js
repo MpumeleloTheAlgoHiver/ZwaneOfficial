@@ -6,6 +6,7 @@ import {
   updateApplicationStatus,
   getCurrentAdminProfile
 } from '../services/dataService.js';
+import { apiFetch } from '../shared/apiFetch.js';
 
 // --- State ---
 let allPayouts = [];
@@ -554,7 +555,7 @@ async function handleBulkDisburse() {
 
     try {
         // Single server call — generates Capitec CSV + marks DISBURSED atomically
-        const res = await fetch('/api/payouts/capitec-csv', {
+        const res = await apiFetch('/api/payouts/capitec-csv', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

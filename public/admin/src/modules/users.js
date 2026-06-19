@@ -1,6 +1,7 @@
 import { initLayout } from '../shared/layout.js';
 import { fetchUsers, fetchBranches, claimClientProtocol, getCurrentAdminProfile, fetchFullUserProfile } from '../services/dataService.js';
-import { supabase } from '../services/supabaseClient.js'; 
+import { supabase } from '../services/supabaseClient.js';
+import { apiFetch } from '../shared/apiFetch.js';
 import { formatDate, formatCurrency, validateSAID } from '../shared/utils.js';
 import { renderProfileCard } from '../components/profile-card.js';
 
@@ -538,10 +539,9 @@ function injectInviteModal(branches) {
         try {
             const fd = new FormData(e.target);
             const body = Object.fromEntries(fd);
-            const { data: { session } } = await supabase.auth.getSession();
-            const res = await fetch('/api/admin/invite-staff', {
+            const res = await apiFetch('/api/admin/invite-staff', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
             });
             const json = await res.json();
