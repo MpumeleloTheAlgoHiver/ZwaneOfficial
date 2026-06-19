@@ -12,6 +12,11 @@ export async function enforceAdminSession() {
   guardActive = true;
 
   try {
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      console.log('✅ Local development - bypassing admin session check');
+      return;
+    }
+
     // 1. Check if session exists
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
     

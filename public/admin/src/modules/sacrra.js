@@ -1038,11 +1038,11 @@ async function buildSacrraFileContent(settings) {
     // Expected (after H): TT0109    202606030620260603ZWANE FINANCIAL SERVICES
     let content = ('H' + srn + monthEnd + '06' + creationDate + tradingName).padEnd(700, ' ').slice(0,700) + '\r\n';
 
-    // Branch code from system_settings (SACRRA-assigned, 7 chars, stored as sacrra_branch_code)
-    // Format: space-padded to 8 chars = ' ' + 7-char code, e.g. ' CS06626'
-    const rawBranchCode = (sacrraState.members[0]?.f02_supplier_ref || '').trim();
-    // Use sacrra_branch_code system setting if available, fallback to SRN right-padded
-    const branchCode = aL(rawBranchCode.slice(0, 7).padStart(7, ' ').padStart(8, ' '), 8);
+    // Branch code (pos 40-47, 8 chars): SACRRA explicitly flagged that SRN must NOT appear here.
+    // Leave blank unless a SACRRA-assigned branch code is stored in system_settings.sacrra_branch_code.
+    // The f02b_branch_code field from the view is already pre-set to 8 spaces.
+    const rawBranchCode = (sacrraState.members[0]?.f02b_branch_code || '').trim();
+    const branchCode = rawBranchCode ? aL(rawBranchCode, 8) : aL('', 8);
 
     sacrraState.members.forEach(m => {
         // Monthly = 'D' (Data). Daily = 'R' (Registration) or 'C' (Closure) per prefix
@@ -1086,7 +1086,9 @@ async function buildSacrraFileContent(settings) {
         r += aL('', 4);                        // 73-76:    SUB-ACCOUNT NO
         r += aL(m.f06_surname || '', 25);      // 77-101:   SURNAME (mixed case per dummy)
         r += aL(deriveTitle(m.f11_gender), 5); // 102-106:  TITLE
-        r += aL(m.f07_first_names || '', 14);  // 107-120:  FORENAME 1 (mixed case per dummy)
+        // FORENAME: SACRRA only allows [A-Z], [a-z], [-], [`], [ ] — strip everything else
+        const cleanForename = (m.f07_first_names || '').replace(/[^A-Za-z\-` ]/g, '').trim();
+        r += aL(cleanForename, 14);            // 107-120:  FORENAME 1
         r += aL('', 14);                       // 121-134:  FORENAME 2
         r += aL('', 14);                       // 135-148:  FORENAME 3
         r += aL(m.f13_address_1 || '', 25);    // 149-173:  RES ADDRESS 1
@@ -1115,7 +1117,9 @@ async function buildSacrraFileContent(settings) {
         r += mthsArr;                          // 431-432:  MONTHS IN ARREARS (N2)
         r += statusCode;                       // 433-434:  STATUS CODE: '  '=Active, C=Closed, T=Settled, L=Legal
         r += nR(m.f54_repayment_frequency || '03', 2); // 435-436: FREQ: 01=Weekly 02=Fortnight 03=Monthly
-        r += nR(m.f42_terms || m.term_months || '1', 4); // 437-440: TERMS (months)
+        // TERMS: must be 0000 for Account Type M (SACRRA rule — SACRRA warning fix)
+        const termsVal = (accountType.trim() === 'M') ? '0' : (m.f42_terms || m.term_months || '1');
+        r += nR(termsVal, 4);                  // 437-440: TERMS (months, 0000 for M type)
         r += nR((m.f51_status_date||'').replace(/-/g,'') || '0', 8); // 441-448: STATUS DATE
         r += aL('', 8);                        // 449-456:  OLD SUPPLIER BRANCH CODE
         r += aL('', 25);                       // 457-481:  OLD ACCOUNT NUMBER
@@ -1150,6 +1154,20 @@ async function buildSacrraFileContent(settings) {
 
 window.generateSacrraFile = async () => {
     if (sacrraState.members.length === 0) return alert("No data found.");
+
+    // Guard: warn if no reporting period is selected — the header date will default to today's
+    // month-end, which may not match the submission period SACRRA expects.
+    const backdateInput = document.getElementById('sacrra-backdate-month')?.value;
+    if (!backdateInput) {
+        const now = new Date();
+        const defaultPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const confirmed = confirm(
+            `No reporting period selected.\n\n` +
+            `The file header will use the current month-end (${defaultPeriod}).\n\n` +
+            `If you are resubmitting for a prior month, click Cancel and set the Reporting Period first.`
+        );
+        if (!confirmed) return;
+    }
 
     // Pre-flight validation
     const invalidStatus = sacrraState.members.filter(m => !VALID_STATUS_CODES.has((m.f50_status_code || '').trim()));

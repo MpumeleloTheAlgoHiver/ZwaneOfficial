@@ -3049,6 +3049,14 @@ const renderMandateCard = async (app) => {
               <p class="text-xs text-amber-700 mt-0.5">Click the button below to set up the client's monthly debit order.</p>
             </div>
           </div>
+          <div class="mb-3">
+            <label class="text-[10px] font-bold uppercase tracking-wider text-amber-800 block mb-1">Mandate type</label>
+            <select id="tt-type-select" class="w-full px-3 py-2 text-sm border border-amber-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-orange-500">
+              <option value="realtime">TT1 Real-time (bank responds immediately)</option>
+              <option value="delay">TT1 Delay (bank responds next business day)</option>
+              <option value="tt3">TT3 Paper/POS (physical signed form)</option>
+            </select>
+          </div>
           <button onclick="window.setupMandate(${app.id})" id="mandate-action-btn"
             class="w-full py-2.5 text-sm font-bold rounded-xl text-white transition-all active:scale-95"
             style="background:var(--color-primary)">
@@ -3117,6 +3125,13 @@ const renderMandateCard = async (app) => {
             <p class="text-xs text-red-700 mt-1">${friendlyMsg}</p>
           </div>
         </div>
+        <div class="mb-3">
+          <label class="text-[10px] font-bold uppercase tracking-wider text-red-800 block mb-1">Mandate type</label>
+          <select id="tt-type-select" class="w-full px-3 py-2 text-sm border border-red-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-orange-500">
+            <option value="realtime">TT1 Real-time (bank responds immediately)</option>
+            <option value="delay">TT1 Delay (bank responds next business day)</option>
+          </select>
+        </div>
         <button onclick="window.setupMandate(${app.id})" id="mandate-action-btn"
           class="w-full py-2.5 text-sm font-bold rounded-xl bg-red-600 text-white hover:bg-red-700 transition-all active:scale-95">
           Try Again
@@ -3138,13 +3153,14 @@ window.setupMandate = async (appId) => {
   }
   try {
     const { data: { session } } = await supabase.auth.getSession();
+    const transactionType = document.getElementById('tt-type-select')?.value || 'realtime';
     const res = await fetch('/api/suresystems/activate-application', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${session?.access_token}`
       },
-      body: JSON.stringify({ applicationId: appId })
+      body: JSON.stringify({ applicationId: appId, transactionType })
     });
     const payload = await res.json().catch(() => ({}));
     if (!res.ok || payload?.success === false) {

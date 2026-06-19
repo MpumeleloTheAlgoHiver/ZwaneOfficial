@@ -440,6 +440,48 @@ async function updateInstallmentRequest(input = {}) {
   return { response };
 }
 
+// TT3 (paper/POS mandate) — upload signed authorization image/document.
+// Field names based on SureSystems v3 API spec; confirm with SureSystems support if rejected.
+// typeOfAuthorizationRequired=3 / authorizationIndicator='0000' for paper authorization.
+async function submitTT3Signature(input = {}) {
+  if (!input.contractReference) {
+    const error = new Error('contractReference is required');
+    error.status = 400;
+    throw error;
+  }
+  if (!input.signatureImageBase64) {
+    const error = new Error('signatureImageBase64 is required');
+    error.status = 400;
+    throw error;
+  }
+  const payload = {
+    merchantGid:          config.merchantGid,
+    remoteGid:            config.remoteGid,
+    contractReference:    input.contractReference,
+    signatureImageBase64: input.signatureImageBase64,
+    signatureMimeType:    input.signatureMimeType || 'image/png',
+    frontEndUserName:     input.frontEndUserName || config.systemUsername
+  };
+  const response = await request('/mandates/signature', payload);
+  return { response };
+}
+
+async function getDateList(input = {}) {
+  if (!input.contractReference) {
+    const error = new Error('contractReference is required');
+    error.status = 400;
+    throw error;
+  }
+  const payload = {
+    merchantGid:       config.merchantGid,
+    remoteGid:         config.remoteGid,
+    contractReference: input.contractReference,
+    frontEndUserName:  input.frontEndUserName || config.systemUsername
+  };
+  const response = await request('/mandates/datelist', payload);
+  return { response };
+}
+
 async function cancelInstallment(input = {}) {
   if (!input.contractReference) {
     const error = new Error('contractReference is required');
@@ -527,6 +569,8 @@ module.exports = {
   downloadPayments,
   mandateEnquiry,
   cancelMandate,
+  submitTT3Signature,
+  getDateList,
   createInstallmentRequest,
   updateInstallmentRequest,
   cancelInstallment,
