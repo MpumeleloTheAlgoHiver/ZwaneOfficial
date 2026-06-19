@@ -147,7 +147,7 @@ function setButtonLoading(button, loadingText) {
   return () => { button.disabled = false; button.innerHTML = original; };
 }
 
-async function fetchJson(url, options = {}) {
+async function fetchJson(url, options = {}, _retry = true) {
   let { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) {
     const { data: refreshed } = await supabase.auth.refreshSession();
@@ -159,6 +159,15 @@ async function fetchJson(url, options = {}) {
   }
   const headers = { ...(options.headers || {}), Authorization: `Bearer ${session.access_token}` };
   const response = await fetch(url, { ...options, headers });
+  if (response.status === 401 && _retry) {
+    // Token accepted client-side but rejected server-side — force refresh and retry once
+    const { data: refreshed } = await supabase.auth.refreshSession();
+    if (refreshed?.session?.access_token) {
+      return fetchJson(url, options, false);
+    }
+    window.location.replace('/auth/login.html');
+    throw new Error('Session expired. Please log in again.');
+  }
   if (response.status === 401) {
     window.location.replace('/auth/login.html');
     throw new Error('Session expired. Please log in again.');
