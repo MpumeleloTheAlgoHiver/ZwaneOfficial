@@ -10,7 +10,26 @@ import {
   deletePayout,
   updateApplicationNotes
 } from '../services/dataService.js';
-import { supabase } from '../services/supabaseClient.js'; 
+import { supabase } from '../services/supabaseClient.js';
+
+async function apiFetch(url, options = {}) {
+  let { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    const { data: refreshed } = await supabase.auth.refreshSession();
+    session = refreshed?.session ?? null;
+  }
+  if (!session?.access_token) {
+    window.location.replace('/auth/login.html');
+    throw new Error('Session expired. Please log in again.');
+  }
+  const headers = { ...(options.headers || {}), Authorization: `Bearer ${session.access_token}` };
+  const response = await fetch(url, { ...options, headers });
+  if (response.status === 401) {
+    window.location.replace('/auth/login.html');
+    throw new Error('Session expired. Please log in again.');
+  }
+  return response;
+}
 import { 
   sendContract, 
   getSubmissionStatus, 
@@ -849,10 +868,9 @@ window.notifyClientToSign = async (appId) => {
   const btn = document.getElementById('notify-sign-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="material-symbols-outlined text-[14px] align-middle animate-spin">progress_activity</span> Sending...'; }
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const res = await fetch('/api/messaging/send', {
+    const res = await apiFetch('/api/messaging/send', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userId: currentApplication?.user_id,
         message: `Hi ${currentApplication?.profiles?.full_name?.split(' ')[0] || 'there'}, your loan agreement is ready to sign. Please log in to your portal and sign your agreement to proceed. ${window.location.origin}/user-portal/?page=sign-contract`,
@@ -945,7 +963,7 @@ const handleContractCompleted = async () => {
 
     if (statusChangedToOfferAccepted) {
       try {
-        const activationResponse = await fetch('/api/suresystems/activate-application', {
+        const activationResponse = await apiFetch('/api/suresystems/activate-application', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ applicationId: currentApplication.id })
@@ -1425,7 +1443,7 @@ window.manualStatusChange = async () => {
       if (newStatus === 'OFFER_ACCEPTED') {
         showFeedback('Status manually updated. Activating SureSystems mandate...', 'success');
         try {
-          const response = await fetch('/api/suresystems/activate-application', {
+          const response = await apiFetch('/api/suresystems/activate-application', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ applicationId: currentApplication.id })
@@ -2786,10 +2804,9 @@ window.recalcAffordability = function() {
 window.routeToHeadOffice = async function(appId) {
     if (!confirm('Route this application to Head Office?')) return;
     try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const res = await fetch(`/api/applications/${appId}/route-to-head-office`, {
+        const res = await apiFetch(`/api/applications/${appId}/route-to-head-office`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${session?.access_token}`, 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' }
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || 'Failed');
@@ -2914,7 +2931,7 @@ let auditEntries = [];
 
 async function loadAuditTrail(applicationId) {
     try {
-        const res  = await fetch(`/api/audit-log/loan_application/${applicationId}`);
+        const res  = await apiFetch(`/api/audit-log/loan_application/${applicationId}`);
         const json = await res.json();
         auditEntries = json.data || [];
         renderAuditTrail();
@@ -3152,14 +3169,10 @@ window.setupMandate = async (appId) => {
     btn.textContent = 'Setting up...';
   }
   try {
-    const { data: { session } } = await supabase.auth.getSession();
     const transactionType = document.getElementById('tt-type-select')?.value || 'realtime';
-    const res = await fetch('/api/suresystems/activate-application', {
+    const res = await apiFetch('/api/suresystems/activate-application', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session?.access_token}`
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ applicationId: appId, transactionType })
     });
     const payload = await res.json().catch(() => ({}));
@@ -3254,7 +3267,7 @@ window.handleAdminLoanTermOverride = async (applicationId) => {
 // Global function for disbursement CSV export
 window.handleDisbursementExport = async (applicationId) => {
   try {
-    const response = await fetch('/api/disbursements/payout-csv', {
+    const response = await apiFetch('/api/disbursements/payout-csv', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
