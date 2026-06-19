@@ -19,23 +19,22 @@ if (!supabaseUrl || !supabaseAnonKey || supabaseUrl.includes('YOUR_SUPABASE_URL'
     throw new Error("Supabase credentials are missing or are still placeholders!");
 }
 
-// Create and export the Supabase client with session-only storage
-// This ensures tokens are cleared when browser closes (production security)
+// localStorage so Supabase's autoRefreshToken timer survives page navigations
+// and background tab throttling. Supabase refresh tokens last 1 week by default;
+// the server always validates JWTs independently so security is unchanged.
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storage: window.sessionStorage, // Session expires on browser close
+    storage: window.localStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true
   }
 });
 
-// Global auth state listener - logs out admin if session becomes invalid
+// Redirect to login on genuine sign-out or failed refresh
 supabase.auth.onAuthStateChange((event, session) => {
-  if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED' && !session) {
-    // Only redirect if we're not already on login page
+  if (event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !session)) {
     if (!window.location.pathname.includes('/auth/login')) {
-      console.log('🔒 Admin session expired - redirecting to login');
       window.location.replace('/auth/login.html');
     }
   }
