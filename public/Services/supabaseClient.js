@@ -20,23 +20,18 @@ if (!supabaseUrl || !supabaseAnonKey || supabaseUrl.includes('YOUR_SUPABASE_URL'
     throw new Error("Supabase credentials are missing or are still placeholders!");
 }
 
-// Create and export the Supabase client with session-only storage
-// This ensures tokens are cleared when browser closes (production security)
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storage: window.sessionStorage, // Session expires on browser close
+    storage: window.localStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true
   }
 });
 
-// Global auth state listener - logs out user if session becomes invalid
 supabase.auth.onAuthStateChange((event, session) => {
-  if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED' && !session) {
-    // Only redirect if we're not already on login page
+  if (event === 'SIGNED_OUT') {
     if (!window.location.pathname.includes('/auth/login')) {
-      console.log('🔒 Session expired or invalidated - redirecting to login');
       window.location.replace('/auth/login.html');
     }
   }
