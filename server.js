@@ -3791,132 +3791,237 @@ app.get('/api/letters-of-demand/:applicationId', async (req, res) => {
         const balance     = Number(app.offer_principal || app.amount || 0);
         const defaultInterest = balance * 0.03;
 
+        const logoUrl = settings?.company_logo_url || process.env.COMPANY_LOGO_URL || '';
+        const primaryColor = settings?.primary_color || '#E7762E';
+
         const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>Letter of Demand — ${reference}</title>
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Times New Roman', Times, serif; font-size: 12pt; color: #000; background: #fff; }
-  .page { max-width: 210mm; margin: 0 auto; padding: 25mm 20mm; }
+  body { font-family: 'Inter', Arial, sans-serif; font-size: 10.5pt; color: #1a1a1a; background: #e8e8e8; }
 
-  /* Header */
-  .letterhead { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24pt; border-bottom: 2px solid #000; padding-bottom: 12pt; }
-  .company-name { font-size: 18pt; font-weight: bold; letter-spacing: -0.5px; }
-  .company-details { font-size: 9pt; color: #333; margin-top: 4pt; line-height: 1.5; }
-  .letter-type { font-size: 10pt; font-weight: bold; color: #c00; text-transform: uppercase; letter-spacing: 1px; }
+  .page {
+    max-width: 210mm; margin: 0 auto; background: #fff;
+    box-shadow: 0 4px 40px rgba(0,0,0,0.18);
+  }
 
-  /* Date & Reference */
-  .meta { margin: 20pt 0; font-size: 10pt; }
-  .meta strong { font-size: 11pt; }
+  /* Orange top bar */
+  .top-bar { height: 8px; background: ${primaryColor}; }
+
+  .inner { padding: 30mm 22mm 20mm; }
+
+  /* Letterhead */
+  .letterhead {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding-bottom: 18pt; margin-bottom: 20pt;
+    border-bottom: 2px solid ${primaryColor};
+  }
+  .logo-block img { max-height: 64px; max-width: 200px; object-fit: contain; }
+  .logo-fallback { font-size: 20pt; font-weight: 800; color: #1a1a1a; letter-spacing: -0.5px; }
+  .company-details { font-size: 8.5pt; color: #555; margin-top: 6pt; line-height: 1.7; }
+
+  .letter-badge {
+    text-align: right;
+  }
+  .letter-badge .badge {
+    display: inline-block;
+    background: ${primaryColor}; color: #fff;
+    font-size: 8pt; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+    padding: 4pt 10pt; border-radius: 4pt;
+  }
+  .letter-badge .ncr { font-size: 7.5pt; color: #888; margin-top: 6pt; }
+
+  /* Meta */
+  .meta-row { display: flex; gap: 40pt; margin-bottom: 18pt; font-size: 9.5pt; }
+  .meta-item label { display: block; font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: #999; margin-bottom: 2pt; }
+  .meta-item span { font-weight: 600; color: #1a1a1a; }
+
+  /* Divider */
+  .divider { height: 1px; background: #e8e8e8; margin: 14pt 0; }
 
   /* Addressee */
-  .addressee { margin: 16pt 0; font-size: 11pt; line-height: 1.8; }
+  .addressee { margin: 16pt 0 20pt; font-size: 10.5pt; line-height: 1.85; }
+  .addressee .name { font-weight: 700; font-size: 11.5pt; margin-bottom: 2pt; }
 
-  /* Subject */
-  .subject { font-size: 12pt; font-weight: bold; text-decoration: underline; margin: 20pt 0 12pt; }
+  /* Subject line */
+  .subject-block { background: #f7f7f7; border-left: 4px solid ${primaryColor}; padding: 8pt 14pt; margin: 18pt 0; }
+  .subject-block p { font-size: 10.5pt; font-weight: 700; color: #1a1a1a; letter-spacing: 0.2px; }
 
   /* Body */
-  p { margin-bottom: 10pt; line-height: 1.6; text-align: justify; }
+  p { margin-bottom: 9pt; line-height: 1.65; text-align: justify; }
 
   /* Amounts table */
-  .amounts { width: 100%; border-collapse: collapse; margin: 16pt 0; font-size: 11pt; }
-  .amounts th { background: #000; color: #fff; padding: 6pt 10pt; text-align: left; font-size: 10pt; }
-  .amounts td { padding: 5pt 10pt; border-bottom: 1px solid #ddd; }
-  .amounts .total { font-weight: bold; background: #f5f5f5; font-size: 12pt; }
-  .amounts .highlight { color: #c00; font-weight: bold; }
+  .amounts { width: 100%; border-collapse: collapse; margin: 16pt 0; font-size: 10pt; }
+  .amounts thead tr { background: #1a1a1a; }
+  .amounts th { color: #fff; padding: 7pt 12pt; text-align: left; font-size: 9pt; font-weight: 600; letter-spacing: 0.5px; }
+  .amounts th:last-child { text-align: right; }
+  .amounts td { padding: 6pt 12pt; border-bottom: 1px solid #f0f0f0; }
+  .amounts td:last-child { text-align: right; }
+  .amounts tr:nth-child(even) td { background: #fafafa; }
+  .amounts .highlight td { color: ${primaryColor}; font-weight: 600; }
+  .amounts .total td { font-weight: 700; background: #fff3ec; font-size: 11pt; color: ${primaryColor}; border-top: 2px solid ${primaryColor}; }
 
-  /* Signature */
-  .signature { margin-top: 36pt; }
-  .sig-line { border-top: 1px solid #000; width: 200pt; margin-top: 40pt; font-size: 9pt; }
+  /* List */
+  .consequence-list { margin: 0 0 9pt 20pt; }
+  .consequence-list li { margin-bottom: 4pt; line-height: 1.6; }
+
+  /* Signature block */
+  .signature-section { margin-top: 36pt; display: flex; align-items: flex-end; gap: 60pt; }
+  .sig-col {}
+  .sig-script {
+    font-family: 'Brush Script MT', 'Segoe Script', cursive;
+    font-size: 28pt;
+    color: #1a1a1a;
+    line-height: 1;
+    margin-bottom: 2pt;
+    display: block;
+  }
+  .sig-line-rule { border-top: 1.5px solid #1a1a1a; width: 180pt; margin-bottom: 5pt; }
+  .sig-name { font-size: 9.5pt; font-weight: 700; }
+  .sig-title { font-size: 8.5pt; color: #666; }
+  .sig-stamp {
+    width: 80pt; height: 80pt; border-radius: 50%;
+    border: 3px solid ${primaryColor};
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 8pt;
+    opacity: 0.75;
+  }
+  .sig-stamp .stamp-text { font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: ${primaryColor}; }
+  .sig-stamp .stamp-date { font-size: 7pt; color: #888; margin-top: 2pt; }
 
   /* Footer */
-  .footer { margin-top: 40pt; padding-top: 8pt; border-top: 1px solid #999; font-size: 8pt; color: #555; text-align: center; }
+  .footer {
+    margin-top: 36pt; padding-top: 10pt;
+    border-top: 2px solid ${primaryColor};
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 7.5pt; color: #888;
+  }
+  .footer strong { color: #555; }
 
   @media print {
-    body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-    .no-print { display: none; }
-    @page { size: A4; margin: 20mm; }
+    body { background: #fff; }
+    .page { box-shadow: none; max-width: 100%; }
+    .no-print { display: none !important; }
+    @page { size: A4; margin: 0; }
+    .top-bar { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .letter-badge .badge { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .amounts thead tr { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .amounts .total td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .subject-block { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
 </style>
 </head>
 <body>
-<div class="no-print" style="background:#1a1a1a;color:#fff;padding:12px 20px;font-family:sans-serif;font-size:13px;display:flex;justify-content:space-between;align-items:center;">
-  <span>📄 Letter of Demand — ${profile.full_name || 'Borrower'} | Ref: ${reference}</span>
-  <button onclick="window.print()" style="background:#E7762E;color:#fff;border:none;padding:8px 20px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px;">🖨 Print / Save PDF</button>
+
+<div class="no-print" style="background:#1a1a1a;color:#fff;padding:11px 24px;font-family:sans-serif;font-size:13px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:99;">
+  <span style="font-weight:600;">📄 Letter of Demand &nbsp;·&nbsp; ${profile.full_name || 'Borrower'} &nbsp;·&nbsp; Ref: ${reference}</span>
+  <button onclick="window.print()" style="background:${primaryColor};color:#fff;border:none;padding:9px 22px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13px;letter-spacing:0.3px;">🖨&nbsp; Print / Save PDF</button>
 </div>
 
 <div class="page">
+  <div class="top-bar"></div>
+  <div class="inner">
 
-  <div class="letterhead">
-    <div>
-      <div class="company-name">${companyName}</div>
-      <div class="company-details">${companyAddr}${companyAddr ? '<br>' : ''}${companyPhone ? 'Tel: '+companyPhone : ''}${companyEmail ? ' | '+companyEmail : ''}</div>
+    <!-- LETTERHEAD -->
+    <div class="letterhead">
+      <div class="logo-block">
+        ${logoUrl
+          ? `<img src="${logoUrl}" alt="${companyName} logo">`
+          : `<div class="logo-fallback">${companyName}</div>`}
+        <div class="company-details">
+          ${companyAddr ? companyAddr + '<br>' : ''}
+          ${companyPhone ? 'Tel: ' + companyPhone : ''}${companyPhone && companyEmail ? ' &nbsp;|&nbsp; ' : ''}${companyEmail ? companyEmail : ''}
+        </div>
+      </div>
+      <div class="letter-badge">
+        <div class="badge">Letter of Demand</div>
+        <div class="ncr">NCR Registered Credit Provider</div>
+      </div>
     </div>
-    <div style="text-align:right;">
-      <div class="letter-type">Letter of Demand</div>
-      <div style="font-size:9pt;color:#555;margin-top:6pt;">NCR Registered Credit Provider</div>
+
+    <!-- META -->
+    <div class="meta-row">
+      <div class="meta-item"><label>Date</label><span>${today}</span></div>
+      <div class="meta-item"><label>Reference</label><span>${reference}</span></div>
+      <div class="meta-item"><label>Application ID</label><span>${app.id}</span></div>
     </div>
-  </div>
 
-  <div class="meta">
-    <strong>Date:</strong> ${today}<br>
-    <strong>Reference:</strong> ${reference}<br>
-    <strong>Application ID:</strong> ${app.id}
-  </div>
+    <div class="divider"></div>
 
-  <div class="addressee">
-    <strong>${profile.full_name || '[Client Name]'}</strong><br>
-    ID Number: ${profile.identity_number || '[ID Number]'}<br>
-    ${profile.address ? profile.address + '<br>' : ''}${profile.suburb_area ? profile.suburb_area + '<br>' : ''}${profile.postal_code || ''}
-    <br><br>
-    Contact: ${profile.contact_number || profile.cell_tel_no || '[Contact Number]'}
-  </div>
+    <!-- ADDRESSEE -->
+    <div class="addressee">
+      <div class="name">${profile.full_name || '[Client Name]'}</div>
+      ID Number: ${profile.identity_number || '[ID Number]'}<br>
+      ${profile.address ? profile.address + '<br>' : ''}${profile.suburb_area ? profile.suburb_area + '<br>' : ''}${profile.postal_code ? profile.postal_code + '<br>' : ''}
+      Contact: ${profile.contact_number || profile.cell_tel_no || '[Contact Number]'}
+    </div>
 
-  <div class="subject">NOTICE OF DEFAULT AND DEMAND FOR PAYMENT</div>
+    <!-- SUBJECT -->
+    <div class="subject-block">
+      <p>NOTICE OF DEFAULT AND DEMAND FOR PAYMENT</p>
+    </div>
 
-  <p>Dear <strong>${profile.full_name || 'Client'}</strong>,</p>
+    <p>Dear <strong>${profile.full_name || 'Client'}</strong>,</p>
 
-  <p>We refer to the loan agreement entered into between yourself and <strong>${companyName}</strong>. Despite previous requests for payment, your account is now in <strong>default</strong>.</p>
+    <p>We refer to the loan agreement entered into between yourself and <strong>${companyName}</strong>. Despite previous requests for payment, your account is now in <strong>default</strong> and requires your immediate attention.</p>
 
-  <p>In terms of Section 129 of the National Credit Act 34 of 2005, we hereby give you formal notice that you are in default of your obligations and we demand immediate payment of all outstanding amounts.</p>
+    <p>In terms of <strong>Section 129 of the National Credit Act 34 of 2005</strong>, we hereby give you formal notice that you are in default of your obligations and we demand immediate payment of all outstanding amounts as detailed below.</p>
 
-  <table class="amounts">
-    <thead><tr><th>Description</th><th style="text-align:right;">Amount (R)</th></tr></thead>
-    <tbody>
-      <tr><td>Original Loan Amount</td><td style="text-align:right;">${Number(app.amount || 0).toLocaleString('en-ZA', {minimumFractionDigits:2})}</td></tr>
-      <tr><td>Outstanding Principal Balance</td><td style="text-align:right;">${balance.toLocaleString('en-ZA', {minimumFractionDigits:2})}</td></tr>
-      <tr><td>Default Interest (3% of balance)</td><td style="text-align:right;" class="highlight">${defaultInterest.toLocaleString('en-ZA', {minimumFractionDigits:2})}</td></tr>
-      <tr class="total"><td>TOTAL AMOUNT DUE</td><td style="text-align:right;" class="highlight">${(balance + defaultInterest).toLocaleString('en-ZA', {minimumFractionDigits:2})}</td></tr>
-    </tbody>
-  </table>
+    <!-- AMOUNTS TABLE -->
+    <table class="amounts">
+      <thead>
+        <tr><th>Description</th><th>Amount (R)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Original Loan Amount</td><td>${Number(app.amount || 0).toLocaleString('en-ZA', {minimumFractionDigits:2})}</td></tr>
+        <tr><td>Outstanding Principal Balance</td><td>${balance.toLocaleString('en-ZA', {minimumFractionDigits:2})}</td></tr>
+        <tr class="highlight"><td>Default Interest (3% of balance)</td><td>${defaultInterest.toLocaleString('en-ZA', {minimumFractionDigits:2})}</td></tr>
+        <tr class="total"><td>TOTAL AMOUNT DUE</td><td>${(balance + defaultInterest).toLocaleString('en-ZA', {minimumFractionDigits:2})}</td></tr>
+      </tbody>
+    </table>
 
-  <p>You are hereby required to pay the above total amount within <strong>10 (ten) business days</strong> of receiving this notice. Failure to respond or make payment will result in:</p>
+    <p>You are hereby required to pay the above total amount within <strong>10 (ten) business days</strong> of receiving this notice. Failure to respond or make payment will result in:</p>
 
-  <p style="margin-left:20pt;">
-    1. Legal proceedings being instituted against you;<br>
-    2. A negative listing on your credit record with the relevant credit bureau;<br>
-    3. Recovery of all legal costs from you.
-  </p>
+    <ol class="consequence-list">
+      <li>Legal proceedings being instituted against you;</li>
+      <li>A negative listing on your credit record with the relevant credit bureau;</li>
+      <li>Recovery of all legal costs, including attorney and own client costs, from you.</li>
+    </ol>
 
-  <p>Should you wish to arrange a payment plan or dispute this notice, please contact us immediately at the details above. You also have the right to approach a debt counsellor, alternative dispute resolution agent, consumer court, or the National Credit Regulator.</p>
+    <p>Should you wish to arrange a payment plan or dispute this notice, please contact us immediately at the details above. You also have the right to approach a debt counsellor, alternative dispute resolution agent, consumer court, or the <strong>National Credit Regulator</strong> at 0860 627 627.</p>
 
-  ${profile.nok_name ? `<p><em>We note that your next of kin ${profile.nok_name} (${profile.nok_relationship || ''}) may be contacted at ${profile.nok_phone || ''} if we are unable to reach you directly.</em></p>` : ''}
+    ${profile.nok_name ? `<p><em>We note that your next of kin, ${profile.nok_name}${profile.nok_relationship ? ' (' + profile.nok_relationship + ')' : ''}, may be contacted at ${profile.nok_phone || 'the number on file'} if we are unable to reach you directly.</em></p>` : ''}
 
-  <p>This letter serves as formal notice in terms of Section 129(1)(a) of the National Credit Act.</p>
+    <p>This letter serves as formal notice in terms of <strong>Section 129(1)(a) of the National Credit Act</strong>.</p>
 
-  <div class="signature">
-    <p>Yours faithfully,</p>
-    <div class="sig-line">Authorised Signatory — ${companyName}</div>
-  </div>
+    <!-- SIGNATURE -->
+    <div class="signature-section">
+      <div class="sig-col">
+        <p style="margin-bottom:24pt;">Yours faithfully,</p>
+        <span class="sig-script">Zwane Financial</span>
+        <div class="sig-line-rule"></div>
+        <div class="sig-name">Authorised Signatory</div>
+        <div class="sig-title">${companyName}</div>
+      </div>
+      <div class="sig-stamp">
+        <div class="stamp-text">${companyName}</div>
+        <div class="stamp-date">${today}</div>
+        <div class="stamp-text" style="margin-top:4pt;">OFFICIAL</div>
+      </div>
+    </div>
 
-  <div class="footer">
-    ${companyName} is a registered credit provider in terms of the National Credit Act 34 of 2005.
-    This letter was generated on ${today} | Ref: ${reference}
-  </div>
+    <!-- FOOTER -->
+    <div class="footer">
+      <span><strong>${companyName}</strong> is a registered credit provider in terms of the National Credit Act 34 of 2005.</span>
+      <span>Ref: ${reference} &nbsp;·&nbsp; ${today}</span>
+    </div>
 
-</div>
+  </div><!-- /inner -->
+</div><!-- /page -->
 </body>
 </html>`;
 
