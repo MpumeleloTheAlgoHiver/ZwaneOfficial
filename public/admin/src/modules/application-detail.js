@@ -195,28 +195,28 @@ const pageTemplate = `
                       <img id="profile-image" src="" alt="Profile" class="w-full h-full object-cover" onerror="this.src='https://ui-avatars.com/api/?name=User&background=random'">
                    </div>
                 </div>
-                <div class="flex-grow grid grid-cols-1 gap-y-5">
-                   <div class="grid grid-cols-1 sm:grid-cols-3 items-center gap-2">
-                      <span class="text-sm font-medium text-outline">Full Name</span>
-                      <div class="sm:col-span-2">
-                         <div id="detail-fullname" class="w-full p-3 bg-surface-container border border-outline-variant/20 rounded-xl text-on-surface text-sm font-semibold"></div>
+                <div class="flex-grow min-w-0 grid grid-cols-1 gap-y-5">
+                   <div class="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-1">
+                      <span class="text-sm font-medium text-outline whitespace-nowrap">Full Name</span>
+                      <div class="min-w-0">
+                         <div id="detail-fullname" class="w-full p-3 bg-surface-container border border-outline-variant/20 rounded-xl text-on-surface text-sm font-semibold truncate"></div>
                       </div>
                    </div>
-                   <div class="grid grid-cols-1 sm:grid-cols-3 items-center gap-2">
-                      <span class="text-sm font-medium text-outline">Email Address</span>
-                      <div class="sm:col-span-2">
-                         <div id="detail-email" class="w-full p-3 bg-surface-container border border-outline-variant/20 rounded-xl text-on-surface text-sm"></div>
+                   <div class="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-1">
+                      <span class="text-sm font-medium text-outline whitespace-nowrap">Email Address</span>
+                      <div class="min-w-0">
+                         <div id="detail-email" class="w-full p-3 bg-surface-container border border-outline-variant/20 rounded-xl text-on-surface text-sm truncate"></div>
                       </div>
                    </div>
-                   <div class="grid grid-cols-1 sm:grid-cols-3 items-center gap-2">
-                      <span class="text-sm font-medium text-outline">Mobile Number</span>
-                      <div class="sm:col-span-2">
+                   <div class="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-1">
+                      <span class="text-sm font-medium text-outline whitespace-nowrap">Mobile Number</span>
+                      <div class="min-w-0">
                          <div id="detail-mobile" class="w-full p-3 bg-surface-container border border-outline-variant/20 rounded-xl text-on-surface text-sm"></div>
                       </div>
                    </div>
-                   <div class="grid grid-cols-1 sm:grid-cols-3 items-center gap-2">
-                      <span class="text-sm font-medium text-outline">ID Number</span>
-                      <div class="sm:col-span-2">
+                   <div class="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-1">
+                      <span class="text-sm font-medium text-outline whitespace-nowrap">ID Number</span>
+                      <div class="min-w-0">
                          <div id="detail-identity-number" class="w-full p-3 bg-surface-container border border-outline-variant/20 rounded-xl text-on-surface text-sm font-mono"></div>
                       </div>
                    </div>
