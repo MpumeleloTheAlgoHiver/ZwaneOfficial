@@ -31,9 +31,9 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 });
 
-// Redirect to login on genuine sign-out or failed refresh
+// Only redirect on explicit sign-out — let fetchJson/apiFetch handle 401s
 supabase.auth.onAuthStateChange((event, session) => {
-  if (event === 'SIGNED_OUT' || (event === 'TOKEN_REFRESHED' && !session)) {
+  if (event === 'SIGNED_OUT') {
     if (!window.location.pathname.includes('/auth/login')) {
       window.location.replace('/auth/login.html');
     }
