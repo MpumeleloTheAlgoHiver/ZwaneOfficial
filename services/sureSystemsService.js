@@ -146,11 +146,12 @@ function buildSignatureHeaders() {
     CryptoJS.HmacSHA512(sigInput, config.clientSecret)
   );
 
+  // ClientSecret is the HMAC signing key only — do not transmit it as a header.
+  // Sending it caused SureSystems to follow a broken auth path (CLASS DOES NOT EXIST error).
   return {
-    'SS_SD_SWITCH_ClientId':     config.clientId,
-    'SS_SD_SWITCH_ClientSecret': config.clientSecret,
-    'SS_SD_SWITCH_DTS':          dts,
-    'SS_SD_SWITCH_HSH':          hmac
+    'SS_SD_SWITCH_ClientId': config.clientId,
+    'SS_SD_SWITCH_DTS':      dts,
+    'SS_SD_SWITCH_HSH':      hmac
   };
 }
 
