@@ -230,8 +230,13 @@ async function request(endpoint, payload) {
       validateStatus: () => true
     });
 
+    console.log('[SureSystems DEBUG] RESPONSE STATUS:', response.status);
+    console.log('[SureSystems DEBUG] RESPONSE BODY:', JSON.stringify(response.data, null, 2));
+
     if (response.status < 200 || response.status >= 300) {
-      const error = new Error(response.data?.message || 'SureSystems request failed');
+      const msg = response.data?.message || response.data?.error || response.data?.resultDescription
+        || response.data?.statusMessage || `SureSystems request failed (HTTP ${response.status})`;
+      const error = new Error(msg);
       error.status = response.status;
       error.endpoint = url;
       error.details = {
