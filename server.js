@@ -4938,8 +4938,10 @@ app.post('/api/admin/invite-staff', async (req, res) => {
         }
 
         // Send invite email — user sets their own password via the link
+        const siteUrl = req.headers.origin || `https://${req.headers.host}`;
         const { data: invited, error: inviteErr } = await supabaseService.auth.admin.inviteUserByEmail(email, {
-            data: { full_name, role }
+            data: { full_name, role },
+            redirectTo: `${siteUrl}/auth/set-password.html`
         });
 
         if (inviteErr) {
