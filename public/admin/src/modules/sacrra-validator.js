@@ -392,6 +392,8 @@ window._runLive = async function() {
 // ─────────────────────────────────────────────
 // CSV UPLOAD + MAPPING
 // ─────────────────────────────────────────────
+const REQUIRED_FIELDS = ['identity_number','surname','first_names','address','account_number','opening_balance','current_balance','installment','date_opened','term_months'];
+
 function handleCSVUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -402,29 +404,108 @@ function handleCSVUpload(e) {
         csvRecords = rows;
         csvColumnMap = autoMap(headers);
 
-        document.getElementById('csv-rowcount').textContent = `— ${rows.length.toLocaleString()} records`;
-        const REQUIRED = ['identity_number','surname','first_names','address','account_number','opening_balance','current_balance','installment','date_opened','term_months'];
-        const grid = document.getElementById('csv-map-grid');
-        grid.innerHTML = Object.entries(FIELD_ALIASES).map(([field]) => {
-            const label = field.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase());
-            const req   = REQUIRED.includes(field);
-            return `
-              <div class="border border-gray-100 rounded-xl p-3">
-                <label class="block text-[10px] font-bold ${req?'text-gray-900':'text-gray-400'} uppercase tracking-widest mb-1">
-                  ${label} ${req ? '<span class="text-red-500">*</span>' : ''}
-                </label>
-                <select data-field="${field}" class="map-sel w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white outline-none focus:ring-2 focus:ring-orange-400">
-                  <option value="">— Skip —</option>
-                  ${Object.keys(rows[0]).map(h => `<option value="${h}" ${csvColumnMap[field]===h?'selected':''}>${h}</option>`).join('')}
-                </select>
-              </div>`;
-        }).join('');
-        grid.querySelectorAll('.map-sel').forEach(s => s.addEventListener('change', e => { csvColumnMap[e.target.dataset.field] = e.target.value || undefined; }));
+        const missing = REQUIRED_FIELDS.filter(f => !csvColumnMap[f]);
 
-        document.getElementById('csv-step-map').classList.remove('hidden');
-        document.getElementById('csv-step-map').scrollIntoView({ behavior:'smooth' });
+        if (missing.length === 0) {
+            // All required columns detected — show confirmation banner and auto-run
+            showAutoMapBanner(headers, rows.length);
+        } else {
+            // Some required fields undetected — show only those
+            showPartialMapUI(headers, rows, missing);
+        }
     };
     reader.readAsText(file);
+}
+
+function showAutoMapBanner(headers, rowCount) {
+    const step = document.getElementById('csv-step-map');
+    step.classList.remove('hidden');
+    step.innerHTML = `
+      <div class="flex items-start gap-4 p-5 bg-green-50 border border-green-200 rounded-2xl mb-4">
+        <span class="material-symbols-outlined text-green-500 text-[28px] mt-0.5 shrink-0">check_circle</span>
+        <div class="flex-1">
+          <p class="font-bold text-green-800">All columns detected automatically</p>
+          <p class="text-xs text-green-700 mt-0.5">${rowCount.toLocaleString()} records ready — validating now…</p>
+          <div class="flex flex-wrap gap-1.5 mt-3">
+            ${Object.entries(csvColumnMap).map(([field, col]) => `
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-green-200 rounded-full text-[11px] text-green-700 font-semibold">
+                <span class="material-symbols-outlined text-[12px] text-green-500">check</span>
+                ${field.replace(/_/g,' ')} → <span class="text-gray-500">${col}</span>
+              </span>`).join('')}
+          </div>
+        </div>
+        <button onclick="showFullMapUI()" class="text-xs font-bold text-green-700 underline underline-offset-2 hover:text-green-900 shrink-0 mt-0.5">Edit mapping</button>
+      </div>`;
+    step.scrollIntoView({ behavior:'smooth' });
+    // Auto-run after a short delay so the user sees the confirmation
+    setTimeout(() => window._runCSV(), 600);
+}
+
+window.showFullMapUI = function() {
+    const step = document.getElementById('csv-step-map');
+    const allHeaders = Object.keys(csvRecords[0] || {});
+    step.innerHTML = buildMapGrid(allHeaders, Object.keys(FIELD_ALIASES), false);
+    wireMapSelects(step);
+};
+
+function showPartialMapUI(headers, rows, missing) {
+    const step = document.getElementById('csv-step-map');
+    step.classList.remove('hidden');
+
+    const detected = Object.entries(csvColumnMap);
+    step.innerHTML = `
+      <div class="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl mb-4">
+        <span class="material-symbols-outlined text-amber-500 text-[20px] mt-0.5 shrink-0">warning</span>
+        <div>
+          <p class="font-bold text-amber-800 text-sm">Couldn't detect ${missing.length} required column${missing.length>1?'s':''}</p>
+          <p class="text-xs text-amber-700 mt-0.5">Match them below, then click Validate.</p>
+        </div>
+      </div>
+
+      ${detected.length ? `
+      <div class="mb-4 flex flex-wrap gap-1.5">
+        <span class="text-[10px] font-black uppercase tracking-widest text-gray-400 w-full mb-1">Auto-detected</span>
+        ${detected.map(([field, col]) => `
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-green-50 border border-green-100 rounded-full text-[11px] text-green-700 font-semibold">
+            <span class="material-symbols-outlined text-[11px]">check</span>
+            ${field.replace(/_/g,' ')} → ${col}
+          </span>`).join('')}
+      </div>` : ''}
+
+      <p class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3">Needs manual match</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+        ${missing.map(field => {
+            const label = field.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+            return `
+              <div class="border-2 border-amber-200 bg-amber-50/50 rounded-xl p-3">
+                <label class="block text-[10px] font-bold text-gray-900 uppercase tracking-widest mb-1">
+                  ${label} <span class="text-red-500">*</span>
+                </label>
+                <select data-field="${field}" class="map-sel w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white outline-none focus:ring-2 focus:ring-orange-400">
+                  <option value="">— Select column —</option>
+                  ${headers.map(h => `<option value="${h}">${h}</option>`).join('')}
+                </select>
+              </div>`;
+        }).join('')}
+      </div>
+      <div class="flex items-center gap-3">
+        <button onclick="window._runCSV()"
+          class="flex items-center gap-2 px-6 py-3 text-white font-bold rounded-xl text-sm"
+          style="background:var(--color-primary,#E7762E)">
+          <span class="material-symbols-outlined text-[18px]">play_arrow</span>
+          Validate Records
+        </button>
+        <span class="text-xs text-gray-400">${rows.length.toLocaleString()} records</span>
+      </div>`;
+
+    wireMapSelects(step);
+    step.scrollIntoView({ behavior:'smooth' });
+}
+
+function wireMapSelects(container) {
+    container.querySelectorAll('.map-sel').forEach(s =>
+        s.addEventListener('change', e => { csvColumnMap[e.target.dataset.field] = e.target.value || undefined; })
+    );
 }
 
 window._runCSV = function() {
