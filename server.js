@@ -2690,6 +2690,102 @@ app.patch('/api/sacrra/submissions/:id', async (req, res) => {
     }
 });
 
+// GET /api/sacrra/validate — run Layout 700v2 compliance check against live sacrra_700_view
+app.get('/api/sacrra/validate', async (req, res) => {
+    try {
+        const { data: rows, error } = await supabaseService
+            .from('sacrra_700_view')
+            .select('*')
+            .limit(5000);
+
+        if (error) throw new Error(error.message);
+
+        const CUTOFF_36M = new Date(Date.now() - 36 * 30 * 24 * 60 * 60 * 1000);
+
+        function check(row) {
+            const issues = [];
+            const isActive = !['T','V'].includes(row.f50_status_code || '');
+
+            // ID number
+            if (!row.f10_id_number || row.f10_id_number.trim() === '')
+                issues.push({ field: 'SA ID (f10)', msg: 'Missing — record excluded from submission' });
+
+            // Surname company suffix
+            if (/\s*(PTY\.?\s*LTD\.?|LTD\.?|\bCC\b|INC\.?|CORP\.?|\(PTY\))\s*$/i.test(row.f06_surname || ''))
+                issues.push({ field: 'Surname (f06)', msg: 'Contains company suffix — bureaux will reject' });
+
+            // Current balance > 0 for active
+            const balance = parseInt(row.f44_current_balance || '0');
+            if (isActive && balance === 0)
+                issues.push({ field: 'Current Balance (f44)', msg: 'Active account has 0 balance — must be ≥ 1' });
+
+            // Installment > 0 for active
+            const instalment = parseInt(row.f45_installment || '0');
+            if (isActive && instalment === 0)
+                issues.push({ field: 'Installment (f45)', msg: 'Active account has 0 instalment — must be ≥ 1' });
+
+            // Amount overdue > 0 when in arrears
+            const arrears = parseInt(row.f53_months_in_arrears || '0');
+            const overdue = parseInt(row.f49_arrears_amount || '0');
+            if (arrears > 0 && overdue === 0)
+                issues.push({ field: 'Amount Overdue (f49)', msg: `${arrears} months in arrears but overdue amount = 0` });
+
+            // Terms: Account Type M must be 0000
+            if (row.f03_account_type === 'M' && row.f42_terms !== '0000')
+                issues.push({ field: 'Terms (f42)', msg: `Account Type M must be 0000, got ${row.f42_terms}` });
+
+            // Date last payment for accounts open > 60 days
+            if (isActive && arrears === 0) {
+                const opened = row.f43_date_opened ? new Date(`${row.f43_date_opened.slice(0,4)}-${row.f43_date_opened.slice(4,6)}-${row.f43_date_opened.slice(6,8)}`) : null;
+                const daysSince = opened ? (Date.now() - opened) / 86400000 : 0;
+                if (daysSince > 60 && (!row.f46_last_payment_date || row.f46_last_payment_date === '00000000'))
+                    issues.push({ field: 'Last Payment (f46)', msg: 'Open > 60 days with no arrears must have payment date' });
+            }
+
+            // 36-month stale rule
+            const lastPayStr = row.f46_last_payment_date;
+            const statusDateStr = row.f51_status_date;
+            const latestStr = statusDateStr || lastPayStr;
+            if (latestStr && latestStr !== '00000000') {
+                const latest = new Date(`${latestStr.slice(0,4)}-${latestStr.slice(4,6)}-${latestStr.slice(6,8)}`);
+                if (latest < CUTOFF_36M)
+                    issues.push({ field: '36-Month Rule', msg: `Last activity ${latestStr} is > 36 months ago — excluded from monthly submission` });
+            }
+
+            return issues;
+        }
+
+        const results = (rows || []).map(row => ({
+            id:           row.internal_id,
+            account:      row.f40_account_number,
+            name:         `${(row.f07_first_names || '').trim()} ${(row.f06_surname || '').trim()}`.trim(),
+            status:       row.f50_status_code || 'active',
+            balance:      parseInt(row.f44_current_balance || '0'),
+            issues:       check(row)
+        }));
+
+        const failed  = results.filter(r => r.issues.length > 0);
+        const passed  = results.filter(r => r.issues.length === 0);
+        const byField = {};
+        failed.forEach(r => r.issues.forEach(i => { byField[i.field] = (byField[i.field] || 0) + 1; }));
+
+        res.json({
+            success: true,
+            summary: {
+                total:      results.length,
+                passed:     passed.length,
+                failed:     failed.length,
+                compliance: results.length ? Math.round(passed.length / results.length * 100) : 100,
+                by_field:   byField
+            },
+            failed
+        });
+    } catch (err) {
+        console.error('[sacrra/validate]', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // ─── Capitec payout CSV export ────────────────────────────────────────────────
 // POST /api/payouts/capitec-csv
 // Body: { applicationIds: string[], markDisbursed?: boolean }

@@ -1,14 +1,11 @@
-// SACRRA Validator — validate an external loan book against Layout 700v2 rules
-// Use case: client supplies loan book from old system, we validate before migration
-
 import { initLayout } from '../shared/layout.js';
+import { apiFetch } from '../shared/apiFetch.js';
 
-let loadedRecords  = [];
-let validatedRows  = [];
-let columnMap      = {};
+let lastResults = null;
+let activeFilter = 'all';
 
 // ─────────────────────────────────────────────
-// SA ID VALIDATION (Luhn algorithm)
+// SA ID helpers (for CSV fallback)
 // ─────────────────────────────────────────────
 function validateLuhn(id) {
     if (!/^\d{13}$/.test(id)) return false;
@@ -21,400 +18,6 @@ function validateLuhn(id) {
     return (10 - sum % 10) % 10 === parseInt(id[12]);
 }
 
-function parseDOBFromID(id) {
-    if (!/^\d{13}$/.test(id)) return null;
-    const yy = parseInt(id.slice(0,2));
-    const mm = parseInt(id.slice(2,4));
-    const dd = parseInt(id.slice(4,6));
-    const century = yy >= 25 ? 1900 : 2000; // crude — adjust per use
-    const date = new Date(century + yy, mm - 1, dd);
-    if (date.getMonth() !== mm - 1) return null;
-    return `${century + yy}${String(mm).padStart(2,'0')}${String(dd).padStart(2,'0')}`;
-}
-
-function genderFromID(id) {
-    if (!/^\d{13}$/.test(id)) return null;
-    return parseInt(id[6]) < 5 ? 'F' : 'M';
-}
-
-// ─────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────
-function parseNum(v) { return parseFloat(String(v || 0).replace(/[R,\s]/g, '')); }
-function parseDate(v) {
-    if (!v) return null;
-    const d = String(v).replace(/[-\/\s]/g, '');
-    if (!/^\d{8}$/.test(d)) return null;
-    const dt = new Date(`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`);
-    return isNaN(dt.getTime()) ? null : dt;
-}
-const ACTIVE_STATUSES  = ['', 'active', 'disbursed', 'in_arrears', 'in_default', 'debicheck_auth'];
-const CLOSED_STATUSES  = ['t', 'paid', 'closed', 'settled', 'repaid', 'paid_up'];
-const VOID_STATUSES    = ['v', 'cancelled', 'rejected', 'declined', 'bureau_decline'];
-const COMPANY_SUFFIX   = /\s*(PTY\.?\s*LTD\.?|LTD\.?|\bCC\b|INC\.?|CORP\.?|\(PTY\))\s*$/i;
-const CUTOFF_36M       = new Date(new Date().setMonth(new Date().getMonth() - 36));
-
-// Normalise status input to SACRRA f50 values: '' | 'T' | 'V'
-function normStatus(v) {
-    const s = String(v || '').trim().toLowerCase();
-    if (CLOSED_STATUSES.includes(s) || s === 't') return 'T';
-    if (VOID_STATUSES.includes(s)   || s === 'v') return 'V';
-    return ''; // active / blank
-}
-function isActiveAccount(row) { return normStatus(row.status_code) === ''; }
-
-// ─────────────────────────────────────────────
-// RULES — Layout 700v2 compliance
-// Each returns null (pass) or string (error/warning)
-// ─────────────────────────────────────────────
-const VALIDATION_RULES = [
-    // ── IDENTITY ──────────────────────────────────────────────────────────
-    {
-        field: 'identity_number', label: 'SA ID (f10)',
-        check: (v) => {
-            if (!v || !String(v).trim()) return 'Required — records without a valid SA ID are excluded by bureaux';
-            const s = String(v).replace(/\s/g, '');
-            if (!/^\d{13}$/.test(s)) return `Must be exactly 13 digits (got ${s.length})`;
-            if (!validateLuhn(s)) return 'Luhn checksum fails — invalid SA ID number';
-            return null;
-        }
-    },
-    {
-        field: 'date_of_birth', label: 'Date of Birth (f12)',
-        check: (v, row) => {
-            if (!v) return 'Required';
-            const dob = String(v).replace(/[-\/\s]/g, '');
-            if (!/^\d{8}$/.test(dob)) return 'Must be YYYYMMDD';
-            const id = String(row.identity_number || '').replace(/\s/g, '');
-            const idDob = parseDOBFromID(id);
-            if (idDob && idDob !== dob) return `Mismatch with SA ID (ID says ${idDob})`;
-            return null;
-        }
-    },
-    {
-        field: 'gender', label: 'Gender (f11)',
-        check: (v, row) => {
-            if (!v) return 'Required — default to M if unknown';
-            const g = String(v).toUpperCase().charAt(0);
-            if (!['M','F'].includes(g)) return `Must be M or F`;
-            const id = String(row.identity_number || '').replace(/\s/g, '');
-            const idGender = genderFromID(id);
-            if (idGender && idGender !== g) return `Mismatch with SA ID (ID says ${idGender})`;
-            return null;
-        }
-    },
-    {
-        field: 'surname', label: 'Surname (f06)',
-        check: (v) => {
-            if (!v || !String(v).trim()) return 'Required';
-            const s = String(v).trim();
-            if (s.length > 25) return `Max 25 chars (got ${s.length}) — truncate`;
-            if (COMPANY_SUFFIX.test(s)) return `Looks like a company name — bureaux reject PTY/LTD/CC in surname field`;
-            return null;
-        }
-    },
-    {
-        field: 'first_names', label: 'First Names (f07)',
-        check: (v) => {
-            if (!v || !String(v).trim()) return 'Required';
-            const s = String(v).trim();
-            if (s.length > 14) return `Max 14 chars (got ${s.length}) — truncate`;
-            if (/[^A-Za-z\-` ]/.test(s)) return 'Only A-Z, a-z, hyphen, backtick, space allowed';
-            return null;
-        }
-    },
-
-    // ── ADDRESS ──────────────────────────────────────────────────────────
-    { field: 'address', label: 'Address Line 1 (f13)', check: (v) => !v || !String(v).trim() ? 'Required' : null },
-    {
-        field: 'postal_code', label: 'Postal Code (f17)',
-        check: (v) => {
-            if (!v) return null;
-            if (!/^\d{4}$/.test(String(v).trim())) return 'Must be 4 digits';
-            return null;
-        }
-    },
-    {
-        field: 'cell_tel_no', label: 'Mobile Number (f31)',
-        check: (v) => {
-            if (!v) return null;
-            const c = String(v).replace(/[\s\-+]/g, '');
-            if (!/^(0|27)\d{9}$/.test(c)) return 'Invalid SA mobile (must start 0 or 27, 10-11 digits)';
-            return null;
-        }
-    },
-
-    // ── ACCOUNT ──────────────────────────────────────────────────────────
-    { field: 'account_number', label: 'Account/Loan Number (f40)', check: (v) => !v ? 'Required' : null },
-    {
-        field: 'account_type', label: 'Account Type (f03)',
-        check: (v) => {
-            if (!v) return null; // optional — we derive M/P from term_months if missing
-            const t = String(v).trim().toUpperCase();
-            if (!['M','P'].includes(t)) return `Must be M (1-month/revolving) or P (personal instalment)`;
-            return null;
-        }
-    },
-    {
-        field: 'status_code', label: 'Status Code (f50)',
-        check: (v) => {
-            // Layout 700v2: blank = active, T = closed/paid/settled, V = void/cancelled
-            if (!v || String(v).trim() === '') return null; // blank is valid (active)
-            const s = String(v).trim().toUpperCase();
-            if (!['T','V'].includes(s) &&
-                !CLOSED_STATUSES.includes(String(v).toLowerCase()) &&
-                !VOID_STATUSES.includes(String(v).toLowerCase())) {
-                return `Layout 700v2 only uses blank (active), T (closed/paid/settled), or V (cancelled). Got "${v}"`;
-            }
-            return null;
-        }
-    },
-
-    // ── DATES ──────────────────────────────────────────────────────────
-    {
-        field: 'date_opened', label: 'Date Opened (f43)',
-        check: (v) => {
-            if (!v) return 'Required';
-            const d = parseDate(v);
-            if (!d) return 'Must be YYYYMMDD and a valid date';
-            if (d > new Date()) return 'Cannot be in the future';
-            return null;
-        }
-    },
-    {
-        field: 'date_last_payment', label: 'Date Last Payment (f46)',
-        check: (v, row) => {
-            if (!isActiveAccount(row)) return null; // closed/void: date not required
-            const opened = parseDate(row.date_opened);
-            if (!opened) return null;
-            const daysSinceOpen = (new Date() - opened) / 86400000;
-            if (daysSinceOpen > 60 && !v) {
-                return 'Required — account open > 60 days with 0 arrears must have a payment date (SACRRA rule)';
-            }
-            if (v && !parseDate(v)) return 'Must be YYYYMMDD format';
-            return null;
-        }
-    },
-    {
-        field: 'status_date', label: 'Status Date (f51)',
-        check: (v) => {
-            if (!v) return null; // optional
-            if (!parseDate(v)) return 'Must be YYYYMMDD format';
-            return null;
-        }
-    },
-
-    // ── FINANCIAL ──────────────────────────────────────────────────────
-    {
-        field: 'term_months', label: 'Term Months (f42)',
-        check: (v, row) => {
-            // Account Type M (1-month) must have term 0 or 1 — SACRRA encodes as 0000
-            const acType = String(row.account_type || '').trim().toUpperCase();
-            if (acType === 'M') {
-                const n = parseInt(v || 0);
-                if (n > 1) return `Account Type M (revolving) must have term 0 or 1, got ${n}`;
-                return null;
-            }
-            if (!v) return 'Required';
-            const n = parseInt(v);
-            if (isNaN(n) || n < 1) return 'Must be >= 1';
-            if (n > 9999) return 'Max 4 digits (9999)';
-            return null;
-        }
-    },
-    {
-        field: 'opening_balance', label: 'Opening Balance (f41)',
-        check: (v) => {
-            if (v === null || v === undefined || v === '') return 'Required';
-            const n = parseNum(v);
-            if (isNaN(n)) return `Not a number: "${v}"`;
-            if (n < 0) return 'Must be >= 0';
-            if (n > 999999999) return 'Exceeds N9 max (R999,999,999)';
-            return null;
-        }
-    },
-    {
-        field: 'current_balance', label: 'Current Balance (f44)',
-        check: (v, row) => {
-            if (v === null || v === undefined || v === '') return 'Required';
-            const n = parseNum(v);
-            if (isNaN(n)) return `Not a number: "${v}"`;
-            if (n < 0) return 'Must be >= 0';
-            if (n > 999999999) return 'Exceeds N9 max';
-            // SACRRA rejection rule: active accounts must have balance > 0
-            if (isActiveAccount(row) && n === 0) return 'Active accounts must have current balance > 0 (SACRRA will reject 0)';
-            return null;
-        }
-    },
-    {
-        field: 'installment', label: 'Monthly Installment (f45)',
-        check: (v, row) => {
-            if (v === null || v === undefined || v === '') {
-                if (isActiveAccount(row)) return 'Required for active accounts';
-                return null;
-            }
-            const n = parseNum(v);
-            if (isNaN(n)) return `Not a number: "${v}"`;
-            if (n < 0) return 'Must be >= 0';
-            // SACRRA rejection rule: active accounts must have installment > 0
-            if (isActiveAccount(row) && n === 0) return 'Active accounts must have installment > 0 (SACRRA will reject 0)';
-            return null;
-        }
-    },
-    {
-        field: 'amount_overdue', label: 'Amount Overdue (f49)',
-        check: (v, row) => {
-            const arrears = parseInt(row.months_in_arrears || 0);
-            if (arrears > 0) {
-                const n = parseNum(v);
-                if (!v || isNaN(n) || n === 0) {
-                    return `months_in_arrears=${arrears} but amount_overdue is 0 — SACRRA rejects this combination`;
-                }
-            }
-            return null;
-        }
-    },
-    {
-        field: 'months_in_arrears', label: 'Months In Arrears (f53)',
-        check: (v, row) => {
-            const n = parseInt(v || 0);
-            if (isNaN(n) || n < 0) return 'Must be >= 0';
-            if (n > 99) return 'Max 99';
-            const status = normStatus(row.status_code);
-            if (status === 'T' && n > 0) return `Closed account (T) should have 0 months in arrears`;
-            if (status === 'V' && n > 0) return `Void account (V) should have 0 months in arrears`;
-            return null;
-        }
-    },
-
-    // ── 36-MONTH STALE RULE ────────────────────────────────────────────
-    {
-        field: '_36month', label: '36-Month Activity Rule',
-        check: (_, row) => {
-            const statusDate  = parseDate(row.status_date);
-            const lastPayment = parseDate(row.date_last_payment);
-            const lastActivity = statusDate || lastPayment;
-            if (lastActivity && lastActivity < CUTOFF_36M) {
-                return `Last activity ${lastActivity.toISOString().slice(0,10)} is > 36 months ago — SACRRA excludes stale records from monthly submissions`;
-            }
-            return null;
-        }
-    }
-];
-
-// ─────────────────────────────────────────────
-// FIELD MAPPING — auto-detect common column names
-// ─────────────────────────────────────────────
-const FIELD_ALIASES = {
-    // Identity
-    identity_number:    ['id_number','idnumber','sa_id','said','identity_number','identity','rsa_id','national_id'],
-    date_of_birth:      ['dob','date_of_birth','birth_date','birthdate'],
-    gender:             ['gender','sex'],
-    // Name
-    surname:            ['surname','last_name','lastname','family_name'],
-    first_names:        ['first_name','firstname','first_names','given_name','forename'],
-    // Address
-    address:            ['address','address_1','address1','street_address','residential_address','res_address'],
-    postal_code:        ['postal','postal_code','postcode','zip'],
-    cell_tel_no:        ['cell','cellphone','mobile','phone','tel_no','contact_number','cell_tel_no'],
-    // Account
-    account_number:     ['account_number','account','loan_number','loan_no','ref','reference','contract_no','contract_reference'],
-    account_type:       ['account_type','type','loan_type','product_type'],
-    status_code:        ['status','status_code','loan_status','account_status'],
-    status_date:        ['status_date','status_change_date','updated_date'],
-    // Dates
-    date_opened:        ['date_opened','open_date','start_date','disbursed_date','disbursement_date','effective_date','created_date'],
-    date_last_payment:  ['date_last_payment','last_payment','last_payment_date','last_receipt_date','repayment_start_date'],
-    // Financials
-    term_months:        ['term','term_months','duration','months','number_of_installments','n_installments'],
-    opening_balance:    ['opening_balance','principal','original_amount','loan_amount','amount','disbursed'],
-    current_balance:    ['current_balance','outstanding','balance','outstanding_balance','remaining_balance'],
-    installment:        ['installment','instalment','monthly_payment','monthly','repayment','emi'],
-    amount_overdue:     ['amount_overdue','overdue_amount','arrears_amount','total_overdue','overdue'],
-    months_in_arrears:  ['months_in_arrears','arrears_months','m_in_arrears','overdue_months'],
-};
-
-function autoMapColumns(headers) {
-    const map = {};
-    const normalised = headers.map(h => String(h).toLowerCase().replace(/[\s_\-\.]/g,'_').replace(/__+/g,'_'));
-
-    Object.entries(FIELD_ALIASES).forEach(([field, aliases]) => {
-        for (let i = 0; i < normalised.length; i++) {
-            const h = normalised[i];
-            if (aliases.some(a => h === a || h.includes(a))) {
-                map[field] = headers[i];
-                break;
-            }
-        }
-    });
-    return map;
-}
-
-// ─────────────────────────────────────────────
-// CSV PARSING (simple — handles quoted fields)
-// ─────────────────────────────────────────────
-function parseCSV(text) {
-    const lines = text.split(/\r?\n/).filter(l => l.trim());
-    if (lines.length === 0) return { headers: [], rows: [] };
-
-    function parseLine(line) {
-        const cells = [];
-        let cur = '';
-        let inQuotes = false;
-        for (let i = 0; i < line.length; i++) {
-            const c = line[i];
-            if (c === '"') {
-                if (inQuotes && line[i+1] === '"') { cur += '"'; i++; }
-                else inQuotes = !inQuotes;
-            } else if (c === ',' && !inQuotes) {
-                cells.push(cur); cur = '';
-            } else { cur += c; }
-        }
-        cells.push(cur);
-        return cells;
-    }
-
-    const headers = parseLine(lines[0]).map(h => h.trim().replace(/^"|"$/g,''));
-    const rows = lines.slice(1).map(line => {
-        const cells = parseLine(line);
-        const obj = {};
-        headers.forEach((h, i) => obj[h] = (cells[i] || '').trim().replace(/^"|"$/g,''));
-        return obj;
-    });
-    return { headers, rows };
-}
-
-// ─────────────────────────────────────────────
-// MAIN VALIDATION
-// ─────────────────────────────────────────────
-function validateRecords(records, map) {
-    return records.map((rec, idx) => {
-        const mapped = {};
-        Object.entries(map).forEach(([field, sourceCol]) => {
-            mapped[field] = rec[sourceCol];
-        });
-
-        const errors = [];
-        const warnings = [];
-
-        VALIDATION_RULES.forEach(rule => {
-            // _36month is a virtual cross-field rule with no source column
-            const val = rule.field.startsWith('_') ? null : mapped[rule.field];
-            const err = rule.check(val, mapped);
-            if (err) errors.push({ field: rule.label, error: err });
-        });
-
-        return {
-            row:      idx + 2, // +2 because line 1 is header, rows are 1-indexed
-            valid:    errors.length === 0,
-            errors,
-            warnings,
-            original: rec,
-            mapped
-        };
-    });
-}
-
 // ─────────────────────────────────────────────
 // RENDER
 // ─────────────────────────────────────────────
@@ -425,7 +28,7 @@ function render() {
     if (!content) {
         content = document.createElement('div');
         content.id = 'validator-content';
-        content.className = 'p-6 max-w-[1400px] mx-auto';
+        content.className = 'p-6 max-w-5xl mx-auto';
         main.appendChild(content);
     }
 
@@ -434,242 +37,204 @@ function render() {
         <div>
           <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <span class="material-symbols-outlined" style="color:var(--color-primary,#E7762E)">fact_check</span>
-            SACRRA Migration Validator
+            SACRRA Compliance Check
           </h1>
-          <p class="text-sm text-gray-500 mt-0.5">Validate external loan book against Layout 700v2 rules before importing</p>
+          <p class="text-sm text-gray-500 mt-0.5">Validates live database records against Layout 700v2 rules</p>
         </div>
         <a href="/admin/sacrra" class="text-xs font-bold text-orange-600 border border-orange-200 bg-orange-50 hover:bg-orange-100 px-3 py-2 rounded-lg flex items-center gap-1">
           <span class="material-symbols-outlined text-[16px]">arrow_back</span> Back to SACRRA
         </a>
       </div>
 
-      <!-- Step 1: Upload -->
-      <section id="step-upload" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
-        <div class="flex items-center gap-3 mb-4">
-          <div class="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center font-black text-orange-600">1</div>
-          <h2 class="font-bold text-gray-900">Upload Loan Book</h2>
+      <!-- One-click validate -->
+      <div id="validate-cta" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 flex flex-col items-center text-center gap-4 mb-6">
+        <span class="material-symbols-outlined text-5xl text-gray-200">shield_check</span>
+        <div>
+          <p class="font-bold text-gray-900 text-lg">Check your live data now</p>
+          <p class="text-sm text-gray-500 mt-1">Scans all records in the SACRRA view against the same rules the bureaux use to reject submissions.</p>
         </div>
-        <p class="text-sm text-gray-500 mb-4">Upload the loan book CSV that Zwane provided. Auto-detects common column names.</p>
-        <input type="file" id="csv-upload" accept=".csv,.txt"
-          class="block w-full text-sm border-2 border-dashed border-gray-200 rounded-xl p-6 cursor-pointer hover:border-orange-300 hover:bg-orange-50/30 transition-colors">
-        <p class="text-xs text-gray-400 mt-2">Max 50MB. CSV with header row required.</p>
-      </section>
-
-      <!-- Step 2: Column mapping -->
-      <section id="step-map" class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6 hidden">
-        <div class="flex items-center gap-3 mb-4">
-          <div class="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center font-black text-orange-600">2</div>
-          <h2 class="font-bold text-gray-900">Column Mapping</h2>
-        </div>
-        <p class="text-sm text-gray-500 mb-4">Match the columns from the uploaded file to SACRRA fields. Required fields are bold.</p>
-        <div id="mapping-grid" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
-        <button id="run-validation"
-          class="mt-6 px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl text-sm flex items-center gap-2">
+        <button id="btn-validate" onclick="window._runValidation()"
+          class="flex items-center gap-2 px-8 py-3 text-white font-bold rounded-xl text-sm transition-all hover:-translate-y-0.5 shadow-md"
+          style="background:var(--color-primary,#E7762E)">
           <span class="material-symbols-outlined text-[18px]">play_arrow</span>
-          Validate Records
+          Run Compliance Check
         </button>
-      </section>
+      </div>
 
-      <!-- Step 3: Results -->
-      <section id="step-results" class="hidden mb-6">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-          <div class="bg-white rounded-2xl border border-gray-100 p-4">
-            <p class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Total Records</p>
-            <p id="stat-total" class="text-2xl font-black text-gray-900 mt-1">0</p>
+      <!-- Results (hidden until run) -->
+      <div id="results-panel" class="hidden space-y-4">
+
+        <!-- Summary cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div class="bg-white rounded-2xl border border-gray-100 p-4 text-center">
+            <p class="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1">Total Records</p>
+            <p id="s-total" class="text-3xl font-black text-gray-900">—</p>
           </div>
-          <div class="bg-white rounded-2xl border border-gray-100 p-4">
-            <p class="text-[10px] font-semibold uppercase tracking-widest text-green-500">Valid</p>
-            <p id="stat-valid" class="text-2xl font-black text-green-600 mt-1">0</p>
+          <div class="bg-white rounded-2xl border border-green-100 p-4 text-center">
+            <p class="text-[10px] font-bold uppercase tracking-widest text-green-500 mb-1">Passing</p>
+            <p id="s-pass" class="text-3xl font-black text-green-600">—</p>
           </div>
-          <div class="bg-white rounded-2xl border border-gray-100 p-4">
-            <p class="text-[10px] font-semibold uppercase tracking-widest text-red-500">Errors</p>
-            <p id="stat-errors" class="text-2xl font-black text-red-600 mt-1">0</p>
+          <div class="bg-white rounded-2xl border border-red-100 p-4 text-center">
+            <p class="text-[10px] font-bold uppercase tracking-widest text-red-500 mb-1">Issues Found</p>
+            <p id="s-fail" class="text-3xl font-black text-red-600">—</p>
           </div>
-          <div class="bg-white rounded-2xl border border-gray-100 p-4">
-            <p class="text-[10px] font-semibold uppercase tracking-widest text-orange-500">Compliance %</p>
-            <p id="stat-compliance" class="text-2xl font-black text-orange-600 mt-1">0%</p>
+          <div class="bg-white rounded-2xl border border-orange-100 p-4 text-center">
+            <p class="text-[10px] font-bold uppercase tracking-widest text-orange-500 mb-1">Compliance</p>
+            <p id="s-pct" class="text-3xl font-black text-orange-600">—</p>
           </div>
         </div>
 
-        <!-- Filter tabs -->
+        <!-- Issue breakdown -->
+        <div id="issue-breakdown" class="bg-white rounded-2xl border border-gray-100 p-5 hidden">
+          <p class="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Issue Breakdown</p>
+          <div id="breakdown-list" class="space-y-2"></div>
+        </div>
+
+        <!-- Records table -->
         <div class="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-          <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+          <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100">
             <div class="flex gap-1">
-              <button data-filter="all" class="filter-tab active px-3 py-1.5 text-xs font-bold rounded-lg bg-gray-100">All</button>
-              <button data-filter="failed" class="filter-tab px-3 py-1.5 text-xs font-bold rounded-lg hover:bg-gray-50">Failed Only</button>
-              <button data-filter="passed" class="filter-tab px-3 py-1.5 text-xs font-bold rounded-lg hover:bg-gray-50">Passed Only</button>
+              <button data-filter="all"    class="filter-tab px-3 py-1.5 text-xs font-bold rounded-lg bg-gray-100">All Issues</button>
+              <button data-filter="balance" class="filter-tab px-3 py-1.5 text-xs font-bold rounded-lg hover:bg-gray-50">Balance</button>
+              <button data-filter="id"      class="filter-tab px-3 py-1.5 text-xs font-bold rounded-lg hover:bg-gray-50">ID / Name</button>
+              <button data-filter="payment" class="filter-tab px-3 py-1.5 text-xs font-bold rounded-lg hover:bg-gray-50">Payment Date</button>
+              <button data-filter="stale"   class="filter-tab px-3 py-1.5 text-xs font-bold rounded-lg hover:bg-gray-50">36-Month</button>
             </div>
-            <div class="flex gap-2">
-              <button id="btn-download-errors" class="text-xs font-bold text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg flex items-center gap-1">
-                <span class="material-symbols-outlined text-[14px]">download</span> Errors CSV
-              </button>
-              <button id="btn-download-valid" class="text-xs font-bold text-green-600 border border-green-200 bg-green-50 hover:bg-green-100 px-3 py-1.5 rounded-lg flex items-center gap-1">
-                <span class="material-symbols-outlined text-[14px]">download</span> Valid CSV
-              </button>
-            </div>
+            <button onclick="window._runValidation()" class="text-xs font-bold text-orange-600 flex items-center gap-1 hover:underline">
+              <span class="material-symbols-outlined text-[14px]">refresh</span> Re-run
+            </button>
           </div>
-          <div class="overflow-x-auto max-h-[600px]">
+          <div id="table-wrap" class="overflow-x-auto max-h-[500px]">
             <table class="w-full text-sm">
               <thead class="bg-gray-50 sticky top-0">
                 <tr>
-                  <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Row</th>
-                  <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">SA ID</th>
+                  <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Account</th>
                   <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Name</th>
-                  <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Balance</th>
                   <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Status</th>
                   <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Issues</th>
                 </tr>
               </thead>
-              <tbody id="results-tbody" class="divide-y divide-gray-50"></tbody>
+              <tbody id="results-tbody"></tbody>
             </table>
           </div>
         </div>
-      </section>
+
+      </div>
     `;
 
-    // Wire up file upload
-    document.getElementById('csv-upload').addEventListener('change', handleFileUpload);
-    document.getElementById('run-validation').addEventListener('click', runValidation);
-    document.getElementById('btn-download-errors').addEventListener('click', () => downloadResults('errors'));
-    document.getElementById('btn-download-valid').addEventListener('click', () => downloadResults('valid'));
-
-    // Filter tabs
     document.querySelectorAll('.filter-tab').forEach(t => {
-        t.addEventListener('click', (e) => {
-            document.querySelectorAll('.filter-tab').forEach(t2 => { t2.classList.remove('active','bg-gray-100'); });
-            e.target.classList.add('active','bg-gray-100');
-            renderResultsTable(e.target.dataset.filter);
+        t.addEventListener('click', e => {
+            document.querySelectorAll('.filter-tab').forEach(x => x.classList.remove('bg-gray-100'));
+            e.target.classList.add('bg-gray-100');
+            activeFilter = e.target.dataset.filter;
+            renderTable();
         });
     });
 }
 
-function handleFileUpload(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-        const { headers, rows } = parseCSV(ev.target.result);
-        if (rows.length === 0) { alert('No rows found in file.'); return; }
+// ─────────────────────────────────────────────
+// VALIDATE
+// ─────────────────────────────────────────────
+window._runValidation = async function () {
+    const btn = document.getElementById('btn-validate');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-[18px]">refresh</span> Checking…'; }
 
-        loadedRecords = rows;
-        columnMap = autoMapColumns(headers);
-        renderMappingUI(headers);
-        document.getElementById('step-map').classList.remove('hidden');
-        document.getElementById('step-map').scrollIntoView({ behavior: 'smooth' });
-    };
-    reader.readAsText(file);
+    try {
+        const res  = await apiFetch('/api/sacrra/validate');
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Validation failed');
+        lastResults = data;
+        showResults(data);
+    } catch (err) {
+        alert('Error: ' + err.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-symbols-outlined text-[18px]">play_arrow</span> Run Compliance Check'; }
+    }
+};
+
+function showResults(data) {
+    const { summary, failed } = data;
+
+    document.getElementById('s-total').textContent = summary.total.toLocaleString();
+    document.getElementById('s-pass').textContent  = summary.passed.toLocaleString();
+    document.getElementById('s-fail').textContent  = summary.failed.toLocaleString();
+    document.getElementById('s-pct').textContent   = summary.compliance + '%';
+
+    // Issue breakdown
+    const byField = summary.by_field || {};
+    if (Object.keys(byField).length) {
+        const list = document.getElementById('breakdown-list');
+        const sorted = Object.entries(byField).sort((a,b) => b[1] - a[1]);
+        const max = sorted[0][1];
+        list.innerHTML = sorted.map(([field, count]) => `
+          <div class="flex items-center gap-3">
+            <span class="text-xs font-semibold text-gray-700 w-52 shrink-0">${field}</span>
+            <div class="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+              <div class="h-2 rounded-full bg-red-400" style="width:${Math.round(count/max*100)}%"></div>
+            </div>
+            <span class="text-xs font-bold text-red-600 w-12 text-right">${count}</span>
+          </div>`).join('');
+        document.getElementById('issue-breakdown').classList.remove('hidden');
+    }
+
+    document.getElementById('results-panel').classList.remove('hidden');
+    document.getElementById('validate-cta').classList.add('hidden');
+    renderTable();
 }
 
-function renderMappingUI(headers) {
-    const grid = document.getElementById('mapping-grid');
-    const required = ['identity_number','surname','first_names','address','account_number','opening_balance','current_balance','installment','date_opened','term_months'];
+const FILTER_KEYWORDS = {
+    balance: ['balance','installment','overdue'],
+    id:      ['id','surname','first names','name'],
+    payment: ['payment','last payment'],
+    stale:   ['36-month','36 month','stale']
+};
 
-    grid.innerHTML = Object.entries(FIELD_ALIASES).map(([field, _]) => {
-        const isReq = required.includes(field);
-        const fieldLabel = field.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase());
-        return `
-          <div class="border border-gray-100 rounded-xl p-3">
-            <label class="block text-xs ${isReq ? 'font-black text-gray-900' : 'font-semibold text-gray-500'} uppercase tracking-wide mb-1">
-              ${fieldLabel} ${isReq ? '<span class="text-red-500">*</span>' : '<span class="text-gray-300 normal-case">(optional)</span>'}
-            </label>
-            <select data-field="${field}" class="map-select w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400 outline-none bg-white">
-              <option value="">— Skip —</option>
-              ${headers.map(h => `<option value="${h}" ${columnMap[field] === h ? 'selected' : ''}>${h}</option>`).join('')}
-            </select>
-          </div>`;
-    }).join('');
-
-    grid.querySelectorAll('.map-select').forEach(s => {
-        s.addEventListener('change', (e) => {
-            columnMap[e.target.dataset.field] = e.target.value;
-        });
-    });
-}
-
-function runValidation() {
-    if (loadedRecords.length === 0) return;
-    validatedRows = validateRecords(loadedRecords, columnMap);
-
-    const valid  = validatedRows.filter(r => r.valid).length;
-    const errors = validatedRows.length - valid;
-    const pct    = Math.round((valid / validatedRows.length) * 100);
-
-    document.getElementById('stat-total').textContent      = validatedRows.length;
-    document.getElementById('stat-valid').textContent      = valid;
-    document.getElementById('stat-errors').textContent     = errors;
-    document.getElementById('stat-compliance').textContent = pct + '%';
-
-    document.getElementById('step-results').classList.remove('hidden');
-    renderResultsTable('all');
-    document.getElementById('step-results').scrollIntoView({ behavior: 'smooth' });
-}
-
-function renderResultsTable(filter = 'all') {
+function renderTable() {
     const tbody = document.getElementById('results-tbody');
-    let rows = validatedRows;
-    if (filter === 'failed') rows = rows.filter(r => !r.valid);
-    if (filter === 'passed') rows = rows.filter(r => r.valid);
+    if (!lastResults) return;
 
-    if (rows.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="p-12 text-center text-gray-400 text-sm">No records match this filter.</td></tr>`;
+    let rows = lastResults.failed;
+    if (activeFilter !== 'all') {
+        const kw = FILTER_KEYWORDS[activeFilter] || [];
+        rows = rows.filter(r => r.issues.some(i =>
+            kw.some(k => i.field.toLowerCase().includes(k) || i.msg.toLowerCase().includes(k))
+        ));
+    }
+
+    if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="4" class="p-10 text-center text-gray-400 text-sm">
+          ${activeFilter === 'all' ? '✅ No issues found — all records pass Layout 700v2 rules.' : 'No records match this filter.'}
+        </td></tr>`;
         return;
     }
 
-    // Cap at 500 rows for browser perf
-    const capped = rows.slice(0, 500);
-    tbody.innerHTML = capped.map(r => {
-        const id = r.mapped.identity_number || '—';
-        const name = (r.mapped.first_names || '') + ' ' + (r.mapped.surname || '');
-        const bal  = r.mapped.current_balance ? 'R' + Number(String(r.mapped.current_balance).replace(/[R,\s]/g,'')).toLocaleString('en-ZA') : '—';
-        const status = r.mapped.status_code || '—';
-
-        return `
-          <tr class="${r.valid ? 'hover:bg-green-50/20' : 'bg-red-50/20 hover:bg-red-50/40'}">
-            <td class="px-4 py-2 text-xs font-mono ${r.valid ? 'text-gray-400' : 'text-red-500 font-bold'}">${r.row}</td>
-            <td class="px-4 py-2 text-xs font-mono text-gray-700">${id}</td>
-            <td class="px-4 py-2 text-xs font-semibold text-gray-900 truncate max-w-[200px]" title="${name}">${name.trim() || '—'}</td>
-            <td class="px-4 py-2 text-xs font-bold text-gray-700">${bal}</td>
-            <td class="px-4 py-2 text-xs">${status === '—' ? '—' : `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-700">${status}</span>`}</td>
-            <td class="px-4 py-2">
-              ${r.valid
-                ? `<span class="inline-flex items-center gap-1 text-xs font-bold text-green-600"><span class="material-symbols-outlined text-[14px]">check_circle</span>OK</span>`
-                : `<div class="space-y-0.5">${r.errors.slice(0,3).map(e =>
-                    `<div class="text-[10px] text-red-600"><strong>${e.field}:</strong> ${e.error}</div>`).join('')}${r.errors.length > 3 ? `<div class="text-[10px] text-gray-400">+${r.errors.length-3} more</div>` : ''}</div>`}
-            </td>
-          </tr>`;
-    }).join('');
+    tbody.innerHTML = rows.slice(0, 500).map(r => `
+      <tr class="border-t border-gray-50 hover:bg-red-50/30">
+        <td class="px-4 py-3 text-xs font-mono text-gray-600">${r.account || r.id}</td>
+        <td class="px-4 py-3 text-xs font-semibold text-gray-900">${r.name || '—'}</td>
+        <td class="px-4 py-3">
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold ${
+            r.status === 'T' ? 'bg-gray-100 text-gray-500' :
+            r.status === 'V' ? 'bg-purple-50 text-purple-600' :
+            'bg-green-50 text-green-700'
+          }">${r.status === 'T' ? 'CLOSED' : r.status === 'V' ? 'VOID' : 'ACTIVE'}</span>
+        </td>
+        <td class="px-4 py-3">
+          <div class="space-y-0.5">
+            ${r.issues.map(i => `
+              <div class="flex items-start gap-1.5">
+                <span class="material-symbols-outlined text-red-400 text-[13px] mt-0.5 shrink-0">error</span>
+                <span class="text-[11px] text-gray-700"><strong class="text-red-600">${i.field}:</strong> ${i.msg}</span>
+              </div>`).join('')}
+          </div>
+        </td>
+      </tr>`).join('');
 
     if (rows.length > 500) {
-        tbody.innerHTML += `<tr><td colspan="6" class="p-4 text-center text-xs text-gray-400 bg-gray-50">Showing first 500 of ${rows.length}. Download CSV for full list.</td></tr>`;
+        tbody.innerHTML += `<tr><td colspan="4" class="p-4 text-center text-xs text-gray-400 bg-gray-50">
+          Showing 500 of ${rows.length} — all issues counted in summary above.
+        </td></tr>`;
     }
-}
-
-function downloadResults(type) {
-    const rows = type === 'valid' ? validatedRows.filter(r => r.valid) : validatedRows.filter(r => !r.valid);
-    if (rows.length === 0) { alert('No records to export.'); return; }
-
-    let csv;
-    if (type === 'valid') {
-        // Export mapped fields for clean import
-        const fields = Object.keys(FIELD_ALIASES);
-        csv = fields.join(',') + '\n';
-        csv += rows.map(r => fields.map(f => `"${(r.mapped[f] || '').toString().replace(/"/g,'""')}"`).join(',')).join('\n');
-    } else {
-        // Export with errors per row
-        csv = 'Row,SA_ID,Name,Errors\n';
-        csv += rows.map(r => {
-            const name = `${r.mapped.first_names || ''} ${r.mapped.surname || ''}`.trim();
-            const errors = r.errors.map(e => `${e.field}: ${e.error}`).join('; ');
-            return `${r.row},"${r.mapped.identity_number || ''}","${name}","${errors.replace(/"/g,'""')}"`;
-        }).join('\n');
-    }
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href = url;
-    a.download = `sacrra_${type}_${new Date().toISOString().slice(0,10)}.csv`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 
 // ─────────────────────────────────────────────
