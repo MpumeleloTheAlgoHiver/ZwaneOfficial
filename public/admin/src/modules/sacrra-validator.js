@@ -38,65 +38,96 @@ function genderFromID(id) {
 }
 
 // ─────────────────────────────────────────────
-// RULES — each returns null (pass) or error message
+// HELPERS
+// ─────────────────────────────────────────────
+function parseNum(v) { return parseFloat(String(v || 0).replace(/[R,\s]/g, '')); }
+function parseDate(v) {
+    if (!v) return null;
+    const d = String(v).replace(/[-\/\s]/g, '');
+    if (!/^\d{8}$/.test(d)) return null;
+    const dt = new Date(`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`);
+    return isNaN(dt.getTime()) ? null : dt;
+}
+const ACTIVE_STATUSES  = ['', 'active', 'disbursed', 'in_arrears', 'in_default', 'debicheck_auth'];
+const CLOSED_STATUSES  = ['t', 'paid', 'closed', 'settled', 'repaid', 'paid_up'];
+const VOID_STATUSES    = ['v', 'cancelled', 'rejected', 'declined', 'bureau_decline'];
+const COMPANY_SUFFIX   = /\s*(PTY\.?\s*LTD\.?|LTD\.?|\bCC\b|INC\.?|CORP\.?|\(PTY\))\s*$/i;
+const CUTOFF_36M       = new Date(new Date().setMonth(new Date().getMonth() - 36));
+
+// Normalise status input to SACRRA f50 values: '' | 'T' | 'V'
+function normStatus(v) {
+    const s = String(v || '').trim().toLowerCase();
+    if (CLOSED_STATUSES.includes(s) || s === 't') return 'T';
+    if (VOID_STATUSES.includes(s)   || s === 'v') return 'V';
+    return ''; // active / blank
+}
+function isActiveAccount(row) { return normStatus(row.status_code) === ''; }
+
+// ─────────────────────────────────────────────
+// RULES — Layout 700v2 compliance
+// Each returns null (pass) or string (error/warning)
 // ─────────────────────────────────────────────
 const VALIDATION_RULES = [
+    // ── IDENTITY ──────────────────────────────────────────────────────────
     {
-        field: 'identity_number',
-        label: 'SA ID Number',
+        field: 'identity_number', label: 'SA ID (f10)',
         check: (v) => {
-            if (!v) return 'Required';
-            const s = String(v).replace(/\s/g,'');
-            if (!/^\d{13}$/.test(s)) return `Must be 13 digits (got ${s.length})`;
-            if (!validateLuhn(s)) return 'Invalid checksum (Luhn fails)';
+            if (!v || !String(v).trim()) return 'Required — records without a valid SA ID are excluded by bureaux';
+            const s = String(v).replace(/\s/g, '');
+            if (!/^\d{13}$/.test(s)) return `Must be exactly 13 digits (got ${s.length})`;
+            if (!validateLuhn(s)) return 'Luhn checksum fails — invalid SA ID number';
             return null;
         }
     },
     {
-        field: 'date_of_birth',
-        label: 'Date of Birth',
+        field: 'date_of_birth', label: 'Date of Birth (f12)',
         check: (v, row) => {
             if (!v) return 'Required';
             const dob = String(v).replace(/[-\/\s]/g, '');
-            if (!/^\d{8}$/.test(dob)) return 'Must be YYYYMMDD format';
-
-            // Must match SA ID
-            const id = String(row.identity_number || '').replace(/\s/g,'');
+            if (!/^\d{8}$/.test(dob)) return 'Must be YYYYMMDD';
+            const id = String(row.identity_number || '').replace(/\s/g, '');
             const idDob = parseDOBFromID(id);
-            if (idDob && idDob !== dob) return `Doesn't match SA ID (expected ${idDob})`;
+            if (idDob && idDob !== dob) return `Mismatch with SA ID (ID says ${idDob})`;
             return null;
         }
     },
     {
-        field: 'gender',
-        label: 'Gender',
+        field: 'gender', label: 'Gender (f11)',
         check: (v, row) => {
-            if (!v) return 'Required';
+            if (!v) return 'Required — default to M if unknown';
             const g = String(v).toUpperCase().charAt(0);
-            if (!['M','F'].includes(g)) return `Must be M or F (got "${v}")`;
-
-            const id = String(row.identity_number || '').replace(/\s/g,'');
+            if (!['M','F'].includes(g)) return `Must be M or F`;
+            const id = String(row.identity_number || '').replace(/\s/g, '');
             const idGender = genderFromID(id);
-            if (idGender && idGender !== g) return `Doesn't match SA ID (expected ${idGender})`;
+            if (idGender && idGender !== g) return `Mismatch with SA ID (ID says ${idGender})`;
             return null;
         }
     },
-    { field: 'surname',      label: 'Surname',     check: (v) => !v || !String(v).trim() ? 'Required' : (String(v).length > 25 ? `Max 25 chars (got ${String(v).length})` : null) },
-    { field: 'first_names',  label: 'First Names', check: (v) => !v || !String(v).trim() ? 'Required' : (String(v).length > 14 ? `Max 14 chars (got ${String(v).length})` : null) },
-    { field: 'address',      label: 'Address',     check: (v) => !v || !String(v).trim() ? 'Required (no SACRRA submission without address)' : null },
     {
-        field: 'cell_tel_no',
-        label: 'Mobile Number',
+        field: 'surname', label: 'Surname (f06)',
         check: (v) => {
-            if (!v) return null; // optional
-            const cleaned = String(v).replace(/[\s\-+]/g,'');
-            if (!/^(0|27)\d{9}$/.test(cleaned)) return 'Invalid SA mobile format';
+            if (!v || !String(v).trim()) return 'Required';
+            const s = String(v).trim();
+            if (s.length > 25) return `Max 25 chars (got ${s.length}) — truncate`;
+            if (COMPANY_SUFFIX.test(s)) return `Looks like a company name — bureaux reject PTY/LTD/CC in surname field`;
             return null;
         }
     },
     {
-        field: 'postal_code',
-        label: 'Postal Code',
+        field: 'first_names', label: 'First Names (f07)',
+        check: (v) => {
+            if (!v || !String(v).trim()) return 'Required';
+            const s = String(v).trim();
+            if (s.length > 14) return `Max 14 chars (got ${s.length}) — truncate`;
+            if (/[^A-Za-z\-` ]/.test(s)) return 'Only A-Z, a-z, hyphen, backtick, space allowed';
+            return null;
+        }
+    },
+
+    // ── ADDRESS ──────────────────────────────────────────────────────────
+    { field: 'address', label: 'Address Line 1 (f13)', check: (v) => !v || !String(v).trim() ? 'Required' : null },
+    {
+        field: 'postal_code', label: 'Postal Code (f17)',
         check: (v) => {
             if (!v) return null;
             if (!/^\d{4}$/.test(String(v).trim())) return 'Must be 4 digits';
@@ -104,27 +135,98 @@ const VALIDATION_RULES = [
         }
     },
     {
-        field: 'account_number',
-        label: 'Account/Loan Number',
-        check: (v) => !v ? 'Required' : null
-    },
-    {
-        field: 'status_code',
-        label: 'Status Code',
+        field: 'cell_tel_no', label: 'Mobile Number (f31)',
         check: (v) => {
-            const valid = ['C','P','D','T','V','L','W','E','G','K','M','S','I','O','R','N'];
-            if (!v) return null; // blank = active per spec
-            const s = String(v).trim().toUpperCase();
-            if (!valid.includes(s)) return `Invalid status. Valid: ${valid.join(', ')}`;
+            if (!v) return null;
+            const c = String(v).replace(/[\s\-+]/g, '');
+            if (!/^(0|27)\d{9}$/.test(c)) return 'Invalid SA mobile (must start 0 or 27, 10-11 digits)';
+            return null;
+        }
+    },
+
+    // ── ACCOUNT ──────────────────────────────────────────────────────────
+    { field: 'account_number', label: 'Account/Loan Number (f40)', check: (v) => !v ? 'Required' : null },
+    {
+        field: 'account_type', label: 'Account Type (f03)',
+        check: (v) => {
+            if (!v) return null; // optional — we derive M/P from term_months if missing
+            const t = String(v).trim().toUpperCase();
+            if (!['M','P'].includes(t)) return `Must be M (1-month/revolving) or P (personal instalment)`;
             return null;
         }
     },
     {
-        field: 'opening_balance',
-        label: 'Opening Balance',
+        field: 'status_code', label: 'Status Code (f50)',
+        check: (v) => {
+            // Layout 700v2: blank = active, T = closed/paid/settled, V = void/cancelled
+            if (!v || String(v).trim() === '') return null; // blank is valid (active)
+            const s = String(v).trim().toUpperCase();
+            if (!['T','V'].includes(s) &&
+                !CLOSED_STATUSES.includes(String(v).toLowerCase()) &&
+                !VOID_STATUSES.includes(String(v).toLowerCase())) {
+                return `Layout 700v2 only uses blank (active), T (closed/paid/settled), or V (cancelled). Got "${v}"`;
+            }
+            return null;
+        }
+    },
+
+    // ── DATES ──────────────────────────────────────────────────────────
+    {
+        field: 'date_opened', label: 'Date Opened (f43)',
+        check: (v) => {
+            if (!v) return 'Required';
+            const d = parseDate(v);
+            if (!d) return 'Must be YYYYMMDD and a valid date';
+            if (d > new Date()) return 'Cannot be in the future';
+            return null;
+        }
+    },
+    {
+        field: 'date_last_payment', label: 'Date Last Payment (f46)',
+        check: (v, row) => {
+            if (!isActiveAccount(row)) return null; // closed/void: date not required
+            const opened = parseDate(row.date_opened);
+            if (!opened) return null;
+            const daysSinceOpen = (new Date() - opened) / 86400000;
+            if (daysSinceOpen > 60 && !v) {
+                return 'Required — account open > 60 days with 0 arrears must have a payment date (SACRRA rule)';
+            }
+            if (v && !parseDate(v)) return 'Must be YYYYMMDD format';
+            return null;
+        }
+    },
+    {
+        field: 'status_date', label: 'Status Date (f51)',
+        check: (v) => {
+            if (!v) return null; // optional
+            if (!parseDate(v)) return 'Must be YYYYMMDD format';
+            return null;
+        }
+    },
+
+    // ── FINANCIAL ──────────────────────────────────────────────────────
+    {
+        field: 'term_months', label: 'Term Months (f42)',
+        check: (v, row) => {
+            // Account Type M (1-month) must have term 0 or 1 — SACRRA encodes as 0000
+            const acType = String(row.account_type || '').trim().toUpperCase();
+            if (acType === 'M') {
+                const n = parseInt(v || 0);
+                if (n > 1) return `Account Type M (revolving) must have term 0 or 1, got ${n}`;
+                return null;
+            }
+            if (!v) return 'Required';
+            const n = parseInt(v);
+            if (isNaN(n) || n < 1) return 'Must be >= 1';
+            if (n > 9999) return 'Max 4 digits (9999)';
+            return null;
+        }
+    },
+    {
+        field: 'opening_balance', label: 'Opening Balance (f41)',
         check: (v) => {
             if (v === null || v === undefined || v === '') return 'Required';
-            const n = parseFloat(String(v).replace(/[R,\s]/g,''));
+            const n = parseNum(v);
             if (isNaN(n)) return `Not a number: "${v}"`;
             if (n < 0) return 'Must be >= 0';
             if (n > 999999999) return 'Exceeds N9 max (R999,999,999)';
@@ -132,67 +234,68 @@ const VALIDATION_RULES = [
         }
     },
     {
-        field: 'current_balance',
-        label: 'Current Balance',
-        check: (v) => {
+        field: 'current_balance', label: 'Current Balance (f44)',
+        check: (v, row) => {
             if (v === null || v === undefined || v === '') return 'Required';
-            const n = parseFloat(String(v).replace(/[R,\s]/g,''));
+            const n = parseNum(v);
             if (isNaN(n)) return `Not a number: "${v}"`;
             if (n < 0) return 'Must be >= 0';
             if (n > 999999999) return 'Exceeds N9 max';
+            // SACRRA rejection rule: active accounts must have balance > 0
+            if (isActiveAccount(row) && n === 0) return 'Active accounts must have current balance > 0 (SACRRA will reject 0)';
             return null;
         }
     },
     {
-        field: 'installment',
-        label: 'Monthly Installment',
-        check: (v) => {
-            if (v === null || v === undefined || v === '') return null;
-            const n = parseFloat(String(v).replace(/[R,\s]/g,''));
+        field: 'installment', label: 'Monthly Installment (f45)',
+        check: (v, row) => {
+            if (v === null || v === undefined || v === '') {
+                if (isActiveAccount(row)) return 'Required for active accounts';
+                return null;
+            }
+            const n = parseNum(v);
             if (isNaN(n)) return `Not a number: "${v}"`;
             if (n < 0) return 'Must be >= 0';
+            // SACRRA rejection rule: active accounts must have installment > 0
+            if (isActiveAccount(row) && n === 0) return 'Active accounts must have installment > 0 (SACRRA will reject 0)';
             return null;
         }
     },
     {
-        field: 'date_opened',
-        label: 'Date Account Opened',
-        check: (v) => {
-            if (!v) return 'Required';
-            const d = String(v).replace(/[-\/\s]/g, '');
-            if (!/^\d{8}$/.test(d)) return 'Must be YYYYMMDD format';
-            const date = new Date(`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`);
-            if (isNaN(date.getTime())) return 'Invalid date';
-            if (date > new Date()) return 'Cannot be in future';
+        field: 'amount_overdue', label: 'Amount Overdue (f49)',
+        check: (v, row) => {
+            const arrears = parseInt(row.months_in_arrears || 0);
+            if (arrears > 0) {
+                const n = parseNum(v);
+                if (!v || isNaN(n) || n === 0) {
+                    return `months_in_arrears=${arrears} but amount_overdue is 0 — SACRRA rejects this combination`;
+                }
+            }
             return null;
         }
     },
     {
-        field: 'term_months',
-        label: 'Term (Months)',
-        check: (v) => {
-            if (!v) return 'Required';
-            const n = parseInt(v);
-            if (isNaN(n) || n < 1) return 'Must be >= 1';
-            if (n > 9999) return 'Max 4 digits';
-            return null;
-        }
-    },
-    {
-        field: 'months_in_arrears',
-        label: 'Months In Arrears',
+        field: 'months_in_arrears', label: 'Months In Arrears (f53)',
         check: (v, row) => {
             const n = parseInt(v || 0);
             if (isNaN(n) || n < 0) return 'Must be >= 0';
             if (n > 99) return 'Max 99';
+            const status = normStatus(row.status_code);
+            if (status === 'T' && n > 0) return `Closed account (T) should have 0 months in arrears`;
+            if (status === 'V' && n > 0) return `Void account (V) should have 0 months in arrears`;
+            return null;
+        }
+    },
 
-            // Cross-check: if status is current (C) but arrears > 0, that's inconsistent
-            const status = String(row.status_code || '').trim().toUpperCase();
-            if (['C','P','T','V'].includes(status) && n > 0) {
-                return `Arrears > 0 but status is "${status}" (current/closed)`;
-            }
-            if (status === 'D' && n === 0) {
-                return `Status is "D" (defaulted) but arrears = 0`;
+    // ── 36-MONTH STALE RULE ────────────────────────────────────────────
+    {
+        field: '_36month', label: '36-Month Activity Rule',
+        check: (_, row) => {
+            const statusDate  = parseDate(row.status_date);
+            const lastPayment = parseDate(row.date_last_payment);
+            const lastActivity = statusDate || lastPayment;
+            if (lastActivity && lastActivity < CUTOFF_36M) {
+                return `Last activity ${lastActivity.toISOString().slice(0,10)} is > 36 months ago — SACRRA excludes stale records from monthly submissions`;
             }
             return null;
         }
@@ -203,22 +306,32 @@ const VALIDATION_RULES = [
 // FIELD MAPPING — auto-detect common column names
 // ─────────────────────────────────────────────
 const FIELD_ALIASES = {
-    identity_number: ['id_number','idnumber','sa_id','said','identity_number','identity','rsa_id','national_id'],
-    date_of_birth:   ['dob','date_of_birth','birth_date','birthdate'],
-    gender:          ['gender','sex'],
-    surname:         ['surname','last_name','lastname','family_name'],
-    first_names:     ['first_name','firstname','first_names','given_name','name','forename'],
-    address:         ['address','address_1','address1','street_address','residential_address','res_address'],
-    cell_tel_no:     ['cell','cellphone','mobile','phone','tel_no','contact_number','cell_tel_no'],
-    postal_code:     ['postal','postal_code','postcode','zip'],
-    account_number:  ['account_number','account','loan_number','loan_no','ref','reference','contract_no','contract_reference'],
-    status_code:     ['status','status_code','loan_status','account_status'],
-    opening_balance: ['opening_balance','principal','original_amount','loan_amount','amount','disbursed'],
-    current_balance: ['current_balance','outstanding','balance','outstanding_balance','remaining_balance'],
-    installment:     ['installment','instalment','monthly_payment','monthly','repayment','emi'],
-    date_opened:     ['date_opened','open_date','start_date','disbursed_date','disbursement_date','effective_date'],
-    term_months:     ['term','term_months','duration','months','number_of_installments','n_installments'],
-    months_in_arrears: ['months_in_arrears','arrears_months','m_in_arrears','overdue_months']
+    // Identity
+    identity_number:    ['id_number','idnumber','sa_id','said','identity_number','identity','rsa_id','national_id'],
+    date_of_birth:      ['dob','date_of_birth','birth_date','birthdate'],
+    gender:             ['gender','sex'],
+    // Name
+    surname:            ['surname','last_name','lastname','family_name'],
+    first_names:        ['first_name','firstname','first_names','given_name','forename'],
+    // Address
+    address:            ['address','address_1','address1','street_address','residential_address','res_address'],
+    postal_code:        ['postal','postal_code','postcode','zip'],
+    cell_tel_no:        ['cell','cellphone','mobile','phone','tel_no','contact_number','cell_tel_no'],
+    // Account
+    account_number:     ['account_number','account','loan_number','loan_no','ref','reference','contract_no','contract_reference'],
+    account_type:       ['account_type','type','loan_type','product_type'],
+    status_code:        ['status','status_code','loan_status','account_status'],
+    status_date:        ['status_date','status_change_date','updated_date'],
+    // Dates
+    date_opened:        ['date_opened','open_date','start_date','disbursed_date','disbursement_date','effective_date','created_date'],
+    date_last_payment:  ['date_last_payment','last_payment','last_payment_date','last_receipt_date','repayment_start_date'],
+    // Financials
+    term_months:        ['term','term_months','duration','months','number_of_installments','n_installments'],
+    opening_balance:    ['opening_balance','principal','original_amount','loan_amount','amount','disbursed'],
+    current_balance:    ['current_balance','outstanding','balance','outstanding_balance','remaining_balance'],
+    installment:        ['installment','instalment','monthly_payment','monthly','repayment','emi'],
+    amount_overdue:     ['amount_overdue','overdue_amount','arrears_amount','total_overdue','overdue'],
+    months_in_arrears:  ['months_in_arrears','arrears_months','m_in_arrears','overdue_months'],
 };
 
 function autoMapColumns(headers) {
@@ -285,7 +398,9 @@ function validateRecords(records, map) {
         const warnings = [];
 
         VALIDATION_RULES.forEach(rule => {
-            const err = rule.check(mapped[rule.field], mapped);
+            // _36month is a virtual cross-field rule with no source column
+            const val = rule.field.startsWith('_') ? null : mapped[rule.field];
+            const err = rule.check(val, mapped);
             if (err) errors.push({ field: rule.label, error: err });
         });
 
@@ -447,7 +562,7 @@ function handleFileUpload(e) {
 
 function renderMappingUI(headers) {
     const grid = document.getElementById('mapping-grid');
-    const required = ['identity_number','surname','first_names','address','account_number','opening_balance','current_balance','date_opened','term_months'];
+    const required = ['identity_number','surname','first_names','address','account_number','opening_balance','current_balance','installment','date_opened','term_months'];
 
     grid.innerHTML = Object.entries(FIELD_ALIASES).map(([field, _]) => {
         const isReq = required.includes(field);
