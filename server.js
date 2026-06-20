@@ -4912,8 +4912,7 @@ app.post('/api/messaging/webhook', (req, res) => {
     }
 });
 
-// POST /api/admin/invite-staff — create a staff/admin user account
-// Only super_admin can create admin/base_admin; admin can create base_admin only
+// POST /api/admin/invite-staff — send email invite to a new staff member
 app.post('/api/admin/invite-staff', async (req, res) => {
     try {
         const authHeader = req.headers.authorization || '';
@@ -4928,56 +4927,101 @@ app.post('/api/admin/invite-staff', async (req, res) => {
             return res.status(403).json({ error: 'Only admins can invite staff' });
         }
 
-        const { email, full_name, role, branch_id, password } = req.body;
-        if (!email || !full_name || !role || !password) {
-            return res.status(400).json({ error: 'email, full_name, role and password are required' });
+        const { email, full_name, role, branch_id } = req.body;
+        if (!email || !full_name || !role) {
+            return res.status(400).json({ error: 'email, full_name and role are required' });
         }
 
-        // Admins can only create base_admin; super_admin can create admin or base_admin
         const allowedRoles = callerRole === 'super_admin' ? ['admin', 'base_admin'] : ['base_admin'];
         if (!allowedRoles.includes(role)) {
             return res.status(403).json({ error: `You can only create: ${allowedRoles.join(', ')}` });
         }
 
-        // Create the auth user via service role
-        const { data: newUser, error: createErr } = await supabaseService.auth.admin.createUser({
-            email,
-            password,
-            email_confirm: true,
-            app_metadata: { role },
-            user_metadata:  { full_name, role }
+        // Send invite email — user sets their own password via the link
+        const { data: invited, error: inviteErr } = await supabaseService.auth.admin.inviteUserByEmail(email, {
+            data: { full_name, role }
         });
 
-        if (createErr) {
-            if (createErr.message?.includes('already registered')) {
+        if (inviteErr) {
+            if (inviteErr.message?.includes('already registered')) {
                 return res.status(409).json({ error: 'An account with this email already exists.' });
             }
-            throw createErr;
+            throw inviteErr;
         }
+
+        // Set app_metadata role (inviteUserByEmail only sets user_metadata)
+        await supabaseService.auth.admin.updateUserById(invited.user.id, {
+            app_metadata: { role }
+        });
 
         // Upsert profile row
         await supabaseService.from('profiles').upsert({
-            id:         newUser.user.id,
+            id:         invited.user.id,
             full_name,
             email,
             role,
-            branch_id:  branch_id || null,
+            branch_id:  branch_id ? parseInt(branch_id, 10) : null,
             updated_at: new Date().toISOString()
         }, { onConflict: 'id' });
 
-        // Audit
         await writeAudit({
-            entityType: 'user', entityId: newUser.user.id,
+            entityType: 'user', entityId: invited.user.id,
             action: 'staff_invited',
             description: `Staff member ${full_name} (${role}) invited by ${user.email}`
         });
 
-        res.status(201).json({
-            success: true,
-            user: { id: newUser.user.id, email, full_name, role }
-        });
+        res.status(201).json({ success: true, full_name, user: { id: invited.user.id, email, full_name, role } });
     } catch (err) {
         console.error('[invite-staff]', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE /api/admin/remove-staff/:userId
+app.delete('/api/admin/remove-staff/:userId', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization || '';
+        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+        if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+        const { data: { user }, error: authErr } = await supabaseService.auth.getUser(token);
+        if (authErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+
+        const callerRole = user.app_metadata?.role || user.user_metadata?.role || 'borrower';
+        if (!['super_admin', 'admin'].includes(callerRole)) {
+            return res.status(403).json({ error: 'Only admins can remove staff' });
+        }
+
+        const { userId } = req.params;
+
+        // Prevent removing yourself
+        if (userId === user.id) {
+            return res.status(400).json({ error: 'You cannot remove your own account.' });
+        }
+
+        // Check target role — admins cannot remove other admins or super_admins
+        const { data: target } = await supabaseService.auth.admin.getUserById(userId);
+        const targetRole = target?.user?.app_metadata?.role || target?.user?.user_metadata?.role || '';
+        if (callerRole === 'admin' && ['admin', 'super_admin'].includes(targetRole)) {
+            return res.status(403).json({ error: 'Branch managers cannot remove other managers or super admins.' });
+        }
+
+        // Delete auth user (cascades to profile via DB trigger if set, else delete manually)
+        const { error: deleteErr } = await supabaseService.auth.admin.deleteUser(userId);
+        if (deleteErr) throw deleteErr;
+
+        // Clean up profile row (in case no cascade trigger)
+        await supabaseService.from('profiles').delete().eq('id', userId);
+
+        await writeAudit({
+            entityType: 'user', entityId: userId,
+            action: 'staff_removed',
+            description: `Staff member ${userId} removed by ${user.email}`
+        });
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[remove-staff]', err);
         res.status(500).json({ error: err.message });
     }
 });

@@ -396,8 +396,16 @@ window.openUserDetail = async (userId) => {
         const actions = document.getElementById('detail-actions');
 
         if (staff) {
-            body.innerHTML    = renderStaffDetail(p, branchName);
-            actions.innerHTML = '';
+            body.innerHTML = renderStaffDetail(p, branchName);
+            // Only show Remove button if viewer outranks the target
+            const myRole    = currentAdmin?.role || '';
+            const canRemove = (myRole === 'super_admin') ||
+                              (myRole === 'admin' && role === 'base_admin');
+            actions.innerHTML = canRemove ? `
+              <button onclick="window.removeStaff('${p.id}', '${(p.full_name||'').replace(/'/g,"\\'")}' )"
+                class="px-4 py-2 bg-white border border-red-200 text-red-600 rounded-lg text-sm font-bold hover:bg-red-50 shadow-sm">
+                <span class="material-symbols-outlined text-[15px] align-middle mr-1">person_remove</span>Remove Staff
+              </button>` : '';
         } else {
             body.innerHTML = renderClientDetail(p, data, branchName);
             actions.innerHTML = `
@@ -464,6 +472,23 @@ window.confirmBranchTransfer = async () => {
         alert('Transfer failed: ' + err.message);
         btn.disabled = false;
         btn.textContent = 'Confirm Transfer';
+    }
+};
+
+window.removeStaff = async (userId, name) => {
+    if (!confirm(`Remove ${name} from the system? This cannot be undone.`)) return;
+    try {
+        const res = await apiFetch(`/api/admin/remove-staff/${userId}`, { method: 'DELETE' });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Failed to remove staff');
+        alert(`${name} has been removed.`);
+        window.switchView('list');
+        // Refresh list
+        const [usersData] = await Promise.all([fetchUsers()]);
+        allUsers = usersData || [];
+        renderUserList(allUsers);
+    } catch (err) {
+        alert('Error: ' + err.message);
     }
 };
 
@@ -616,11 +641,9 @@ function injectInviteModal(branches) {
                 ${branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('')}
               </select>
             </div>
-            <div class="col-span-2">
-              <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Temporary Password *</label>
-              <input name="password" type="password" required placeholder="Min 8 characters" minlength="8"
-                class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-orange-400 focus:border-transparent outline-none">
-              <p class="text-xs text-gray-400 mt-1">Staff member should change this on first login.</p>
+            <div class="col-span-2 flex items-start gap-2 p-3 bg-blue-50 border border-blue-100 rounded-xl">
+              <span class="material-symbols-outlined text-blue-400 text-[18px] mt-0.5 shrink-0">mail</span>
+              <p class="text-xs text-blue-700">An email invite will be sent. The staff member clicks the link to set their own password.</p>
             </div>
           </div>
           <div class="flex gap-3 pt-2">
@@ -659,7 +682,7 @@ function injectInviteModal(branches) {
             const json = await res.json();
             if (!res.ok) throw new Error(json.error || 'Failed');
 
-            okEl.textContent = `✓ ${body.full_name} has been invited and can now log in.`;
+            okEl.textContent = `✓ Invite sent to ${body.email}. They'll receive an email to set their password.`;
             okEl.classList.remove('hidden');
             e.target.reset();
             // Refresh user list
