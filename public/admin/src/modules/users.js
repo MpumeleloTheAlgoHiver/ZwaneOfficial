@@ -97,85 +97,11 @@ const DETAIL_VIEW_HTML = `
             </div>
             Back to Directory
         </button>
-        <div class="flex gap-2">
-            <button id="btn-transfer-branch" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 shadow-sm">
-                <i class="fa-solid fa-building-columns mr-2 text-[#a04100]"></i> Transfer Branch
-            </button>
-        </div>
+        <div class="flex gap-2" id="detail-actions"></div>
     </div>
 
-    <div class="grid grid-cols-12 gap-8 h-full overflow-hidden">
-        
-        <div id="profile-card-container" class="col-span-12 lg:col-span-4 flex flex-col gap-6 overflow-y-auto custom-scrollbar pb-10">
-            <!-- Profile Card Injected Here -->
-        </div>
-
-        <div class="col-span-12 lg:col-span-8 flex flex-col gap-6 overflow-y-auto custom-scrollbar pb-10">
-
-            <div class="glass-card p-6 rounded-2xl">
-                <h3 class="text-sm font-semibold uppercase tracking-widest text-outline mb-4 flex items-center gap-2">
-                    <span class="material-symbols-outlined text-[18px]">account_balance_wallet</span> Financial Snapshot
-                </h3>
-                <div class="grid grid-cols-2 gap-3">
-                    <div class="bg-surface-container p-3 rounded-xl">
-                        <p class="text-[10px] text-outline uppercase">Gross Income</p>
-                        <p id="detail-income" class="text-sm font-bold text-on-surface">-</p>
-                    </div>
-                    <div class="bg-surface-container p-3 rounded-xl">
-                        <p class="text-[10px] text-outline uppercase">Expenses</p>
-                        <p id="detail-expenses" class="text-sm font-bold text-on-surface">-</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-span-12 lg:col-span-8 flex flex-col gap-6 overflow-y-auto custom-scrollbar pb-10">
-            
-            <div class="grid grid-cols-3 gap-4">
-                <div class="glass-card p-4 rounded-2xl">
-                    <div class="text-[10px] font-semibold uppercase tracking-widest text-outline">Total Loans</div>
-                    <div id="stat-total-loans" class="text-2xl font-extrabold text-on-surface mt-1">0</div>
-                </div>
-                <div class="glass-card p-4 rounded-2xl">
-                    <div class="text-[10px] font-semibold uppercase tracking-widest text-outline">Active Debt</div>
-                    <div id="stat-active-debt" class="text-2xl font-extrabold mt-1" style="color:var(--color-primary)">R 0.00</div>
-                </div>
-                <div class="glass-card p-4 rounded-2xl">
-                    <div class="text-[10px] font-semibold uppercase tracking-widest text-outline">Uploaded Docs</div>
-                    <div id="stat-total-docs" class="text-2xl font-extrabold text-blue-600 mt-1">0</div>
-                </div>
-            </div>
-
-            <div class="glass-card rounded-2xl overflow-hidden">
-                <div class="px-6 py-4 border-b border-outline-variant/10 flex justify-between items-center">
-                    <h3 class="font-headline font-bold text-on-surface">Application History</h3>
-                    <span class="text-[11px] font-semibold uppercase tracking-widest text-outline">Most recent first</span>
-                </div>
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-outline-variant/10">
-                        <thead class="bg-surface-container">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">ID</th>
-                                <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Date</th>
-                                <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Amount</th>
-                                <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Status</th>
-                                <th class="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-widest text-outline">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="detail-loans-body" class="bg-white divide-y divide-outline-variant/10">
-                            </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="glass-card p-6 rounded-2xl">
-                 <h3 class="font-headline font-bold text-on-surface mb-4">Uploaded Documents</h3>
-                 <div id="detail-docs-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    </div>
-            </div>
-
-        </div>
-    </div>
+    <!-- Content injected by openUserDetail based on role -->
+    <div id="detail-body" class="flex-1 overflow-auto"></div>
 </div>
 
 <div id="branch-modal" class="hidden fixed inset-0 bg-gray-900/50 z-50 flex items-center justify-center backdrop-blur-sm">
@@ -227,6 +153,232 @@ window.switchView = (viewName) => {
     }
 };
 
+const ROLE_META = {
+    super_admin: { label: 'Super Admin',     icon: 'shield',          color: 'bg-purple-100 text-purple-700',  desc: 'Full platform access across all branches' },
+    admin:       { label: 'Branch Manager',  icon: 'manage_accounts', color: 'bg-blue-100 text-blue-700',      desc: 'Manages staff and operations for their branch' },
+    base_admin:  { label: 'Loan Officer',    icon: 'assignment_ind',  color: 'bg-orange-100 text-orange-700',  desc: 'Processes and approves loan applications' },
+    client:      { label: 'Client',          icon: 'person',          color: 'bg-gray-100 text-gray-600',      desc: 'Loan applicant' },
+};
+
+function renderStaffDetail(p, branchName) {
+    const role    = (p.role || 'client').toLowerCase();
+    const meta    = ROLE_META[role] || ROLE_META.client;
+    const initials = (p.full_name || 'U').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+    const joined   = p.created_at ? formatDate(p.created_at) : '—';
+    const email    = p.email || p.user_email || '—';
+    const phone    = p.phone || p.cell_tel_no || '—';
+
+    const PERMS = {
+        super_admin: ['View all branches', 'Manage users & roles', 'Approve / decline loans', 'Transfer branches', 'Access SACRRA tools', 'View all financials', 'Manage system settings'],
+        admin:       ['View branch clients', 'Manage loan officers', 'Approve / decline loans', 'Transfer branch clients', 'View branch financials'],
+        base_admin:  ['View assigned clients', 'Process loan applications', 'Upload documents', 'View own branch data'],
+    };
+    const perms = PERMS[role] || [];
+
+    return `
+      <div class="grid grid-cols-12 gap-6 pb-10">
+
+        <!-- Left: Identity card -->
+        <div class="col-span-12 lg:col-span-4 flex flex-col gap-4">
+
+          <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <!-- Header band -->
+            <div class="h-20 relative" style="background:linear-gradient(135deg,var(--color-primary,#E7762E),#c05a1a)">
+              <div class="absolute -bottom-8 left-6 w-16 h-16 rounded-2xl bg-white border-4 border-white shadow-md flex items-center justify-center text-xl font-black" style="color:var(--color-primary,#E7762E)">${initials}</div>
+            </div>
+            <div class="pt-11 pb-5 px-6">
+              <h2 class="text-lg font-black text-gray-900">${p.full_name || '—'}</h2>
+              <span class="inline-flex items-center gap-1.5 mt-1 px-2.5 py-1 rounded-full text-[11px] font-bold ${meta.color}">
+                <span class="material-symbols-outlined text-[13px]">${meta.icon}</span>${meta.label}
+              </span>
+              <p class="text-xs text-gray-400 mt-2">${meta.desc}</p>
+            </div>
+          </div>
+
+          <!-- Contact -->
+          <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <p class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3">Contact</p>
+            <div class="space-y-3">
+              <div class="flex items-center gap-3">
+                <span class="material-symbols-outlined text-gray-300 text-[18px]">mail</span>
+                <span class="text-sm text-gray-700 truncate">${email}</span>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="material-symbols-outlined text-gray-300 text-[18px]">phone</span>
+                <span class="text-sm text-gray-700">${phone}</span>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="material-symbols-outlined text-gray-300 text-[18px]">calendar_today</span>
+                <span class="text-sm text-gray-700">Joined ${joined}</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Right: Role + Branch + Permissions -->
+        <div class="col-span-12 lg:col-span-8 flex flex-col gap-4">
+
+          <!-- Branch assignment -->
+          <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <p class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-4">Branch Assignment</p>
+            <div class="flex items-center gap-4">
+              <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:rgba(231,118,46,0.1)">
+                <span class="material-symbols-outlined" style="color:var(--color-primary,#E7762E)">location_city</span>
+              </div>
+              <div>
+                <p class="text-lg font-black text-gray-900">${branchName || 'Unassigned'}</p>
+                <p class="text-xs text-gray-400">${branchName ? 'Assigned branch' : 'No branch assigned — online / unassigned'}</p>
+              </div>
+              <button onclick="window.openBranchModal()"
+                class="ml-auto px-4 py-2 text-sm font-bold text-white rounded-xl"
+                style="background:var(--color-primary,#E7762E)">
+                <span class="material-symbols-outlined text-[15px] align-middle mr-1">swap_horiz</span>Transfer
+              </button>
+            </div>
+          </div>
+
+          <!-- Access level -->
+          <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+            <p class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-4">Access Level</p>
+            <div class="flex items-start gap-4">
+              <div class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style="background:rgba(231,118,46,0.1)">
+                <span class="material-symbols-outlined" style="color:var(--color-primary,#E7762E)">${meta.icon}</span>
+              </div>
+              <div class="flex-1">
+                <div class="flex items-center gap-2 mb-3">
+                  <span class="font-black text-gray-900 text-base">${meta.label}</span>
+                  <span class="px-2 py-0.5 rounded text-[10px] font-bold ${meta.color}">${role.toUpperCase()}</span>
+                </div>
+                ${perms.length ? `
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  ${perms.map(perm => `
+                    <div class="flex items-center gap-2 text-xs text-gray-600">
+                      <span class="material-symbols-outlined text-green-400 text-[15px]">check_circle</span>${perm}
+                    </div>`).join('')}
+                </div>` : ''}
+              </div>
+            </div>
+          </div>
+
+          <!-- System IDs (collapsed, useful for support) -->
+          <details class="bg-white rounded-2xl border border-gray-100 shadow-sm">
+            <summary class="px-6 py-4 cursor-pointer text-[10px] font-black uppercase tracking-widest text-gray-400 select-none">System Details</summary>
+            <div class="px-6 pb-5 grid grid-cols-2 gap-3 text-xs">
+              <div>
+                <p class="text-gray-400 mb-0.5">User UUID</p>
+                <p class="font-mono text-gray-600 break-all">${p.id || '—'}</p>
+              </div>
+              <div>
+                <p class="text-gray-400 mb-0.5">ID Number</p>
+                <p class="font-mono text-gray-600">${p.identity_number || p.id_number || '—'}</p>
+              </div>
+            </div>
+          </details>
+
+        </div>
+      </div>`;
+}
+
+function renderClientDetail(p, data, branchName) {
+    const fins      = data.financials || {};
+    const initials  = (p.full_name || 'U').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+    const isLuhnValid = validateSAID(p?.identity_number || p?.id_number);
+    const activeDebt  = data.loans.filter(l => ['DISBURSED','ACTIVE'].includes(l.status)).reduce((s,l) => s + Number(l.amount), 0);
+
+    return `
+      <div class="grid grid-cols-12 gap-6 pb-10">
+        <div id="profile-card-container" class="col-span-12 lg:col-span-4 flex flex-col gap-6"></div>
+        <div class="col-span-12 lg:col-span-8 flex flex-col gap-6">
+
+          <div class="glass-card p-6 rounded-2xl">
+            <h3 class="text-sm font-semibold uppercase tracking-widest text-outline mb-4 flex items-center gap-2">
+              <span class="material-symbols-outlined text-[18px]">account_balance_wallet</span> Financial Snapshot
+            </h3>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="bg-surface-container p-3 rounded-xl">
+                <p class="text-[10px] text-outline uppercase">Gross Income</p>
+                <p class="text-sm font-bold text-on-surface">${formatCurrency(fins.monthly_income || 0)}</p>
+              </div>
+              <div class="bg-surface-container p-3 rounded-xl">
+                <p class="text-[10px] text-outline uppercase">Expenses</p>
+                <p class="text-sm font-bold text-on-surface">${formatCurrency(fins.monthly_expenses || 0)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-3 gap-4">
+            <div class="glass-card p-4 rounded-2xl">
+              <div class="text-[10px] font-semibold uppercase tracking-widest text-outline">Total Loans</div>
+              <div class="text-2xl font-extrabold text-on-surface mt-1">${data.loans.length}</div>
+            </div>
+            <div class="glass-card p-4 rounded-2xl">
+              <div class="text-[10px] font-semibold uppercase tracking-widest text-outline">Active Debt</div>
+              <div class="text-2xl font-extrabold mt-1" style="color:var(--color-primary)">${formatCurrency(activeDebt)}</div>
+            </div>
+            <div class="glass-card p-4 rounded-2xl">
+              <div class="text-[10px] font-semibold uppercase tracking-widest text-outline">Uploaded Docs</div>
+              <div class="text-2xl font-extrabold text-blue-600 mt-1">${data.documents.length}</div>
+            </div>
+          </div>
+
+          <div class="glass-card rounded-2xl overflow-hidden">
+            <div class="px-6 py-4 border-b border-outline-variant/10 flex justify-between items-center">
+              <h3 class="font-headline font-bold text-on-surface">Application History</h3>
+              <span class="text-[11px] font-semibold uppercase tracking-widest text-outline">Most recent first</span>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-outline-variant/10">
+                <thead class="bg-surface-container">
+                  <tr>
+                    <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">ID</th>
+                    <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Date</th>
+                    <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Amount</th>
+                    <th class="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-outline">Status</th>
+                    <th class="px-6 py-3 text-right text-[10px] font-semibold uppercase tracking-widest text-outline">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-outline-variant/10">
+                  ${data.loans.length === 0
+                    ? `<tr><td colspan="5" class="p-12 text-center text-xs font-bold text-slate-300">No applications found.</td></tr>`
+                    : data.loans.map(l => `
+                      <tr class="hover:bg-slate-50 cursor-pointer group" onclick="window.location.href='/admin/application-detail?id=${l.id}'">
+                        <td class="px-8 py-5 text-[10px] font-black text-slate-400 font-mono">#${String(l.id).substring(0,8)}</td>
+                        <td class="px-6 py-5 text-xs font-bold text-slate-600">${formatDate(l.created_at)}</td>
+                        <td class="px-6 py-5 text-sm font-black text-slate-900">${formatCurrency(l.amount)}</td>
+                        <td class="px-6 py-5">${getStatusBadge(l.status)}</td>
+                        <td class="px-8 py-5 text-right"><span class="material-symbols-outlined text-slate-300 group-hover:text-[#a04100]">chevron_right</span></td>
+                      </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="glass-card p-6 rounded-2xl">
+            <h3 class="font-headline font-bold text-on-surface mb-4">Uploaded Documents</h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              ${data.documents.length === 0
+                ? `<div class="col-span-3 text-center text-[10px] font-black text-slate-400 py-8 border-2 border-dashed border-slate-50 rounded-3xl">No documents found</div>`
+                : data.documents.map(d => `
+                  <div class="flex items-center gap-4 p-4 bg-slate-50/50 rounded-2xl border border-slate-100 hover:bg-white hover:shadow-xl transition-all group">
+                    <div class="w-12 h-12 rounded-xl bg-white border border-slate-100 flex items-center justify-center text-[#a04100] shadow-sm">
+                      <span class="material-symbols-outlined">description</span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <p class="text-[10px] font-black text-slate-900 truncate">${d.file_name}</p>
+                      <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">${d.file_type || 'DOC'}</p>
+                    </div>
+                    <a href="${d.file_path}" target="_blank" class="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-[#a04100] transition-all">
+                      <span class="material-symbols-outlined text-[20px]">download</span>
+                    </a>
+                  </div>`).join('')}
+            </div>
+          </div>
+
+        </div>
+      </div>`;
+}
+
 window.openUserDetail = async (userId) => {
     try {
         document.body.style.cursor = 'wait';
@@ -234,68 +386,28 @@ window.openUserDetail = async (userId) => {
         if (!data?.profile) throw new Error('Profile not found for this user.');
         currentUserDetail = data;
 
-        const p = data.profile;
-        const isLuhnValid = validateSAID(p?.identity_number || p?.id_number);
-        
-        // Inject Premium Profile Card
-        const container = document.getElementById('profile-card-container');
-        if (container) container.innerHTML = renderProfileCard(p, { isLuhnValid });
-        
-        // Financials — safe setters (elements may not be in DOM yet on first render)
-        const fins = data.financials || {};
-        const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+        const p          = data.profile;
+        const role       = (p.role || 'client').toLowerCase();
+        const staff      = isStaff(role);
+        const branchObj  = branches.find(b => b.id === p.branch_id);
+        const branchName = branchObj?.name || p.branches?.name || null;
 
-        setText('detail-income',    formatCurrency(fins.monthly_income   || 0));
-        setText('detail-expenses',  formatCurrency(fins.monthly_expenses  || 0));
-        setText('stat-total-loans', data.loans.length);
-        setText('stat-total-docs',  data.documents.length);
+        const body    = document.getElementById('detail-body');
+        const actions = document.getElementById('detail-actions');
 
-        const activeDebt = data.loans
-            .filter(l => ['DISBURSED', 'ACTIVE'].includes(l.status))
-            .reduce((sum, l) => sum + Number(l.amount), 0);
-        setText('stat-active-debt', formatCurrency(activeDebt));
-
-        // Render Loans Table
-        const loanBody = document.getElementById('detail-loans-body');
-        if (!loanBody) console.warn('[users] #detail-loans-body not found in DOM');
-        if (loanBody && data.loans.length === 0) {
-            loanBody.innerHTML = `<tr><td colspan="5" class="p-12 text-center text-xs font-bold text-slate-300">No applications found.</td></tr>`;
-        } else if (loanBody) {
-            loanBody.innerHTML = data.loans.map(l => `
-                <tr class="hover:bg-slate-50 transition-colors cursor-pointer group" onclick="window.location.href='/admin/application-detail?id=${l.id}'">
-                    <td class="px-8 py-5 text-[10px] font-black text-slate-400 font-mono">#${String(l.id).substring(0, 8)}</td>
-                    <td class="px-6 py-5 text-xs font-bold text-slate-600">${formatDate(l.created_at)}</td>
-                    <td class="px-6 py-5 text-sm font-black text-slate-900">${formatCurrency(l.amount)}</td>
-                    <td class="px-6 py-5">${getStatusBadge(l.status)}</td>
-                    <td class="px-8 py-5 text-right">
-                        <span class="material-symbols-outlined text-slate-300 group-hover:text-[#a04100] transition-colors">chevron_right</span>
-                    </td>
-                </tr>
-            `).join('');
+        if (staff) {
+            body.innerHTML    = renderStaffDetail(p, branchName);
+            actions.innerHTML = '';
+        } else {
+            body.innerHTML = renderClientDetail(p, data, branchName);
+            actions.innerHTML = `
+              <button onclick="window.openBranchModal()" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 shadow-sm">
+                <i class="fa-solid fa-building-columns mr-2 text-[#a04100]"></i> Transfer Branch
+              </button>`;
+            // Inject profile card for client
+            const container = document.getElementById('profile-card-container');
+            if (container) container.innerHTML = renderProfileCard(p, { isLuhnValid: validateSAID(p?.identity_number || p?.id_number) });
         }
-
-        // Render Docs Grid
-        const docGrid = document.getElementById('detail-docs-grid');
-        if (!docGrid) console.warn('[users] #detail-docs-grid not found in DOM');
-        if (docGrid && data.documents.length === 0) {
-            docGrid.innerHTML = `<div class="col-span-3 text-center text-[10px] font-black text-slate-400 py-8 border-2 border-dashed border-slate-50 rounded-3xl">No documents found</div>`;
-        } else if (docGrid) {
-            docGrid.innerHTML = data.documents.map(d => `
-                <div class="flex items-center gap-4 p-4 bg-slate-50/50 rounded-2xl border border-slate-100 hover:bg-white hover:shadow-xl hover:shadow-slate-200/20 transition-all group">
-                    <div class="w-12 h-12 rounded-xl bg-white border border-slate-100 flex items-center justify-center text-[#a04100] shadow-sm">
-                        <span class="material-symbols-outlined">description</span>
-                    </div>
-                    <div class="flex-1 min-w-0">
-                        <p class="text-[10px] font-black text-slate-900 truncate" title="${d.file_name}">${d.file_name}</p>
-                        <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">${d.file_type || 'DOC'}</p>
-                    </div>
-                    <a href="${d.file_path}" target="_blank" class="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-[#a04100] transition-all"><span class="material-symbols-outlined text-[20px]">download</span></a>
-                </div>
-            `).join('');
-        }
-
-        const btnTransfer = document.getElementById('btn-transfer-branch');
-        if (btnTransfer) btnTransfer.onclick = () => window.openBranchModal();
 
         window.switchView('detail');
 
