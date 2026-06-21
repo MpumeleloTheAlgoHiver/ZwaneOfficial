@@ -103,9 +103,14 @@ function renderPage() {
               ${p}
             </button>`).join('')}
           </div>
+          <button id="btn-sync-ledger" onclick="window.clSyncLedger()"
+            class="flex items-center gap-2 border border-teal-200 bg-teal-50 hover:bg-teal-100 text-teal-700 text-sm font-bold px-4 py-2.5 rounded-xl transition-colors"
+            title="Auto-populate from loan disbursements and confirmed repayments">
+            <i class="fas fa-sync-alt text-xs"></i> Sync from Data
+          </button>
           <button onclick="window.clOpenJournal()"
             class="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-bold px-4 py-2.5 rounded-xl transition-colors shadow-sm">
-            <i class="fas fa-plus text-xs"></i> Add Journal Entry
+            <i class="fas fa-plus text-xs"></i> Add Entry
           </button>
           <button onclick="window.clExport()"
             class="flex items-center gap-2 border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 text-sm font-bold px-4 py-2.5 rounded-xl transition-colors">
@@ -231,6 +236,27 @@ function renderPage() {
     window.clCloseJournal = () => document.getElementById('cl-modal').classList.add('hidden');
     window.clSaveEntry    = saveEntry;
     window.clExport       = exportLedger;
+    window.clSyncLedger   = syncLedger;
+}
+
+async function syncLedger() {
+    const btn = document.getElementById('btn-sync-ledger');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin text-xs"></i> Syncing…'; }
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res  = await fetch('/api/admin/ledger/sync', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${session?.access_token}`, 'Content-Type': 'application/json' }
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Sync failed');
+        alert(json.message || 'Sync complete.');
+        await loadEntries();
+    } catch (err) {
+        alert('Sync failed: ' + err.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sync-alt text-xs"></i> Sync from Data'; }
+    }
 }
 
 function renderSummary() {
@@ -273,7 +299,7 @@ function renderTable() {
     const filtered = entries;
 
     if (!filtered.length) {
-        tbody.innerHTML = `<tr><td colspan="9" class="p-10 text-center text-sm text-gray-400">No entries for this date. <button onclick="window.clOpenJournal()" class="text-orange-500 font-semibold">Add the first entry.</button></td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="p-10 text-center text-sm text-gray-400">No entries for this period. <button onclick="window.clSyncLedger()" class="text-teal-600 font-semibold hover:underline">Sync from disbursements/repayments</button> or <button onclick="window.clOpenJournal()" class="text-orange-500 font-semibold hover:underline">add manually.</button></td></tr>`;
         return;
     }
 

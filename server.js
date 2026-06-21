@@ -5056,6 +5056,86 @@ app.get('/api/cron/flag-defaults', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST /api/admin/ledger/sync — backfill cash_journal from existing disbursements + confirmed payments
+app.post('/api/admin/ledger/sync', async (req, res) => {
+    const token = (req.headers.authorization || '').replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'Auth required' });
+    const { data: { user } } = await supabaseService.auth.getUser(token);
+    if (!user) return res.status(401).json({ error: 'Auth required' });
+    const role = user.app_metadata?.role;
+    if (!['super_admin', 'admin'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    try {
+        // 1. Fetch existing journal entries so we can skip duplicates (by application_id)
+        const { data: existing } = await supabaseService
+            .from('cash_journal')
+            .select('application_id, entry_type')
+            .not('application_id', 'is', null);
+
+        const alreadyDisbursed = new Set(
+            (existing || []).filter(e => e.entry_type === 'cash_out').map(e => e.application_id)
+        );
+        const alreadyRepaid = new Set(
+            (existing || []).filter(e => e.entry_type === 'cash_in').map(e => e.application_id)
+        );
+
+        const inserts = [];
+
+        // 2. Backfill disbursements
+        const { data: disbursed } = await supabaseService
+            .from('loan_applications')
+            .select('id, loan_number, offer_principal, amount, branch_id, updated_at, profiles:user_id(full_name)')
+            .in('status', ['DISBURSED', 'REPAID', 'SETTLED']);
+
+        for (const app of disbursed || []) {
+            if (alreadyDisbursed.has(String(app.id))) continue;
+            inserts.push({
+                entry_date:      (app.updated_at || new Date().toISOString()).slice(0,10),
+                entry_type:      'cash_out',
+                category:        'loan_disbursement',
+                description:     `Loan disbursed to ${app.profiles?.full_name || 'Client'} — Ref: ${app.loan_number || app.id.slice(0,8).toUpperCase()}`,
+                reference:       String(app.loan_number || app.id.slice(0,8).toUpperCase()),
+                amount:          Number(app.offer_principal || app.amount || 0),
+                branch_id:       app.branch_id || null,
+                application_id:  String(app.id),
+                is_automated:    true,
+                created_by_name: 'System (backfill)'
+            });
+        }
+
+        // 3. Backfill confirmed repayments
+        const { data: payments } = await supabaseService
+            .from('manual_payments')
+            .select('id, amount, payment_type, application_id, confirmed_at, profiles:user_id(full_name)')
+            .eq('status', 'confirmed');
+
+        for (const p of payments || []) {
+            if (alreadyRepaid.has(String(p.application_id))) continue;
+            inserts.push({
+                entry_date:      (p.confirmed_at || new Date().toISOString()).slice(0,10),
+                entry_type:      'cash_in',
+                category:        p.payment_type === 'settlement' ? 'settlement' : 'repayment',
+                description:     `${p.payment_type === 'settlement' ? 'Settlement' : 'Repayment'} from ${p.profiles?.full_name || 'Client'}`,
+                reference:       p.id.slice(0,8).toUpperCase(),
+                amount:          Number(p.amount || 0),
+                application_id:  String(p.application_id || ''),
+                is_automated:    true,
+                created_by_name: 'System (backfill)'
+            });
+        }
+
+        if (!inserts.length) return res.json({ inserted: 0, message: 'Already up to date.' });
+
+        const { error } = await supabaseService.from('cash_journal').insert(inserts);
+        if (error) throw error;
+
+        res.json({ inserted: inserts.length, message: `Synced ${inserts.length} entr${inserts.length === 1 ? 'y' : 'ies'}.` });
+    } catch (err) {
+        console.error('[ledger/sync]', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // POST /api/disbursements/payout-csv — single-application disbursement CSV (admin panel, no PIN required)
 app.post('/api/disbursements/payout-csv', async (req, res) => {
     try {
