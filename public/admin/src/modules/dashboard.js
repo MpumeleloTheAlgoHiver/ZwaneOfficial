@@ -42,9 +42,25 @@ const loadApexCharts = () =>
 const STYLE_ID = 'admin-dashboard-analytics-style';
 const getThemeColors = () => {
   const root = getComputedStyle(document.documentElement);
-  const primary = (root.getPropertyValue('--color-primary') || '#0ea5e9').trim() || '#0ea5e9';
+  const primary = (root.getPropertyValue('--color-primary') || '#E7762E').trim() || '#E7762E';
   const secondary = (root.getPropertyValue('--color-secondary') || '#f97316').trim() || '#f97316';
   return { primary, secondary };
+};
+
+// Distinct palette used across charts — each chart picks its own slice
+const CHART_PALETTE = {
+  orange:  '#E7762E',
+  teal:    '#0D9488',
+  indigo:  '#6366F1',
+  rose:    '#F43F5E',
+  amber:   '#F59E0B',
+  sky:     '#0EA5E9',
+  emerald: '#10B981',
+  purple:  '#A855F7',
+  // Semantic
+  success: '#10B981',
+  warning: '#F59E0B',
+  danger:  '#EF4444',
 };
 
 async function fetchSureSystemsActivationStatus() {
@@ -603,8 +619,8 @@ function initFunnelChart(apps) {
   const options = {
     series: [{ name: 'Applications', data: counts }],
     chart: { type: 'bar', height: 300, toolbar: { show: false }, fontFamily: 'Inter' },
-    plotOptions: { bar: { borderRadius: 8, horizontal: true, barHeight: '60%' } },
-    colors: [primaryColor],
+    plotOptions: { bar: { borderRadius: 8, horizontal: true, barHeight: '60%', distributed: true } },
+    colors: [CHART_PALETTE.sky, CHART_PALETTE.indigo, CHART_PALETTE.orange, CHART_PALETTE.emerald],
     dataLabels: { enabled: true, style: { fontSize: '12px', fontWeight: '700', colors: ['#fff'] } },
     xaxis: { categories: ['Just Applied', 'Being Checked', 'Almost Ready', 'Approved'], labels: { style: { colors: '#64748b', fontSize: '12px', fontWeight: '600' } } },
     yaxis: { labels: { style: { colors: '#64748b', fontSize: '12px', fontWeight: '600' } } },
@@ -642,7 +658,7 @@ function initPerformanceRadial(fin, vintage) {
     },
     stroke: { lineCap: 'round' },
     labels: ['Profit Margin', 'On-Time Payments', 'Repayment Rate'],
-    colors: [primaryColor, '#10b981', secondaryColor]
+    colors: [CHART_PALETTE.orange, CHART_PALETTE.emerald, CHART_PALETTE.indigo]
   };
   new ApexCharts(document.querySelector('#radialChart'), withAnim(options)).render();
 }
@@ -660,7 +676,7 @@ function renderVelocityChart(perf) {
     chart: { type: 'line', height: 350, fontFamily: 'Inter', zoom: { enabled: false }, toolbar: { show: false } },
     stroke: { width: 3, curve: 'smooth' },
     fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.1 } },
-    colors: [primaryColor, secondaryColor],
+    colors: [CHART_PALETTE.orange, CHART_PALETTE.teal],
     dataLabels: { enabled: false },
     labels: data.map((p) => p.month_year),
     xaxis: { labels: { style: { colors: '#64748b', fontSize: '11px', fontWeight: '600' } } },
@@ -681,7 +697,7 @@ function initRiskScatter(data) {
         x: p.credit_score || 0,
         y: p.dti_ratio,
         z: p.principal_amount / 100,
-        fillColor: p.status === 'defaulted' ? '#ef4444' : primaryColor
+        fillColor: p.status === 'defaulted' ? CHART_PALETTE.rose : p.status === 'repaid' ? CHART_PALETTE.emerald : CHART_PALETTE.sky
       }))
     : [];
   const options = {
@@ -723,7 +739,7 @@ function renderVintageChart(data) {
     dataLabels: { enabled: true, formatter: (val) => val + '%', style: { fontSize: '11px', fontWeight: '700', colors: ['#fff'] } },
     yaxis: { max: 120, labels: { style: { colors: '#64748b', fontSize: '11px', fontWeight: '600' } } },
     xaxis: { labels: { style: { colors: '#64748b', fontSize: '11px', fontWeight: '600' } } },
-    colors: [primaryColor],
+    colors: [CHART_PALETTE.emerald],
     grid: { borderColor: '#f1f5f9', strokeDashArray: 4 }
   };
   if (vintageChartInstance) vintageChartInstance.destroy();
@@ -758,7 +774,7 @@ function renderTrendCharts(data) {
     ],
     chart: { height: 350, type: 'bar', stacked: true, toolbar: { show: false }, fontFamily: 'Inter' },
     plotOptions: { bar: { borderRadius: 6, columnWidth: '50%' } },
-    colors: [primaryColor, secondaryColor],
+    colors: [CHART_PALETTE.indigo, CHART_PALETTE.amber],
     labels: months,
     xaxis: { labels: { style: { colors: '#64748b', fontSize: '11px', fontWeight: '600' } } },
     yaxis: { labels: { formatter: (val) => formatCurrency(val), style: { colors: '#64748b', fontSize: '11px', fontWeight: '600' } } },
@@ -777,9 +793,9 @@ function renderTrendCharts(data) {
       type: 'area',
       toolbar: { show: false },
       fontFamily: 'Inter',
-      dropShadow: { enabled: true, color: primaryColor, top: 8, blur: 10, opacity: 0.2 }
+      dropShadow: { enabled: true, color: CHART_PALETTE.purple, top: 8, blur: 10, opacity: 0.2 }
     },
-    colors: [primaryColor],
+    colors: [CHART_PALETTE.purple],
     stroke: { curve: 'smooth', width: 3 },
     fill: {
       type: 'gradient',
@@ -825,7 +841,7 @@ function initStatusDonut(statusData) {
     series: safeData.map((s) => s.value),
     labels: safeData.map((s) => s.name),
     chart: { type: 'donut', height: 320, fontFamily: 'Inter' },
-    colors: [primaryColor, secondaryColor, '#10b981', '#f59e0b'],
+    colors: [CHART_PALETTE.orange, CHART_PALETTE.emerald, CHART_PALETTE.sky, CHART_PALETTE.indigo, CHART_PALETTE.rose, CHART_PALETTE.amber],
     plotOptions: {
       pie: {
         donut: {
