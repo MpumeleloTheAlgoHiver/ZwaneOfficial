@@ -503,7 +503,15 @@ function renderPageContent() {
 
             <select id="status-filter" class="bg-white border border-outline-variant/30 text-on-surface-variant py-2 pl-4 pr-8 rounded-xl text-sm font-medium cursor-pointer">
                 <option value="all">All Statuses</option>
-                ${ALL_STATUSES.map(s => `<option value="${s}">${s}</option>`).join('')}
+                <option value="pending">⏳ Needs Review</option>
+                <option value="DISBURSED">✅ Disbursed</option>
+                <option value="DECLINED">❌ Declined</option>
+                <optgroup label="── Pipeline ──">
+                ${ALL_STATUSES.filter(s => !['DISBURSED','DECLINED','ERROR'].includes(s)).map(s => `<option value="${s}">${s}</option>`).join('')}
+                </optgroup>
+                <optgroup label="── Final ──">
+                <option value="ERROR">ERROR</option>
+                </optgroup>
             </select>
 
             <div class="relative w-full sm:w-64">
@@ -2074,7 +2082,10 @@ const filterAndSearch = (resetPage = true) => {
     
     filteredApplications = allApplications.filter(app => {
         // 1. Status Match
-        const statusMatch = (status === 'all' || app.status === status);
+        const PENDING_STATUSES = ['STARTED','BUREAU_CHECKING','BUREAU_OK','BUREAU_REFER','BANK_LINKING','AFFORD_OK','AFFORD_REFER','OFFERED','OFFER_ACCEPTED','CONTRACT_SIGN','DEBICHECK_AUTH','APPROVED'];
+        const statusMatch = status === 'all' ? true
+            : status === 'pending' ? PENDING_STATUSES.includes(app.status)
+            : app.status === status;
 
         // 2. Text Match (Name, ID, or Amount)
         const textMatch = !term || 
@@ -2195,10 +2206,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         currentAdminProfile = profile;
         branches = branchesResult.data || [];
 
-        renderPageContent(); 
-        
-        await loadApplications(); 
-    } 
+        renderPageContent();
+
+        await loadApplications();
+
+        // Pre-apply filter from URL param e.g. ?filter=pending (from dashboard "Review Now")
+        const urlFilter = new URLSearchParams(window.location.search).get('filter');
+        if (urlFilter === 'pending') {
+            const sel = document.getElementById('status-filter');
+            if (sel) { sel.value = 'pending'; filterAndSearch(true); }
+        }
+    }
 });
 // --- Final Application Submission ---
 async function handleFinalSubmit() {

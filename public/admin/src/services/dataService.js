@@ -774,16 +774,18 @@ export async function fetchFinancialTrends() {
         .order('created_at', { ascending: true });
     if (error) return { data: [] };
 
-    // Aggregate by month: { month: 'YYYY-MM', disbursed, repayments, count }
+    // Aggregate by month using field names expected by renderTrendCharts
     const byMonth = {};
     for (const row of data || []) {
         const month = (row.created_at || '').slice(0, 7);
         if (!month) continue;
-        if (!byMonth[month]) byMonth[month] = { month, disbursed: 0, repayments: 0, count: 0 };
+        if (!byMonth[month]) byMonth[month] = { month, total_principal: 0, projected_interest: 0, count: 0 };
         byMonth[month].count++;
         if (row.status === 'DISBURSED' || row.status === 'REPAID') {
-            byMonth[month].disbursed  += Number(row.offer_principal) || 0;
-            byMonth[month].repayments += Number(row.offer_total_repayment) || 0;
+            const principal = Number(row.offer_principal) || 0;
+            const totalRepay = Number(row.offer_total_repayment) || 0;
+            byMonth[month].total_principal    += principal;
+            byMonth[month].projected_interest += Math.max(0, totalRepay - principal);
         }
     }
     return { data: Object.values(byMonth) };
