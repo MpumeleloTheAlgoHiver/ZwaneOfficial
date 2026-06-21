@@ -1358,6 +1358,63 @@ app.post('/api/suresystems/payments/download', async (req, res) => {
     try {
         const payload = req.body || {};
         const result = await sureSystemsService.downloadPayments(payload);
+
+        // Auto-post successful collections to cash_journal (non-blocking)
+        const rawList = result?.response?.paymentList
+            || result?.response?.payments
+            || result?.response?.PaymentList
+            || [];
+
+        if (rawList.length > 0) {
+            // Look up application_ids via suresystems_mandates.contract_reference
+            const contractRefs = [...new Set(rawList.map(p =>
+                p.contractReference || p.ContractReference || p.contract_reference
+            ).filter(Boolean))];
+
+            const { data: mandates } = await supabaseService
+                .from(SURESYSTEMS_MANDATES_TABLE)
+                .select('contract_reference, application_id, user_id')
+                .in('contract_reference', contractRefs);
+
+            const mandateMap = {};
+            for (const m of mandates || []) mandateMap[m.contract_reference] = m;
+
+            const PAID_CODES = ['PAID', 'SUCCESSFUL', 'SUCCESS', 'PROCESSED', '00', '0'];
+
+            const journalRows = [];
+            for (const p of rawList) {
+                const ref    = p.contractReference || p.ContractReference || p.contract_reference || '';
+                const status = String(p.statusCode || p.StatusCode || p.status || p.responseCode || '').toUpperCase();
+                if (!PAID_CODES.some(c => status.includes(c))) continue;
+
+                const mandate  = mandateMap[ref] || {};
+                const amount   = Number(p.collectionAmount || p.amount || p.Amount || 0);
+                const dateRaw  = p.collectionDate || p.paymentDate || p.CollectionDate || '';
+                // SureSystems dates are YYYYMMDD — normalise to YYYY-MM-DD
+                const entry_date = dateRaw.length === 8
+                    ? `${dateRaw.slice(0,4)}-${dateRaw.slice(4,6)}-${dateRaw.slice(6,8)}`
+                    : (dateRaw || new Date().toISOString()).slice(0,10);
+
+                journalRows.push({
+                    entry_date,
+                    entry_type:      'cash_in',
+                    category:        'debit_order',
+                    description:     `DebiCheck collection — Ref: ${ref}`,
+                    reference:       ref.slice(-12),
+                    amount,
+                    application_id:  String(mandate.application_id || ''),
+                    is_automated:    true,
+                    created_by_name: 'System (SureSystems)'
+                });
+            }
+
+            if (journalRows.length > 0) {
+                supabaseService.from('cash_journal').insert(journalRows)
+                    .then(() => console.log(`[cash-ledger] auto-posted ${journalRows.length} SureSystems collection(s)`))
+                    .catch(e => console.warn('[cash-ledger] SureSystems auto-post failed:', e.message));
+            }
+        }
+
         return res.json({ success: true, ...result });
     } catch (error) {
         console.error('SureSystems payments download error:', error.message || error);
@@ -5103,24 +5160,50 @@ app.post('/api/admin/ledger/sync', async (req, res) => {
             });
         }
 
-        // 3. Backfill confirmed repayments
-        const { data: payments } = await supabaseService
+        // 3. Backfill confirmed manual repayments/EFTs
+        const { data: manualPayments } = await supabaseService
             .from('manual_payments')
             .select('id, amount, payment_type, application_id, confirmed_at, profiles:user_id(full_name)')
             .eq('status', 'confirmed');
 
-        for (const p of payments || []) {
+        for (const p of manualPayments || []) {
             if (alreadyRepaid.has(String(p.application_id))) continue;
             inserts.push({
                 entry_date:      (p.confirmed_at || new Date().toISOString()).slice(0,10),
                 entry_type:      'cash_in',
                 category:        p.payment_type === 'settlement' ? 'settlement' : 'repayment',
-                description:     `${p.payment_type === 'settlement' ? 'Settlement' : 'Repayment'} from ${p.profiles?.full_name || 'Client'}`,
+                description:     `${p.payment_type === 'settlement' ? 'Settlement' : 'Repayment'} (EFT) from ${p.profiles?.full_name || 'Client'}`,
                 reference:       p.id.slice(0,8).toUpperCase(),
                 amount:          Number(p.amount || 0),
                 application_id:  String(p.application_id || ''),
                 is_automated:    true,
                 created_by_name: 'System (backfill)'
+            });
+        }
+
+        // 4. Backfill SureSystems debit order payments (payments table)
+        const alreadySure = new Set(
+            (existing || [])
+                .filter(e => e.entry_type === 'cash_in' && e.application_id)
+                .map(e => e.application_id + '_sure')
+        );
+        const { data: surePayments } = await supabaseService
+            .from('payments')
+            .select('id, amount, payment_date, user_id, application_id, profiles:user_id(full_name)');
+
+        for (const p of surePayments || []) {
+            const key = String(p.application_id || p.id) + '_sure';
+            if (alreadySure.has(key)) continue;
+            inserts.push({
+                entry_date:      (p.payment_date || new Date().toISOString()).slice(0,10),
+                entry_type:      'cash_in',
+                category:        'debit_order',
+                description:     `DebiCheck collection from ${p.profiles?.full_name || 'Client'}`,
+                reference:       (p.id || '').toString().slice(0,8).toUpperCase(),
+                amount:          Number(p.amount || 0),
+                application_id:  String(p.application_id || ''),
+                is_automated:    true,
+                created_by_name: 'System (SureSystems backfill)'
             });
         }
 

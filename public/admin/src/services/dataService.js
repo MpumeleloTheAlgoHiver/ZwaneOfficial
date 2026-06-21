@@ -313,7 +313,7 @@ export async function fetchPayments() {
         loans(outstanding_balance)
       )
     `)
-    .order('payment_date', { ascending: false });
+    .order('created_at', { ascending: false });
 
   if (result.data) {
     result.data = result.data.map(p => {
