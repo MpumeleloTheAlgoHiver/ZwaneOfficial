@@ -672,12 +672,16 @@ export async function fetchMonthlyLoanPerformance() {
     for (const row of data || []) {
         const month = (row.created_at || '').slice(0, 7);
         if (!month) continue;
-        if (!byMonth[month]) byMonth[month] = { month, originated: 0, disbursed: 0, repaid: 0, defaulted: 0, count: 0 };
+        // month_year used by Velocity chart labels; disbursed_amount/repaid_amount used by Velocity + vintage cohort
+        if (!byMonth[month]) byMonth[month] = {
+            month_year: month,
+            originated_amount: 0, disbursed_amount: 0, repaid_amount: 0, defaulted_amount: 0, count: 0
+        };
         byMonth[month].count++;
-        byMonth[month].originated += Number(row.offer_principal) || 0;
-        if (row.status === 'DISBURSED')   byMonth[month].disbursed  += Number(row.offer_principal) || 0;
-        if (row.status === 'REPAID')      byMonth[month].repaid     += Number(row.offer_total_repayment) || 0;
-        if (row.status === 'IN_DEFAULT')  byMonth[month].defaulted  += Number(row.offer_principal) || 0;
+        byMonth[month].originated_amount += Number(row.offer_principal) || 0;
+        if (row.status === 'DISBURSED')  byMonth[month].disbursed_amount += Number(row.offer_principal) || 0;
+        if (row.status === 'REPAID')     byMonth[month].repaid_amount    += Number(row.offer_total_repayment) || 0;
+        if (row.status === 'IN_DEFAULT') byMonth[month].defaulted_amount += Number(row.offer_principal) || 0;
     }
     return { data: Object.values(byMonth) };
 }
