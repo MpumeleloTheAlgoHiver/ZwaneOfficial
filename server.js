@@ -1118,6 +1118,20 @@ app.post('/api/calculate-affordability', sensitiveLimiter, (req, res) => {
 
 // ── Admin-only API route guards ───────────────────────────────────────
 // All routes under these prefixes require a valid Supabase session.
+// Public config-check endpoint — shows only boolean presence, no secret values
+app.get('/api/debug/suresystems-config', (req, res) => {
+    const e = process.env;
+    res.json({
+        BASE_URL:       e.SURESYSTEMS_BASE_URL || '(empty)',
+        USERNAME:       !!e.SURESYSTEMS_BASIC_AUTH_USERNAME,
+        PASSWORD:       !!e.SURESYSTEMS_BASIC_AUTH_PASSWORD,
+        CLIENT_ID:      !!e.SURESYSTEMS_CLIENT_ID,
+        CLIENT_SECRET:  !!e.SURESYSTEMS_CLIENT_SECRET,
+        MERCHANT_GID:   e.SURESYSTEMS_MERCHANT_GID || '(empty)',
+        REMOTE_GID:     e.SURESYSTEMS_REMOTE_GID || '(empty)',
+        missing:        sureSystemsService.getConfigStatus().missing || []
+    });
+});
 app.use('/api/suresystems', requireAdminAuth);
 app.use('/api/sacrra', requireAdminAuth);
 app.use('/api/moveit', requireAdminAuth);
@@ -1128,7 +1142,18 @@ app.use('/api/admin', requireAdminAuth);
 // SureSystems API proxy endpoints
 app.get('/api/suresystems/config', (req, res) => {
     try {
-        return res.json(sureSystemsService.getConfigStatus());
+        const status = sureSystemsService.getConfigStatus();
+        // Include live env var presence for debugging (no values exposed)
+        status.envCheck = {
+            BASE_URL:       !!process.env.SURESYSTEMS_BASE_URL,
+            USERNAME:       !!process.env.SURESYSTEMS_BASIC_AUTH_USERNAME,
+            PASSWORD:       !!process.env.SURESYSTEMS_BASIC_AUTH_PASSWORD,
+            CLIENT_ID:      !!process.env.SURESYSTEMS_CLIENT_ID,
+            CLIENT_SECRET:  !!process.env.SURESYSTEMS_CLIENT_SECRET,
+            MERCHANT_GID:   process.env.SURESYSTEMS_MERCHANT_GID || '(empty)',
+            REMOTE_GID:     process.env.SURESYSTEMS_REMOTE_GID || '(empty)',
+        };
+        return res.json(status);
     } catch (error) {
         console.error('SureSystems config status error:', error);
         return res.status(500).json({ configured: false, error: 'Unable to read SureSystems configuration' });
@@ -1471,8 +1496,12 @@ app.post('/api/admin/mandates/sync', async (req, res) => {
 
         return res.json({ synced: rows.length, message: `Loaded ${rows.length} mandate${rows.length === 1 ? '' : 's'} from SureSystems.` });
     } catch (err) {
-        console.error('[mandates/sync]', err.message);
-        return res.status(500).json({ error: err.message });
+        console.error('[mandates/sync]', err.message, err.details);
+        return res.status(500).json({
+            error: err.message,
+            details: err.details || null,
+            sureSystemsResponse: err.details?.providerResponse || null
+        });
     }
 });
 
