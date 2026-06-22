@@ -89,16 +89,15 @@ export async function createWalkInClient(clientData) {
   const { first, last } = splitFullName(clientData.fullName);
 
   const { data, error } = await supabase
-    .from('profiles') // Walk-in client goes to profiles
+    .from('profiles')
     .insert([
       {
         id: newId,
-        first_name: first,
-        surname: last,
-        id_number: clientData.idNumber,
-        phone_mobile: clientData.phone,
+        full_name: clientData.fullName,
+        identity_number: clientData.idNumber,
+        cell_tel_no: clientData.phone || null,
         email: clientData.email || null,
-        branch_id: clientData.branchId, 
+        branch_id: clientData.branchId,
         role: 'borrower'
       }
     ])

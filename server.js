@@ -1426,6 +1426,56 @@ app.post('/api/suresystems/payments/download', async (req, res) => {
     }
 });
 
+// POST /api/admin/mandates/sync — pull all mandates from SureSystems and upsert into suresystems_mandates
+app.post('/api/admin/mandates/sync', async (req, res) => {
+    const token = (req.headers.authorization || '').replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'Auth required' });
+    const { data: { user } } = await supabaseService.auth.getUser(token);
+    if (!user) return res.status(401).json({ error: 'Auth required' });
+
+    try {
+        const result = await sureSystemsService.mandateEnquiry({});
+        const raw = result?.response;
+
+        // SureSystems may return mandates under various keys
+        const list = raw?.mandateList || raw?.MandateList || raw?.mandates || raw?.Mandates
+            || raw?.data || (Array.isArray(raw) ? raw : []);
+
+        if (!list.length) {
+            return res.json({ synced: 0, message: 'No mandates returned from SureSystems.', raw });
+        }
+
+        // For each mandate, upsert by contract_reference
+        const rows = list.map(m => {
+            const ref = m.contractReference || m.ContractReference || m.contract_reference || '';
+            const rawStatus = String(m.status || m.Status || m.mandateStatus || m.MandateStatus || 'unknown').toLowerCase();
+            const status = rawStatus.includes('active') || rawStatus.includes('success') ? 'success'
+                : rawStatus.includes('fail') || rawStatus.includes('reject') || rawStatus.includes('cancel') ? 'failed'
+                : rawStatus.includes('pend') || rawStatus.includes('await') ? 'pending'
+                : 'unknown';
+            return {
+                contract_reference: ref,
+                status,
+                message: m.statusDescription || m.StatusDescription || m.description || m.Description || null,
+                response_payload: m,
+                updated_at: new Date().toISOString()
+            };
+        }).filter(r => r.contract_reference);
+
+        // Upsert by contract_reference (requires unique constraint on that column in DB)
+        const { error } = await supabaseService
+            .from(SURESYSTEMS_MANDATES_TABLE)
+            .upsert(rows, { onConflict: 'contract_reference', ignoreDuplicates: false });
+
+        if (error) throw error;
+
+        return res.json({ synced: rows.length, message: `Loaded ${rows.length} mandate${rows.length === 1 ? '' : 's'} from SureSystems.` });
+    } catch (err) {
+        console.error('[mandates/sync]', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
 app.post('/api/suresystems/mandates/batch/mandateenquiry', async (req, res) => {
     try {
         const payload = req.body || {};

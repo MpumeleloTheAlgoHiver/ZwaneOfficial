@@ -72,6 +72,9 @@ function renderPage() {
           <button id="btn-download-collections" class="bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-xl hover:bg-gray-50 transition shadow-sm font-semibold flex items-center gap-2 whitespace-nowrap">
             <i class="fa-solid fa-download"></i> Download report
           </button>
+          <button id="btn-load-mandates" class="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl transition shadow-sm font-semibold flex items-center gap-2 whitespace-nowrap">
+            <i class="fa-solid fa-cloud-arrow-down"></i> Load from SureSystems
+          </button>
           <button id="refresh-mandates-btn" class="bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-xl hover:bg-gray-50 transition shadow-sm font-semibold flex items-center gap-2 whitespace-nowrap">
             <i class="fa-solid fa-rotate-right"></i> Refresh
           </button>
@@ -807,6 +810,27 @@ function toggleSubForm(showId) {
   });
 }
 
+async function handleLoadFromSureSystems() {
+  const btn = document.getElementById('btn-load-mandates');
+  const orig = btn?.innerHTML;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading…'; }
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res  = await fetch('/api/admin/mandates/sync', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session?.access_token}`, 'Content-Type': 'application/json' }
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Sync failed');
+    window.showToast?.(json.message || 'Mandates loaded', 'success');
+    await loadMandates();
+  } catch (err) {
+    window.showToast?.(err.message || 'Failed to load mandates', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = orig; }
+  }
+}
+
 function bindFilters() {
   document.getElementById('mandate-search')?.addEventListener('input', renderTable);
   document.querySelectorAll('.filter-btn').forEach(btn => {
@@ -829,6 +853,7 @@ function bindEvents() {
     loadConfig();
     loadMandates();
   });
+  document.getElementById('btn-load-mandates')?.addEventListener('click', handleLoadFromSureSystems);
   document.getElementById('btn-download-collections')?.addEventListener('click', handleDownloadCollections);
   document.getElementById('btn-check-fate')?.addEventListener('click', () => runStatusAction('finalfate'));
   document.getElementById('btn-run-enquiry')?.addEventListener('click', () => runStatusAction('enquiry'));
