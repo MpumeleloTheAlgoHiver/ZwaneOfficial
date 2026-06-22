@@ -821,7 +821,12 @@ async function handleLoadFromSureSystems() {
       headers: { Authorization: `Bearer ${session?.access_token}`, 'Content-Type': 'application/json' }
     });
     const json = await res.json();
-    if (!res.ok) throw new Error(json.error || 'Sync failed');
+    if (!res.ok) {
+      const ss = json.sureSystemsResponse || json.details?.providerResponse;
+      const detail = ss ? '\n\nSureSystems said:\n' + JSON.stringify(ss, null, 2) : '';
+      alert('Load failed: ' + (json.error || 'Unknown error') + detail);
+      return;
+    }
     window.showToast?.(json.message || 'Mandates loaded', 'success');
     await loadMandates();
   } catch (err) {
