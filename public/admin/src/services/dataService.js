@@ -205,54 +205,30 @@ export async function updateApplicationStatus(applicationId, newStatus) {
     let updatePayload = { status: newStatus };
 
     if (['READY_TO_DISBURSE', 'DISBURSED', 'OFFER_ACCEPTED'].includes(newStatus)) {
-      const principal = Number(app.offer_principal || app.amount || 0);
+      const { count: historyCount } = await supabase.from('loans').select('*', { count: 'exact', head: true }).eq('user_id', app.user_id);
+      const principal = Number(app.amount || 0);
       const term = Number(app.term_months || 1);
-
-      // Same NCA rates as borrower portal (loan-config.js)
-      const INTEREST_RATE_MONTHLY  = 0.05;   // 5%/month
-      const INITIATION_FEE_FIRST   = 0.05;   // 5% for first loan of calendar year
-      const INITIATION_FEE_STANDARD = 0.15;  // 15% standard
-      const SERVICE_FEE_MONTHLY    = 60;     // R60/month
-      const CREDIT_LIFE_RATE       = 0.0045; // 0.45%/month CPI
-      const VAT_RATE               = 0.15;   // 15% VAT on initiation + service fees
-
-      // First loan of the calendar year gets reduced initiation (5% not 15%)
-      const currentYear = new Date().getFullYear();
-      const { count: loansThisYear } = await supabase
-        .from('loan_applications')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', app.user_id)
-        .gte('created_at', `${currentYear}-01-01`)
-        .in('status', ['DISBURSED', 'ACTIVE', 'CLOSED', 'PAID_UP', 'REPAID', 'SETTLED'])
-        .neq('id', applicationId);
-      const isFirstLoanOfYear = (loansThisYear || 0) === 0;
-      const initiationRate = isFirstLoanOfYear ? INITIATION_FEE_FIRST : INITIATION_FEE_STANDARD;
-
-      const totalInterest       = principal * INTEREST_RATE_MONTHLY * term;
-      const totalInitiation     = principal * initiationRate;
-      const totalAdminFees      = SERVICE_FEE_MONTHLY * term;
-      const creditLifeMonthly   = app.has_credit_life_insurance ? principal * CREDIT_LIFE_RATE : 0;
-      const totalCreditLife     = creditLifeMonthly * term;
-      const vatAmount           = (totalInitiation + totalAdminFees) * VAT_RATE;
-      const totalCostOfCredit   = totalInterest + totalInitiation + totalAdminFees + totalCreditLife + vatAmount;
-      const totalRepayment      = principal + totalCostOfCredit;
-      const monthlyPayment      = totalRepayment / term;
+      const MONTHLY_ADMIN_FEE = 60.00;
+      const INITIATION_FEE_RATE = 0.15;
+      const totalAnnualRate = (historyCount < 3) ? 0.20 : 0.18; 
+      const interestOnlyRate = totalAnnualRate - INITIATION_FEE_RATE;
+      const totalInterest = principal * interestOnlyRate * (term / 12);
+      const totalInitiation = principal * INITIATION_FEE_RATE;
+      const totalAdminFees = MONTHLY_ADMIN_FEE * term;
+      const totalRepayment = principal + totalInterest + totalInitiation + totalAdminFees;
+      const monthlyPayment = totalRepayment / term;
       const scheduledDate = app.repayment_start_date || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
       updatePayload = {
         ...updatePayload,
-        offer_principal:              principal,
-        offer_interest_rate:          INTEREST_RATE_MONTHLY * 12,
-        offer_total_interest:         totalInterest,
-        offer_total_initiation_fees:  totalInitiation,
-        offer_total_admin_fees:       totalAdminFees,
-        offer_credit_life_monthly:    creditLifeMonthly,
-        offer_credit_life_total:      totalCreditLife,
-        offer_vat_amount:             vatAmount,
-        offer_total_cost_of_credit:   totalCostOfCredit,
-        offer_total_repayment:        totalRepayment,
-        offer_monthly_repayment:      monthlyPayment,
-        repayment_start_date:         scheduledDate
+        offer_principal: principal,
+        offer_interest_rate: totalAnnualRate,
+        offer_total_interest: totalInterest,
+        offer_total_initiation_fees: totalInitiation,
+        offer_total_admin_fees: totalAdminFees,
+        offer_total_repayment: totalRepayment,
+        offer_monthly_repayment: monthlyPayment,
+        repayment_start_date: scheduledDate
       };
     }
 
