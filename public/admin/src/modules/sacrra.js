@@ -1045,35 +1045,76 @@ async function buildSacrraFileContent(settings) {
     const rawBranchCode = (sacrraState.members[0]?.f02b_branch_code || '').trim();
     const branchCode = rawBranchCode ? aL(rawBranchCode, 8) : aL('', 8);
 
+    // Status codes where Status Date must not exceed monthEnd (SACRRA rejection rule)
+    const STATUS_DATE_CAP_CODES = new Set(['B','C','D','G','H','K','M','P','S','T','V','X','Z']);
+    // Status codes where Last Payment Date must not exceed monthEnd (SACRRA rejection rule)
+    const LASTPAY_CAP_CODES = new Set(['','E','I','L','J','W','Y']);
+
     sacrraState.members.forEach(m => {
         // Monthly = 'D' (Data). Daily = 'R' (Registration) or 'C' (Closure) per prefix
         const recordType  = settings.type === 'DAILY' ? (settings.prefix || 'R') : 'D';
         const accountType = aL(m.f03_account_type || 'P', 2);
 
-        // STATUS CODE: blank '  ' for active/current (matches dummy for normal loans)
-        // Only populate for special states: C=Closed, T=Settled, L=Legal, W=WriteOff, D=DebtReview
+        // STATUS CODE: blank '  ' for active/current
         const rawStatus   = (m.f50_status_code || '').trim();
         const statusCode  = aL(rawStatus || '  ', 2);
 
-        // LOAN REASON CODE: 'O '=Other/Standard (12/16 dummy), 'D '=DebtReview, 'I '=Insolvency, 'G '=Guarantee
+        // LOAN REASON CODE
         const rawReason   = (m.f30_loan_reason || '').trim();
-        const loanReason  = aL(rawReason || 'O', 2);  // Default 'O ' = standard personal loan
+        const loanReason  = aL(rawReason || 'O', 2);
 
-        // SACRRA rule: Current Balance must = 0 when Balance Indicator = D for these status codes:
-        // A, B, C, F, G, H, K, M, P, T, U, V, X — set indicator to 'P' and zero all financials
+        // Closed/settled = zero-balance
         const isPositive  = ['C','T','V','P'].includes(rawStatus);
         const saId        = (m.f10_id_number || '').replace(/\D/g,'').padStart(13,'0').slice(0,13);
         const accountNo   = aL(m.f40_account_number || m.internal_id || '', 25);
-
-        // Owner/Tenant: 'O' if they have a residential address, 'T' if blank address (matches dummy)
         const ownerTenant = (m.f13_address_1 || '').trim() ? 'O' : 'T';
+
+        // ── Date validation helpers ───────────────────────────────────────────
+        const toInt8 = s => parseInt((s || '').replace(/\D/g,'').slice(0,8) || '0') || 0;
+        const monthEndInt = toInt8(monthEnd);
+
+        // DATE OPENED
+        const rawDateOpened = (m.f43_date_opened || '').replace(/-/g,'').slice(0,8) || '0';
+        const dateOpenedInt = toInt8(rawDateOpened);
+
+        // STATUS DATE:
+        //   - Must be 00000000 when Status Code is blank/active (SACRRA warning fix)
+        //   - Must not exceed monthEnd for B,C,D,G,H,K,M,P,S,T,V,X,Z (SACRRA rejection fix)
+        let statusDateStr = (m.f51_status_date || '').replace(/-/g,'').slice(0,8) || '0';
+        if (!rawStatus) {
+            statusDateStr = '0';
+        } else if (STATUS_DATE_CAP_CODES.has(rawStatus) && toInt8(statusDateStr) > monthEndInt) {
+            statusDateStr = monthEnd;
+        }
+
+        // LAST PAYMENT DATE:
+        //   - Must not exceed monthEnd for blank/'',E,I,L,J,W,Y (SACRRA rejection fix)
+        //   - Must not be before Date Opened (SACRRA warning fix)
+        let lastPayStr = (m.f46_last_payment_date || '').replace(/-/g,'').slice(0,8) || '0';
+        if (LASTPAY_CAP_CODES.has(rawStatus) && toInt8(lastPayStr) > monthEndInt) {
+            lastPayStr = monthEnd;
+        }
+        if (toInt8(lastPayStr) > 0 && dateOpenedInt > 0 && toInt8(lastPayStr) < dateOpenedInt) {
+            lastPayStr = '0'; // Cannot pay before account was opened
+        }
 
         // Financial (N9, whole rands — zero for closed/settled/cancelled)
         const openBal     = nR(isPositive ? 0 : (m.f41_opening_balance || '0').replace(/\D/g,''), 9);
         const currBal     = nR(isPositive ? 0 : (m.f44_current_balance || '0').replace(/\D/g,''), 9);
         const amtOverdue  = nR(isPositive ? 0 : (m.f49_arrears_amount  || '0').replace(/\D/g,''), 9);
         const instalment  = nR(isPositive ? 0 : (m.f45_installment     || '0').replace(/\D/g,''), 9);
-        const mthsArr     = isPositive ? '00' : zeroPad(m.f53_months_in_arrears || 0, 2);
+
+        // MONTHS IN ARREARS: cap to actual account age (SACRRA warning fix)
+        const openYear   = dateOpenedInt ? Math.floor(dateOpenedInt / 10000) : 0;
+        const openMonth  = dateOpenedInt ? Math.floor((dateOpenedInt % 10000) / 100) : 0;
+        const endYear    = Math.floor(monthEndInt / 10000);
+        const endMonth   = Math.floor((monthEndInt % 10000) / 100);
+        const ageMonths  = openYear ? Math.max(0, (endYear - openYear) * 12 + (endMonth - openMonth)) : 999;
+        const rawMthsArr = parseInt(m.f53_months_in_arrears || '0') || 0;
+        const mthsArr    = isPositive ? '00' : zeroPad(Math.min(rawMthsArr, ageMonths), 2);
+
+        // SURNAME: strip company suffixes — bureaux reject "SMITH PTY LTD" as a surname
+        const cleanSurname = (m.f06_surname || '').replace(/\s*(PTY\.?\s*LTD\.?|LTD\.?|\bCC\b|INC\.?|CORP\.?|\(PTY\))\s*$/i, '').trim();
 
         // Build 700-char data record — all positions verified against official SACRRA dummy data
         let r = '';
@@ -1085,7 +1126,7 @@ async function buildSacrraFileContent(settings) {
         r += branchCode;                       // 40-47:    BRANCH CODE (SACRRA-assigned, 8 chars)
         r += accountNo.trim().padStart(25,' '); // 48-72:    ACCOUNT NO (right-aligned per dummy)
         r += aL('', 4);                        // 73-76:    SUB-ACCOUNT NO
-        r += aL(m.f06_surname || '', 25);      // 77-101:   SURNAME (mixed case per dummy)
+        r += aL(cleanSurname, 25);             // 77-101:   SURNAME (company suffixes stripped)
         r += aL(deriveTitle(m.f11_gender), 5); // 102-106:  TITLE
         // FORENAME: SACRRA only allows [A-Z], [a-z], [-], [`], [ ] — strip everything else
         const cleanForename = (m.f07_first_names || '').replace(/[^A-Za-z\-` ]/g, '').trim();
@@ -1107,21 +1148,21 @@ async function buildSacrraFileContent(settings) {
         r += loanReason;                       // 364-365:  LOAN REASON: O=Standard, D=DebtReview, I=Insolvency, G=Guarantee
         r += aL('00', 2);                      // 366-367:  PAYMENT TYPE (00 per dummy standard)
         r += aL(accountType, 2);               // 368-369:  TYPE OF ACCOUNT (M=1-month, P=Personal)
-        r += nR((m.f43_date_opened||'').replace(/-/g,'') || '0', 8); // 370-377: DATE OPENED
+        r += nR(rawDateOpened || '0', 8);      // 370-377:  DATE OPENED
         r += nR('0', 8);                       // 378-385:  DEFERRED PAYMENT DATE (00000000 unless deferred)
-        r += nR((m.f46_last_payment_date||'').replace(/-/g,'') || '0', 8); // 386-393: DATE LAST PAYMENT
+        r += nR(lastPayStr || '0', 8);         // 386-393:  DATE LAST PAYMENT (capped to monthEnd, validated vs opened)
         r += openBal;                          // 394-402:  OPENING BALANCE (N9 whole rands)
         r += currBal;                          // 403-411:  CURRENT BALANCE (N9 whole rands)
-        r += aL(isPositive ? 'P' : 'D', 1);   // 412:      BALANCE INDICATOR D=Debit P=Paid/Credit
+        r += aL(isPositive ? 'C' : 'D', 1);   // 412:      BALANCE INDICATOR — only D or C allowed (C=paid/credit)
         r += amtOverdue;                       // 413-421:  AMOUNT OVERDUE (N9)
         r += instalment;                       // 422-430:  INSTALMENT (N9)
-        r += mthsArr;                          // 431-432:  MONTHS IN ARREARS (N2)
+        r += mthsArr;                          // 431-432:  MONTHS IN ARREARS (capped to account age)
         r += statusCode;                       // 433-434:  STATUS CODE: '  '=Active, C=Closed, T=Settled, L=Legal
         r += nR(m.f54_repayment_frequency || '03', 2); // 435-436: FREQ: 01=Weekly 02=Fortnight 03=Monthly
         // TERMS: must be 0000 for Account Type M (SACRRA rule — SACRRA warning fix)
         const termsVal = (accountType.trim() === 'M') ? '0' : (m.f42_terms || m.term_months || '1');
         r += nR(termsVal, 4);                  // 437-440: TERMS (months, 0000 for M type)
-        r += nR((m.f51_status_date||'').replace(/-/g,'') || '0', 8); // 441-448: STATUS DATE
+        r += nR(statusDateStr || '0', 8);      // 441-448: STATUS DATE (cleared for active, capped to monthEnd)
         r += aL('', 8);                        // 449-456:  OLD SUPPLIER BRANCH CODE
         r += aL('', 25);                       // 457-481:  OLD ACCOUNT NUMBER
         r += aL('', 4);                        // 482-485:  OLD SUB-ACCOUNT

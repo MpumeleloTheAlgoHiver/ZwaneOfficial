@@ -130,13 +130,15 @@ function buildSignatureHeaders() {
   //   HMACSHA512_String = dsClientId + dsDTS
   //   dsHMAC = CryptoJS.HmacSHA512(message, clientSecret) -> Base64
 
-  const now  = new Date();
-  const dd   = String(now.getDate()).padStart(2, '0');
-  const mm   = String(now.getMonth() + 1).padStart(2, '0');
-  const yyyy = now.getFullYear();
-  const hh   = String(now.getHours()).padStart(2, '0');
-  const mi   = String(now.getMinutes()).padStart(2, '0');
-  const ss   = String(now.getSeconds()).padStart(2, '0');
+  // SureSystems validates DTS against their SAST clock (UTC+2).
+  // Vercel runs UTC — offset manually so the signed timestamp matches.
+  const now  = new Date(Date.now() + 2 * 60 * 60 * 1000);
+  const dd   = String(now.getUTCDate()).padStart(2, '0');
+  const mm   = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const yyyy = now.getUTCFullYear();
+  const hh   = String(now.getUTCHours()).padStart(2, '0');
+  const mi   = String(now.getUTCMinutes()).padStart(2, '0');
+  const ss   = String(now.getUTCSeconds()).padStart(2, '0');
 
   const dts      = `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
   const sigInput = config.clientId + dts;

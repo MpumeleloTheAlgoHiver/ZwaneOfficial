@@ -1119,6 +1119,97 @@ app.post('/api/calculate-affordability', sensitiveLimiter, (req, res) => {
 // ── Admin-only API route guards ───────────────────────────────────────
 // All routes under these prefixes require a valid Supabase session.
 // Public config-check endpoint — shows only boolean presence, no secret values
+app.get('/api/debug/server-ip', async (req, res) => {
+    try {
+        const r = await fetch('https://api.ipify.org?format=json');
+        const j = await r.json();
+        res.json({ outbound_ip: j.ip });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Full request+response dump for SureSystems support investigation.
+// Returns: outbound IP, exact headers sent, body sent, and raw response.
+app.get('/api/debug/suresystems-raw', async (req, res) => {
+    try {
+        const CryptoJS = require('crypto-js');
+
+        const clientId     = process.env.SURESYSTEMS_CLIENT_ID     || '';
+        const clientSecret = process.env.SURESYSTEMS_CLIENT_SECRET  || '';
+        const baseUrl      = process.env.SURESYSTEMS_BASE_URL       || 'https://online.suredebit.co.za';
+        const username     = process.env.SURESYSTEMS_BASIC_AUTH_USERNAME || '';
+        const password     = process.env.SURESYSTEMS_BASIC_AUTH_PASSWORD || '';
+        const merchantGid  = process.env.SURESYSTEMS_MERCHANT_GID   || '';
+        const remoteGid    = process.env.SURESYSTEMS_REMOTE_GID     || '';
+
+        // Build SAST timestamp (UTC+2)
+        const now  = new Date(Date.now() + 2 * 60 * 60 * 1000);
+        const pad  = n => String(n).padStart(2, '0');
+        const dts  = `${now.getUTCFullYear()}-${pad(now.getUTCMonth()+1)}-${pad(now.getUTCDate())} ${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}:${pad(now.getUTCSeconds())}`;
+        const hmac = CryptoJS.enc.Base64.stringify(CryptoJS.HmacSHA512(clientId + dts, clientSecret));
+
+        const requestHeaders = {
+            'Content-Type':          'application/json',
+            'Accept':                'application/json',
+            'Authorization':         `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`,
+            'SS_SD_SWITCH_ClientId': clientId,
+            'SS_SD_SWITCH_DTS':      dts,
+            'SS_SD_SWITCH_HSH':      hmac,
+        };
+
+        const requestBody = {
+            mandate: {
+                merchantGid: Number(merchantGid),
+                remoteGid:   Number(remoteGid),
+            }
+        };
+
+        const endpoint = `${baseUrl}/api/sssdswitchuadsrest/v3/mandates/batch/mandateenquiry`;
+
+        // Get outbound IP
+        let outboundIp = 'unknown';
+        try {
+            const ipRes = await fetch('https://api.ipify.org?format=json');
+            outboundIp = (await ipRes.json()).ip;
+        } catch (_) {}
+
+        // Fire the actual request and capture everything
+        let responseStatus = null;
+        let responseHeaders = {};
+        let responseBody = null;
+        let networkError = null;
+
+        try {
+            const apiRes = await fetch(endpoint, {
+                method:  'POST',
+                headers: requestHeaders,
+                body:    JSON.stringify(requestBody),
+            });
+            responseStatus  = apiRes.status;
+            responseHeaders = Object.fromEntries(apiRes.headers.entries());
+            try { responseBody = await apiRes.json(); }
+            catch (_) { responseBody = await apiRes.text().catch(() => null); }
+        } catch (err) {
+            networkError = err.message;
+        }
+
+        return res.json({
+            outbound_ip:      outboundIp,
+            endpoint,
+            request_headers:  { ...requestHeaders, Authorization: 'Basic ***hidden***' },
+            request_body:     requestBody,
+            response_status:  responseStatus,
+            response_headers: responseHeaders,
+            response_body:    responseBody,
+            network_error:    networkError,
+            timestamp_sast:   dts,
+        });
+    } catch (err) {
+        return res.status(500).json({ error: err.message });
+    }
+});
+
 app.get('/api/debug/suresystems-config', (req, res) => {
     const e = process.env;
     res.json({
@@ -1451,7 +1542,8 @@ app.post('/api/suresystems/payments/download', async (req, res) => {
     }
 });
 
-// POST /api/admin/mandates/sync — pull all mandates from SureSystems and upsert into suresystems_mandates
+// POST /api/admin/mandates/sync — query SureSystems for each known contract_reference
+// SureSystems mandateenquiry only supports one contractReference per request.
 app.post('/api/admin/mandates/sync', async (req, res) => {
     const token = (req.headers.authorization || '').replace('Bearer ', '');
     if (!token) return res.status(401).json({ error: 'Auth required' });
@@ -1459,42 +1551,69 @@ app.post('/api/admin/mandates/sync', async (req, res) => {
     if (!user) return res.status(401).json({ error: 'Auth required' });
 
     try {
-        const result = await sureSystemsService.mandateEnquiry({});
-        const raw = result?.response;
+        // Gather contract references from two sources:
+        // 1. Our existing suresystems_mandates table
+        // 2. loan_applications rows that have a debicheck_reference or contract_reference
+        const [{ data: existing }, { data: apps }] = await Promise.all([
+            supabaseService.from(SURESYSTEMS_MANDATES_TABLE).select('contract_reference'),
+            supabaseService.from('loan_applications')
+                .select('id, debicheck_reference, contract_reference')
+                .not('debicheck_reference', 'is', null)
+        ]);
 
-        // SureSystems may return mandates under various keys
-        const list = raw?.mandateList || raw?.MandateList || raw?.mandates || raw?.Mandates
-            || raw?.data || (Array.isArray(raw) ? raw : []);
+        const refs = new Set();
+        (existing || []).forEach(r => r.contract_reference && refs.add(r.contract_reference));
+        (apps || []).forEach(a => {
+            if (a.debicheck_reference) refs.add(a.debicheck_reference);
+            if (a.contract_reference)  refs.add(a.contract_reference);
+        });
 
-        if (!list.length) {
-            return res.json({ synced: 0, message: 'No mandates returned from SureSystems.', raw });
+        if (!refs.size) {
+            return res.json({
+                synced: 0,
+                message: 'No mandate contract references found in the database to look up. Load individual mandates first via the application detail page, or import from the SureSystems sheet.'
+            });
         }
 
-        // For each mandate, upsert by contract_reference
-        const rows = list.map(m => {
-            const ref = m.contractReference || m.ContractReference || m.contract_reference || '';
-            const rawStatus = String(m.status || m.Status || m.mandateStatus || m.MandateStatus || 'unknown').toLowerCase();
-            const status = rawStatus.includes('active') || rawStatus.includes('success') ? 'success'
-                : rawStatus.includes('fail') || rawStatus.includes('reject') || rawStatus.includes('cancel') ? 'failed'
-                : rawStatus.includes('pend') || rawStatus.includes('await') ? 'pending'
-                : 'unknown';
-            return {
-                contract_reference: ref,
-                status,
-                message: m.statusDescription || m.StatusDescription || m.description || m.Description || null,
-                response_payload: m,
-                updated_at: new Date().toISOString()
-            };
-        }).filter(r => r.contract_reference);
+        const upsertRows = [];
+        const errors = [];
 
-        // Upsert by contract_reference (requires unique constraint on that column in DB)
-        const { error } = await supabaseService
-            .from(SURESYSTEMS_MANDATES_TABLE)
-            .upsert(rows, { onConflict: 'contract_reference', ignoreDuplicates: false });
+        // SureSystems requires one request per contractReference
+        for (const contractReference of refs) {
+            try {
+                const result = await sureSystemsService.mandateEnquiry({ contractReference });
+                const raw = result?.response;
+                const m = raw?.mandate || raw?.Mandate || raw;
 
-        if (error) throw error;
+                const rawStatus = String(m?.status || m?.Status || m?.mandateStatus || m?.MandateStatus || 'unknown').toLowerCase();
+                const status = rawStatus.includes('active') || rawStatus.includes('success') ? 'success'
+                    : rawStatus.includes('fail') || rawStatus.includes('reject') || rawStatus.includes('cancel') ? 'failed'
+                    : rawStatus.includes('pend') || rawStatus.includes('await') ? 'pending'
+                    : 'unknown';
 
-        return res.json({ synced: rows.length, message: `Loaded ${rows.length} mandate${rows.length === 1 ? '' : 's'} from SureSystems.` });
+                upsertRows.push({
+                    contract_reference: contractReference,
+                    status,
+                    message: m?.statusDescription || m?.StatusDescription || m?.description || null,
+                    response_payload: raw,
+                    updated_at: new Date().toISOString()
+                });
+            } catch (err) {
+                errors.push({ contractReference, error: err.message });
+            }
+        }
+
+        if (upsertRows.length) {
+            const { error: dbErr } = await supabaseService
+                .from(SURESYSTEMS_MANDATES_TABLE)
+                .upsert(upsertRows, { onConflict: 'contract_reference', ignoreDuplicates: false });
+            if (dbErr) throw dbErr;
+        }
+
+        const msg = `Updated ${upsertRows.length} of ${refs.size} mandate(s) from SureSystems.`
+            + (errors.length ? ` ${errors.length} failed.` : '');
+
+        return res.json({ synced: upsertRows.length, total: refs.size, errors, message: msg });
     } catch (err) {
         console.error('[mandates/sync]', err.message, err.details);
         return res.status(500).json({

@@ -33,12 +33,15 @@ async function loadBranches() {
 }
 
 async function loadLoans() {
-    const spinner = document.getElementById('lb-spinner');
-    if (spinner) spinner.classList.remove('hidden');
-    const { data } = await fetchLoanBook(activeBranch);
-    allLoans = data || [];
-    applyFilters();
-    if (spinner) spinner.classList.add('hidden');
+    try {
+        const { data } = await fetchLoanBook(activeBranch);
+        allLoans = data || [];
+        applyFilters();
+    } catch (err) {
+        console.error('loadLoans error:', err);
+    } finally {
+        document.getElementById('lb-shimmer')?.remove();
+    }
 }
 
 function applyFilters() {
@@ -119,12 +122,35 @@ function renderShell() {
       </div>
 
       <!-- Summary cards -->
-      <div id="lb-summary" class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6"></div>
+      <div id="lb-summary" class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+        ${Array(5).fill(0).map(() => `
+          <div class="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm flex items-center gap-3 animate-pulse">
+            <div class="w-9 h-9 rounded-xl bg-gray-100 flex-shrink-0"></div>
+            <div class="flex-1 space-y-2">
+              <div class="h-2.5 bg-gray-100 rounded-full w-3/4"></div>
+              <div class="h-5 bg-gray-200 rounded-full w-1/2"></div>
+            </div>
+          </div>`).join('')}
+      </div>
 
-      <!-- Spinner -->
-      <div id="lb-spinner" class="text-center py-12 text-gray-400 hidden">
-        <i class="fa-solid fa-circle-notch fa-spin text-3xl mb-3"></i>
-        <p class="text-sm">Loading loan book...</p>
+      <!-- Shimmer table skeleton (hidden once data loads) -->
+      <div id="lb-shimmer" class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-4">
+        <div class="animate-pulse">
+          <div class="bg-gray-50 border-b border-gray-100 px-4 py-3 flex gap-6">
+            ${Array(7).fill(0).map(() => `<div class="h-3 bg-gray-200 rounded-full" style="width:${60 + Math.random()*60|0}px"></div>`).join('')}
+          </div>
+          ${Array(8).fill(0).map((_, i) => `
+            <div class="flex gap-6 px-4 py-4 border-b border-gray-50 ${i % 2 === 1 ? 'bg-gray-50/40' : ''}">
+              <div class="h-3 bg-gray-100 rounded-full w-24"></div>
+              <div class="h-3 bg-gray-100 rounded-full w-32"></div>
+              <div class="h-3 bg-gray-100 rounded-full w-20"></div>
+              <div class="h-3 bg-gray-100 rounded-full w-20"></div>
+              <div class="h-3 bg-gray-100 rounded-full w-16"></div>
+              <div class="h-5 bg-gray-200 rounded-full w-20"></div>
+              <div class="h-3 bg-gray-100 rounded-full w-14"></div>
+              <div class="h-3 bg-gray-100 rounded-full w-14"></div>
+            </div>`).join('')}
+        </div>
       </div>
 
       <!-- Table -->
