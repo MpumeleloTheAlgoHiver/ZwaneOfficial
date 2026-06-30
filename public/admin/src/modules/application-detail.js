@@ -1223,20 +1223,23 @@ const initTabs = () => {
 window.updateStatus = async (newStatus) => {
     // ── Status transition gates ───────────────────────────────────
     if (newStatus === 'AFFORD_OK') {
-        const hasBureau = currentApplication.bureau_score_band ||
-            ['BUREAU_OK', 'BANK_LINKING'].includes(currentApplication.status);
-        if (!hasBureau) {
-            showFeedback('Cannot confirm affordability — no bureau result on record. Run the credit check first.', 'error');
-            return;
-        }
-        const { data: fp } = await supabase
-            .from('financial_profiles')
-            .select('monthly_income')
-            .eq('user_id', currentApplication.user_id)
-            .maybeSingle();
-        if (!fp?.monthly_income) {
-            showFeedback('Cannot confirm affordability — no income on record. Complete open banking first.', 'error');
-            return;
+        const isPartnerApp = currentApplication.source === 'PARTNER_API';
+        if (!isPartnerApp) {
+            const hasBureau = currentApplication.bureau_score_band ||
+                ['BUREAU_OK', 'BANK_LINKING'].includes(currentApplication.status);
+            if (!hasBureau) {
+                showFeedback('Cannot confirm affordability — no bureau result on record. Run the credit check first.', 'error');
+                return;
+            }
+            const { data: fp } = await supabase
+                .from('financial_profiles')
+                .select('monthly_income')
+                .eq('user_id', currentApplication.user_id)
+                .maybeSingle();
+            if (!fp?.monthly_income) {
+                showFeedback('Cannot confirm affordability — no income on record. Complete open banking first.', 'error');
+                return;
+            }
         }
     }
 
