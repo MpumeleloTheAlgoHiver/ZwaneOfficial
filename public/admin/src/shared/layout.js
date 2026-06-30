@@ -503,9 +503,18 @@ async function initNotifications(role, userId) {
 
     if(markAllReadBtn) {
         markAllReadBtn.addEventListener('click', async () => {
-            // Marks all for current role read by the current user
-            const { error } = await supabase.rpc('mark_notifications_read', { p_target_role: role });
-            if(!error) await fetchNotifications();
+            // Fetch all unread notifications for this user and add userId to read_by
+            const { data: unread } = await supabase
+                .from('admin_notifications')
+                .select('id, read_by')
+                .not('read_by', 'cs', `["${userId}"]`);
+            if (!unread?.length) return;
+            await Promise.all(unread.map(n =>
+                supabase.from('admin_notifications')
+                    .update({ read_by: [...(n.read_by || []), userId] })
+                    .eq('id', n.id)
+            ));
+            await fetchNotifications();
         });
     }
 }

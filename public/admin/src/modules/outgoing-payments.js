@@ -599,7 +599,7 @@ function renderComparisonView() {
     if (!tableWrapper) return;
 
     // Group disbursed payouts by month
-    const disbursed = allPayouts.filter(p => p.status === 'DISBURSED' || p.status === 'APPROVED');
+    const disbursed = allPayouts.filter(p => ['disbursed', 'DISBURSED', 'APPROVED', 'approved'].includes(p.status));
     const byMonth = {};
 
     disbursed.forEach(p => {
@@ -703,7 +703,7 @@ function renderComparisonView() {
 }
 
 window.exportComparisonCSV = function() {
-    const disbursed = allPayouts.filter(p => p.status === 'DISBURSED' || p.status === 'APPROVED');
+    const disbursed = allPayouts.filter(p => ['disbursed', 'DISBURSED', 'APPROVED', 'approved'].includes(p.status));
     const headers = ['Month','Client Name','Amount','Date','Reference','Bank','Account Number'];
     const rows = disbursed.map(p => {
         const d = new Date(p.created_at);

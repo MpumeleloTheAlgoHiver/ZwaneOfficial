@@ -508,8 +508,9 @@ const renderUserList = (data) => {
 
     tbody.innerHTML = paginatedData.map(u => {
         const branchName = u.branches?.name || 'Online';
-        const isLuhnValid = validateSAID(u.identity_number || u.id_number);
-        
+        const isClient = u.role === 'borrower' || u.role === 'client' || !u.role;
+        const isLuhnValid = isClient ? validateSAID(u.identity_number || u.id_number) : null;
+
         return `
         <tr class="hover:bg-slate-50/50 transition-colors group cursor-pointer" onclick="window.openUserDetail('${u.id}')">
             <td class="px-8 py-6">
@@ -535,12 +536,13 @@ const renderUserList = (data) => {
             </td>
             <td class="px-6 py-6">
                 <div class="flex flex-col gap-1">
+                    ${isLuhnValid === null ? '' : `
                     <div class="flex items-center gap-2">
                         <span class="w-1.5 h-1.5 rounded-full ${isLuhnValid ? 'bg-emerald-500' : 'bg-red-500'}"></span>
                         <span class="text-[10px] font-black uppercase tracking-widest ${isLuhnValid ? 'text-emerald-600' : 'text-red-600'}">
                             ${isLuhnValid ? 'ID Valid' : 'ID Invalid'}
                         </span>
-                    </div>
+                    </div>`}
                     ${u.employer_verified ? '<div class="text-[10px] font-bold text-blue-600 flex items-center gap-1"><span>✓</span> Employer verified</div>' : ''}
                     ${u.credit_limit_override ? `<div class="text-[10px] font-bold text-orange-600">Cap: R${Number(u.credit_limit_override).toLocaleString('en-ZA')}</div>` : ''}
                     ${u.last_active_at ? `<div class="text-[9px] text-slate-400">Active: ${new Date(u.last_active_at).toLocaleDateString('en-ZA')}</div>` : ''}
