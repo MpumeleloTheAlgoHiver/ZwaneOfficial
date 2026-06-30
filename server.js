@@ -5634,6 +5634,47 @@ function requireIntegrationAuth(req, res, next) {
 // Finds-or-creates the borrower profile by identity_number, optionally links a bank
 // account (validated against known universal branch codes), then creates the
 // loan_applications row in STARTED status for an admin to pick up and process.
+// NCA-compliant offer calculation — mirrors public/admin/src/modules/applications.js calculateLoanDetails()
+// so partner-sourced applications arrive with a ready-to-review offer instead of a blank one.
+function calculateLoanOffer(amount, period, waiveInitiation) {
+    const INTEREST_RATE_MONTHLY = 0.05;
+    const INITIATION_FEE_RATE   = 0.15;
+    const CREDIT_LIFE_RATE      = 0.0045;
+    const SERVICE_FEE_MONTHLY   = 69;
+    const VAT_RATE               = 0.15;
+
+    const totalServiceFees    = SERVICE_FEE_MONTHLY * period;
+    const totalInterest       = amount * INTEREST_RATE_MONTHLY * period;
+    const totalInitiationFees = waiveInitiation ? 0 : amount * INITIATION_FEE_RATE;
+    const totalCreditLife     = amount * CREDIT_LIFE_RATE * period;
+    const monthlyCreditLife   = amount * CREDIT_LIFE_RATE;
+    const vatAmount           = (totalInitiationFees + totalServiceFees) * VAT_RATE;
+    const totalCostOfCredit   = totalInterest + totalInitiationFees + totalServiceFees + totalCreditLife + vatAmount;
+    const totalRepayment      = amount + totalCostOfCredit;
+    const monthlyPayment      = totalRepayment / period;
+
+    return {
+        offer_principal: amount,
+        offer_interest_rate: INTEREST_RATE_MONTHLY,
+        offer_total_interest: totalInterest,
+        offer_total_initiation_fees: totalInitiationFees,
+        offer_monthly_repayment: monthlyPayment,
+        offer_total_repayment: totalRepayment,
+        offer_total_admin_fees: totalServiceFees,
+        offer_credit_life_monthly: monthlyCreditLife,
+        offer_credit_life_total: totalCreditLife,
+        offer_details: {
+            interest_rate_monthly: INTEREST_RATE_MONTHLY,
+            initiation_rate: waiveInitiation ? 0 : INITIATION_FEE_RATE,
+            credit_life_rate: CREDIT_LIFE_RATE,
+            vat_amount: vatAmount,
+            total_cost_of_credit: totalCostOfCredit,
+            waive_initiation: waiveInitiation,
+            source: 'Partner API — auto-calculated, review before sending contract'
+        }
+    };
+}
+
 app.post('/api/integrations/loans', sensitiveLimiter, requireIntegrationAuth, async (req, res) => {
     try {
         const {
@@ -5724,6 +5765,20 @@ app.post('/api/integrations/loans', sensitiveLimiter, requireIntegrationAuth, as
             }
         }
 
+        // Determine initiation-fee waiver the same way the in-branch terminal does:
+        // first loan ever, or first loan of the calendar year, waives the fee.
+        const { data: priorLoans, error: priorLoansError } = await supabaseService
+            .from('loan_applications')
+            .select('id, created_at')
+            .eq('user_id', profile.id)
+            .in('status', ['DISBURSED', 'OFFER_ACCEPTED', 'READY_TO_DISBURSE', 'ACTIVE', 'CONTRACT_SIGN', 'DEBICHECK_AUTH']);
+        if (priorLoansError) throw priorLoansError;
+        const currentYear = new Date().getFullYear();
+        const hasLoanThisYear = (priorLoans || []).some(l => new Date(l.created_at).getFullYear() === currentYear);
+        const waiveInitiation = (priorLoans || []).length === 0 || !hasLoanThisYear;
+
+        const offer = calculateLoanOffer(loanAmount, loanTermMonths, waiveInitiation);
+
         const { data: application, error: appError } = await supabaseService
             .from('loan_applications')
             .insert([{
@@ -5733,7 +5788,8 @@ app.post('/api/integrations/loans', sensitiveLimiter, requireIntegrationAuth, as
                 purpose: purpose || null,
                 status: 'STARTED',
                 source: source || 'PARTNER_API',
-                bank_account_id: bankAccountId
+                bank_account_id: bankAccountId,
+                ...offer
             }])
             .select('id')
             .single();
