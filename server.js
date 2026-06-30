@@ -5771,7 +5771,7 @@ app.post('/api/integrations/loans', sensitiveLimiter, requireIntegrationAuth, as
             .from('loan_applications')
             .select('id, created_at')
             .eq('user_id', profile.id)
-            .in('status', ['DISBURSED', 'OFFER_ACCEPTED', 'READY_TO_DISBURSE', 'ACTIVE', 'CONTRACT_SIGN', 'DEBICHECK_AUTH']);
+            .in('status', ['DISBURSED', 'OFFER_ACCEPTED', 'READY_TO_DISBURSE', 'CONTRACT_SIGN', 'DEBICHECK_AUTH']);
         if (priorLoansError) throw priorLoansError;
         const currentYear = new Date().getFullYear();
         const hasLoanThisYear = (priorLoans || []).some(l => new Date(l.created_at).getFullYear() === currentYear);
