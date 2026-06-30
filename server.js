@@ -527,7 +527,7 @@ function toSureSystemsDate(value) {
 async function loadSureSystemsMandateContext(applicationId) {
     const { data: application, error: appError } = await supabaseService
         .from('loan_applications')
-        .select('id, user_id, amount, repayment_start_date, bank_account_id, term_months, profiles:user_id(full_name, email, identity_number)')
+        .select('id, user_id, amount, repayment_start_date, bank_account_id, term_months, profiles:user_id(full_name, email, identity_number, cell_tel_no)')
         .eq('id', applicationId)
         .maybeSingle();
 
@@ -595,7 +595,13 @@ function buildSureSystemsMandateRequestFromContext({ application, bankAccount, p
         throw new Error(`Application ${application.id} has an invalid amount (${loanAmount}). Cannot create SureSystems mandate for R0.`);
     }
 
-    const collectionDate = overrides.collectionDate || toSureSystemsDate(application.repayment_start_date) || sureSystemsService.getToday();
+    // SureSystems rejects mandates whose collection date has already passed (error 10576
+    // "Scheduled date incorrect"). repayment_start_date can lapse if the mandate is created
+    // or retried after the original date, so fall forward to today in that case.
+    let collectionDate = overrides.collectionDate || toSureSystemsDate(application.repayment_start_date) || sureSystemsService.getToday();
+    if (collectionDate.length === 8 && collectionDate < sureSystemsService.getToday()) {
+        collectionDate = sureSystemsService.getToday();
+    }
     const debtorIdentificationNo = overrides.debtorIdentificationNo || profile?.identity_number || profile?.id_number || profile?.idNumber || application.user_id;
     const accountTypeRaw = overrides.debtorAccountType || bankAccount.account_type || 1;
     const accountTypeMap = { cheque: 1, current: 1, savings: 2, transmission: 3, bond: 4, subscription_share: 6 };
@@ -3319,14 +3325,6 @@ app.post('/api/loans/default-interest', async (req, res) => {
 // 7b. Credit Rules API — Per-Client Configuration
 // ================================================================
 
-// --- Helper: require admin role ---
-function requireAdmin(req, res, next) {
-    const role = req.user?.app_metadata?.role || req.user?.user_metadata?.role;
-    if (!['admin','super_admin','base_admin'].includes(role)) {
-        return res.status(403).json({ error: 'Admin access required' });
-    }
-    next();
-}
 
 // GET /api/organizations — list all lender organizations
 app.get('/api/organizations', async (req, res) => {
@@ -5598,8 +5596,17 @@ process.on('uncaughtException', (err) => {
 });
 
 // POST /api/contracts/notify-to-sign — admin sends client a signing invitation via SMS and/or email
-app.post('/api/contracts/notify-to-sign', requireAdmin, async (req, res) => {
+app.post('/api/contracts/notify-to-sign', async (req, res) => {
     try {
+        const token = (req.headers.authorization || '').replace('Bearer ', '');
+        if (!token) return res.status(401).json({ error: 'Auth required' });
+        const { data: { user } } = await supabaseService.auth.getUser(token);
+        if (!user) return res.status(401).json({ error: 'Auth required' });
+        const role = user.app_metadata?.role || user.user_metadata?.role;
+        if (!['admin', 'super_admin', 'base_admin'].includes(role)) {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+
         const { applicationId } = req.body || {};
         if (!applicationId) return res.status(400).json({ error: 'applicationId required' });
 
