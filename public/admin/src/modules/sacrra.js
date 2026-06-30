@@ -1099,10 +1099,10 @@ async function buildSacrraFileContent(settings) {
         }
 
         // Financial (N9, whole rands — zero for closed/settled/cancelled)
-        const openBal     = nR(isPositive ? 0 : (m.f41_opening_balance || '0').replace(/\D/g,''), 9);
-        const currBal     = nR(isPositive ? 0 : (m.f44_current_balance || '0').replace(/\D/g,''), 9);
-        const amtOverdue  = nR(isPositive ? 0 : (m.f49_arrears_amount  || '0').replace(/\D/g,''), 9);
-        const instalment  = nR(isPositive ? 0 : (m.f45_installment     || '0').replace(/\D/g,''), 9);
+        const openBal    = nR(isPositive ? 0 : (m.f41_opening_balance || '0').replace(/\D/g,''), 9);
+        const currBal    = nR(isPositive ? 0 : (m.f44_current_balance || '0').replace(/\D/g,''), 9);
+        const instalment = nR(isPositive ? 0 : (m.f45_installment     || '0').replace(/\D/g,''), 9);
+        const rawOverdue = isPositive ? 0 : parseInt((m.f49_arrears_amount || '0').replace(/\D/g,'')) || 0;
 
         // MONTHS IN ARREARS: cap to actual account age (SACRRA warning fix)
         const openYear   = dateOpenedInt ? Math.floor(dateOpenedInt / 10000) : 0;
@@ -1111,10 +1111,22 @@ async function buildSacrraFileContent(settings) {
         const endMonth   = Math.floor((monthEndInt % 10000) / 100);
         const ageMonths  = openYear ? Math.max(0, (endYear - openYear) * 12 + (endMonth - openMonth)) : 999;
         const rawMthsArr = parseInt(m.f53_months_in_arrears || '0') || 0;
-        const mthsArr    = isPositive ? '00' : zeroPad(Math.min(rawMthsArr, ageMonths), 2);
+        let   mthsArrInt = isPositive ? 0 : Math.min(rawMthsArr, ageMonths);
 
-        // SURNAME: strip company suffixes — bureaux reject "SMITH PTY LTD" as a surname
-        const cleanSurname = (m.f06_surname || '').replace(/\s*(PTY\.?\s*LTD\.?|LTD\.?|\bCC\b|INC\.?|CORP\.?|\(PTY\))\s*$/i, '').trim();
+        // SACRRA rejection: Amount Overdue and Months in Arrears must stay in sync —
+        // one cannot be non-zero while the other is zero.
+        let finalOverdue = rawOverdue;
+        if (mthsArrInt === 0) finalOverdue = 0;
+        else if (finalOverdue === 0) mthsArrInt = 0;
+
+        const amtOverdue = nR(finalOverdue, 9);
+        const mthsArr    = zeroPad(mthsArrInt, 2);
+
+        // SURNAME: strip company suffixes and "& Co" patterns
+        const cleanSurname = (m.f06_surname || '')
+            .replace(/\s*(PTY\.?\s*LTD\.?|LTD\.?|\bCC\b|INC\.?|CORP\.?|\(PTY\)|BK|NPC|RF)\s*$/i, '')
+            .replace(/\s*&.*$/, '')
+            .trim();
 
         // Build 700-char data record — all positions verified against official SACRRA dummy data
         let r = '';
@@ -1128,8 +1140,8 @@ async function buildSacrraFileContent(settings) {
         r += aL('', 4);                        // 73-76:    SUB-ACCOUNT NO
         r += aL(cleanSurname, 25);             // 77-101:   SURNAME (company suffixes stripped)
         r += aL(deriveTitle(m.f11_gender), 5); // 102-106:  TITLE
-        // FORENAME: SACRRA only allows [A-Z], [a-z], [-], [`], [ ] — strip everything else
-        const cleanForename = (m.f07_first_names || '').replace(/[^A-Za-z\-` ]/g, '').trim();
+        // FORENAME: SACRRA allows [A-Z], [a-z], [-], [`], ['], [ ] — strip everything else
+        const cleanForename = (m.f07_first_names || '').replace(/[^A-Za-z\-`' ]/g, '').trim();
         r += aL(cleanForename, 14);            // 107-120:  FORENAME 1
         r += aL('', 14);                       // 121-134:  FORENAME 2
         r += aL('', 14);                       // 135-148:  FORENAME 3
