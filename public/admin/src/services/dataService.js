@@ -166,9 +166,7 @@ export async function fetchApplicationDetail(applicationId) {
     .from('loan_applications')
     .select(`
         *,
-        profiles:user_id(*),
-        creator:created_by_admin(full_name, email),
-        reviewer:reviewed_by_admin(full_name, email)
+        profiles:user_id(*)
     `)
     .eq('id', applicationId)
     .single();

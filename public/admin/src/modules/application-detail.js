@@ -861,7 +861,7 @@ window.notifyClientToSign = async (appId) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        userId: currentApplication?.user_id,
+        to: currentApplication?.profiles?.cell_tel_no || currentApplication?.profiles?.contact_number,
         message: `Hi ${currentApplication?.profiles?.full_name?.split(' ')[0] || 'there'}, your loan agreement is ready to sign. Please log in to your portal and sign your agreement to proceed. ${window.location.origin}/user-portal/?page=sign-contract`,
         channel: 'sms'
       })
