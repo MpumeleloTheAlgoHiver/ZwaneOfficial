@@ -718,6 +718,85 @@ async function triggerSureSystemsMandateForApplication(applicationId, overrides 
     };
 }
 
+// Partner-API (marketplace) applicants are created via the service-role client and never
+// get a Supabase Auth account, so they have no way to log into the user portal to track
+// repayments. Once their DocuSeal contract completes, give them real portal access — keep
+// the new auth user's id identical to their existing profiles.id so every FK (loan
+// applications, bank accounts, etc.) already set up under that id keeps working untouched.
+async function inviteBorrowerToPortal(applicationId) {
+    if (!applicationId) return null;
+
+    const { data: application, error: appError } = await supabaseService
+        .from('loan_applications')
+        .select('id, user_id, source, profiles:user_id(id, full_name, email)')
+        .eq('id', applicationId)
+        .maybeSingle();
+    if (appError) throw appError;
+    if (!application || application.source !== 'PARTNER_API') return null;
+
+    const profile = application.profiles;
+    if (!profile?.email) {
+        console.warn('[inviteBorrowerToPortal] no email on profile, skipping invite', { applicationId, userId: application.user_id });
+        return null;
+    }
+
+    // Already has portal access (e.g. a repeat marketplace loan) — don't re-invite.
+    const { data: existingAuthUser } = await supabaseService.auth.admin.getUserById(profile.id);
+    if (existingAuthUser?.user) {
+        return { skipped: true, reason: 'already has portal access' };
+    }
+
+    const { error: createUserError } = await supabaseService.auth.admin.createUser({
+        id: profile.id,
+        email: profile.email,
+        email_confirm: true,
+        user_metadata: { full_name: profile.full_name },
+        app_metadata: { role: 'borrower' }
+    });
+    if (createUserError) throw createUserError;
+
+    const siteUrl = process.env.APP_URL || 'https://zwane-official-three-seven.vercel.app';
+    const { data: linkData, error: linkError } = await supabaseService.auth.admin.generateLink({
+        type: 'recovery',
+        email: profile.email,
+        options: { redirectTo: `${siteUrl}/auth/set-password.html` }
+    });
+    if (linkError) throw linkError;
+    const actionLink = linkData?.properties?.action_link;
+
+    if (actionLink && process.env.RESEND_API_KEY) {
+        try {
+            const { Resend } = require('resend');
+            const resend = new Resend(process.env.RESEND_API_KEY);
+            const settings = await getSystemTheme();
+            const company  = settings?.company_name || process.env.COMPANY_NAME || 'Zwane Financial Services';
+            await resend.emails.send({
+                from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+                to: profile.email,
+                subject: `Set up your ${company} portal access`,
+                html: `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;color:#1a1a1a">
+  <div style="background:#E7762E;padding:20px 24px;border-radius:10px 10px 0 0">
+    <h1 style="color:#fff;font-size:20px;margin:0">${company}</h1>
+  </div>
+  <div style="background:#f9fafb;border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 10px 10px">
+    <h2 style="font-size:16px;margin:0 0 12px">Your loan is signed — set up your portal</h2>
+    <p style="margin:0 0 16px;color:#444">Dear <strong>${profile.full_name || 'Client'}</strong>, your contract has been signed. Set a password below to access your portal, where you can track your repayment schedule and balance at any time.</p>
+    <div style="text-align:center;margin:24px 0">
+      <a href="${actionLink}" style="background:#E7762E;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px">Set Up My Portal Access</a>
+    </div>
+    <p style="color:#888;font-size:12px;margin-top:20px">If the button doesn't work, copy this link: ${actionLink}</p>
+  </div>
+</div>`
+            });
+        } catch (emailErr) {
+            console.warn('[inviteBorrowerToPortal] email send failed', emailErr.message || emailErr);
+        }
+    }
+
+    return { invited: true, userId: profile.id, email: profile.email };
+}
+
 app.use('/api/tillslip', tillSlipRoute);
 app.use('/api/bankstatement', bankStatementRoute);
 app.use('/api/idcard', idcardRoute);
@@ -2289,6 +2368,15 @@ app.post('/api/docuseal/webhook', async (req, res) => {
                                 at: now
                             });
                             console.warn('SureSystems mandate activation failed for application', applicationId, sureSystemsError?.message || sureSystemsError);
+                        }
+
+                        try {
+                            const inviteResult = await inviteBorrowerToPortal(applicationId);
+                            if (inviteResult?.invited) {
+                                console.log('Portal invite sent for partner-API application', applicationId, inviteResult.email);
+                            }
+                        } catch (inviteError) {
+                            console.warn('Portal invite failed for application', applicationId, inviteError?.message || inviteError);
                         }
                     } else {
                         console.warn('DocuSeal completed event received but no application_id could be resolved', {
