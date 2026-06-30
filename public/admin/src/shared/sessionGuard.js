@@ -40,7 +40,7 @@ export async function enforceAdminSession() {
 
     if (!isAllowed) {
       console.log('🔒 Not an admin - access denied. Role:', jwtRole);
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: 'local' });
       window.location.replace('/auth/login.html');
       return;
     }
