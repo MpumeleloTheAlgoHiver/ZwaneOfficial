@@ -145,7 +145,7 @@
     if (await isSubscribed()) return;
 
     // Wait until user is settled on dashboard
-    if (!location.search.includes('page=dashboard') && location.pathname.endsWith('/user-portal/')) {
+    if (location.search.includes('page=dashboard') && location.pathname.endsWith('/user-portal/')) {
       setTimeout(showSoftPrompt, 10000);
     }
   }
