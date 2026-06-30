@@ -217,9 +217,23 @@ document.addEventListener('DOMContentLoaded', async () => {
             <span class="w-2 h-2 rounded-full animate-pulse" style="background:${systemStatus.color}"></span>
             <span style="color:${systemStatus.color}">${systemStatus.text}</span>
           </div>
-          <div class="flex items-center gap-2 px-4 py-2 bg-surface-container-lowest rounded-full border border-outline-variant/30 text-xs font-semibold">
-            <span class="w-2 h-2 rounded-full" style="background:${sureSystemsState.color}"></span>
-            <span style="color:${sureSystemsState.color}">${sureSystemsState.text}</span>
+          <div class="relative group">
+            <button id="ss-status-pill" class="flex items-center gap-2 px-4 py-2 bg-surface-container-lowest rounded-full border border-outline-variant/30 text-xs font-semibold cursor-pointer hover:shadow-sm transition-all">
+              <span class="w-2 h-2 rounded-full ${sureSystemsActivation?.recent?.failed > 0 && sureSystemsActivation?.recent?.success === 0 ? 'animate-pulse' : ''}" style="background:${sureSystemsState.color}"></span>
+              <span style="color:${sureSystemsState.color}">${sureSystemsState.text}</span>
+              ${sureSystemsActivation?.recent?.failed > 0 ? '<span class="material-symbols-outlined text-[12px] text-gray-400">expand_more</span>' : ''}
+            </button>
+            ${sureSystemsActivation?.applications?.filter(a => a.status === 'failed').length > 0 ? `
+            <div id="ss-error-dropdown" class="hidden absolute right-0 top-full mt-2 w-80 bg-white border border-red-100 rounded-2xl shadow-xl z-50 p-4 space-y-3">
+              <p class="text-xs font-bold text-red-700 flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">error</span> Recent Activation Failures</p>
+              <div class="space-y-2 max-h-48 overflow-y-auto">
+                ${sureSystemsActivation.applications.filter(a => a.status === 'failed').slice(0, 5).map(a => `
+                  <div class="bg-red-50 rounded-xl px-3 py-2 border border-red-100">
+                    <p class="text-[10px] text-red-800 font-semibold truncate">${a.message || 'Unknown error'}</p>
+                    <p class="text-[10px] text-gray-400 mt-0.5">${a.at ? new Date(a.at).toLocaleDateString('en-ZA') : ''}</p>
+                  </div>`).join('')}
+              </div>
+            </div>` : ''}
           </div>
           <button id="btn-export-dashboard" class="flex items-center gap-2 px-4 py-2 rounded-full border border-outline-variant/30 bg-white hover:bg-gray-50 text-xs font-semibold text-gray-700 transition-colors">
             <span class="material-symbols-outlined text-[14px]">download</span> Export Dashboard
@@ -535,9 +549,18 @@ let _dashboardSnapshot = null;
 
 function captureDashboardSnapshot(dash, fin, pipeline, perf) {
     _dashboardSnapshot = { dash, fin, pipeline, perf, capturedAt: new Date().toISOString() };
-    // Wire export button once data is ready
+    // Wire export button and SureSystems error dropdown once data is ready
     setTimeout(() => {
         document.getElementById('btn-export-dashboard')?.addEventListener('click', exportDashboardCSV);
+        const ssPill = document.getElementById('ss-status-pill');
+        const ssDropdown = document.getElementById('ss-error-dropdown');
+        if (ssPill && ssDropdown) {
+            ssPill.addEventListener('click', (e) => {
+                e.stopPropagation();
+                ssDropdown.classList.toggle('hidden');
+            });
+            document.addEventListener('click', () => ssDropdown.classList.add('hidden'), { once: false });
+        }
     }, 500);
 }
 
