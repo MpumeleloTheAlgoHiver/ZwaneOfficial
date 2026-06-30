@@ -69,14 +69,21 @@ function resolveCertPath(filePath) {
   return path.isAbsolute(filePath) ? filePath : path.resolve(process.cwd(), filePath);
 }
 
+// SureSystems validates message timestamps against their SAST clock (UTC+2).
+// Vercel runs UTC — offset manually so messageDate/messageTime match SAST,
+// the same way buildSignatureHeaders() already does for dsDTS below.
+function sastNow() {
+  return new Date(Date.now() + 2 * 60 * 60 * 1000);
+}
+
 function getToday() {
-  const now = new Date();
-  return `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+  const now = sastNow();
+  return `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}${String(now.getUTCDate()).padStart(2, '0')}`;
 }
 
 function getNow() {
-  const now = new Date();
-  return `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+  const now = sastNow();
+  return `${String(now.getUTCHours()).padStart(2, '0')}${String(now.getUTCMinutes()).padStart(2, '0')}${String(now.getUTCSeconds()).padStart(2, '0')}`;
 }
 
 function buildContractReference(merchantGid, uniqueSequence) {

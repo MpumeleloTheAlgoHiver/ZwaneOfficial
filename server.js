@@ -610,6 +610,18 @@ function buildSureSystemsMandateRequestFromContext({ application, bankAccount, p
         : (accountTypeMap[String(accountTypeRaw).toLowerCase()] || 1);
     const installmentCount = Number(overrides.noOfInstallments || application.term_months || 1);
 
+    // SureSystems rejected a request with a 9-digit debtorTelephone ("082123485" — missing one
+    // digit). Catch malformed SA mobile numbers here instead of letting SureSystems 400 on it.
+    const debtorTelephone = String(overrides.debtorTelephone || profile?.cell_tel_no || '').replace(/[^0-9]/g, '');
+    if (!/^0[0-9]{9}$/.test(debtorTelephone)) {
+        throw new Error(`Application ${application.id} has an invalid debtor phone number ("${debtorTelephone || 'missing'}"). SureSystems requires a 10-digit SA mobile number starting with 0.`);
+    }
+
+    const debtorBranchNumber = String(overrides.debtorBranchNumber || bankAccount.branch_code || '').replace(/[^0-9]/g, '');
+    if (!/^[0-9]{6}$/.test(debtorBranchNumber)) {
+        throw new Error(`Application ${application.id} has an invalid bank branch code ("${debtorBranchNumber || 'missing'}"). SureSystems requires a 6-digit universal branch code.`);
+    }
+
     // Values matched to working SureSystems example
     return {
         // messageInfo overrides
@@ -621,9 +633,9 @@ function buildSureSystemsMandateRequestFromContext({ application, bankAccount, p
         debtorAccountName:      overrides.debtorAccountName || bankAccount.account_holder || profile?.full_name || '',
         debtorIdentificationNo: String(debtorIdentificationNo || ''),
         debtorAccountNumber:    String(overrides.debtorAccountNumber || bankAccount.account_number || ''),
-        debtorBranchNumber:     String(overrides.debtorBranchNumber || bankAccount.branch_code || ''),
+        debtorBranchNumber,
         debtorAccountType,
-        debtorTelephone:        overrides.debtorTelephone || profile?.cell_tel_no || '',
+        debtorTelephone,
         debtorEmail:            overrides.debtorEmail || profile?.email || '',
 
         // Amounts — initialAmount must be 0 per working example

@@ -14,6 +14,21 @@ const getStatusDisplay = (s) => STATUS_DISPLAY[s] || { label: s, color: '#6b7280
 // --- CONFIGURATION ---
 const USER_PORTAL_URL = 'https://zw-express-6ulf9yybu-mps-projects-81dea2b0.vercel.app';
 
+// Universal branch codes — must match public/user-portal/pages-js/documents.js BRANCH_CODES.
+// Freeform branch code entry caused invalid codes (e.g. "1021" for Standard Bank, which should
+// be "051001") to reach SureSystems mandate requests and get rejected.
+const BANK_BRANCH_CODES = {
+  'FNB': '250655',
+  'Standard Bank': '051001',
+  'ABSA': '632005',
+  'Nedbank': '198765',
+  'Capitec': '470010',
+  'Investec': '580105',
+  'TymeBank': '678910',
+  'Discovery Bank': '679000',
+  'African Bank': '430000',
+};
+
 const ALL_STATUSES = [
   'STARTED',
   'BUREAU_CHECKING',
@@ -1812,7 +1827,10 @@ async function renderConfirmation(container) {
 
                         <div id="new-bank-form" class="hidden p-6 bg-gray-900 rounded-2xl border border-gray-700 space-y-4 animate-fade-in">
                             <div class="grid grid-cols-2 gap-4">
-                                <input type="text" id="new-bank-name" placeholder="Bank Name" class="bg-gray-800 text-white rounded-lg py-2 px-3">
+                                <select id="new-bank-name" class="bg-gray-800 text-white rounded-lg py-2 px-3">
+                                    <option value="" disabled selected>Select bank</option>
+                                    ${Object.keys(BANK_BRANCH_CODES).map(bank => `<option value="${bank}">${bank}</option>`).join('')}
+                                </select>
                                 <select id="new-acc-type" class="bg-gray-800 text-white rounded-lg py-2 px-3">
                                     <option value="savings">Savings</option>
                                     <option value="cheque">Cheque</option>
@@ -1820,7 +1838,7 @@ async function renderConfirmation(container) {
                             </div>
                             <div class="grid grid-cols-2 gap-4">
                                 <input type="text" id="new-acc-number" inputmode="numeric" placeholder="Account Number" class="bg-gray-800 text-white rounded-lg py-2 px-3">
-                                <input type="text" id="new-branch-code" inputmode="numeric" placeholder="Branch Code" class="bg-gray-800 text-white rounded-lg py-2 px-3">
+                                <input type="text" id="new-branch-code" inputmode="numeric" placeholder="Branch Code (auto-filled)" readonly class="bg-gray-800 text-white rounded-lg py-2 px-3 opacity-70 cursor-not-allowed">
                             </div>
                             <button id="btn-save-bank" class="w-full bg-brand-accent text-white py-3 rounded-xl font-bold">Link Account</button>
                         </div>
@@ -1890,7 +1908,11 @@ async function renderConfirmation(container) {
 
     document.getElementById('toggle-new-bank').onclick = () => { newBankForm.classList.toggle('hidden'); bankSelect.value = ""; updatePreview(); };
     bankSelect.onchange = () => { newBankForm.classList.add('hidden'); updatePreview(); };
-    ['new-bank-name', 'new-acc-number'].forEach(id => document.getElementById(id).oninput = updatePreview);
+    document.getElementById('new-bank-name').onchange = (e) => {
+        document.getElementById('new-branch-code').value = BANK_BRANCH_CODES[e.target.value] || '';
+        updatePreview();
+    };
+    document.getElementById('new-acc-number').oninput = updatePreview;
 
     document.getElementById('admin-consent').onchange = (e) => { document.getElementById('wizard-next-btn').disabled = !e.target.checked; };
     document.getElementById('wizard-next-btn').onclick = handleFinalSubmit;
