@@ -5599,6 +5599,153 @@ app.post('/api/export/:type', async (req, res) => {
     }
 });
 
+// ================================================================
+// Partner integration API — scoped credential, NOT the Supabase
+// service role key. External apps that push loans to Zwane authenticate
+// with INTEGRATION_API_KEY only, which can read/write loan_applications,
+// profiles, and bank_accounts via this endpoint — nothing else.
+// ================================================================
+
+const INTEGRATION_BRANCH_CODES = {
+    'fnb':             '250655',
+    'standard bank':   '051001',
+    'absa':            '632005',
+    'nedbank':         '198765',
+    'capitec':         '470010',
+    'investec':        '580105',
+    'tymebank':        '678910',
+    'discovery bank':  '679000',
+    'african bank':    '430000',
+};
+
+function requireIntegrationAuth(req, res, next) {
+    const configuredKey = process.env.INTEGRATION_API_KEY;
+    if (!configuredKey) {
+        return res.status(503).json({ error: 'Partner integration is not configured (INTEGRATION_API_KEY missing).' });
+    }
+    const provided = (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+    if (!provided || provided !== configuredKey) {
+        return res.status(401).json({ error: 'Invalid or missing integration API key' });
+    }
+    next();
+}
+
+// POST /api/integrations/loans — partner apps push a loan application into Zwane.
+// Finds-or-creates the borrower profile by identity_number, optionally links a bank
+// account (validated against known universal branch codes), then creates the
+// loan_applications row in STARTED status for an admin to pick up and process.
+app.post('/api/integrations/loans', sensitiveLimiter, requireIntegrationAuth, async (req, res) => {
+    try {
+        const {
+            idNumber, fullName, phone, email, amount, termMonths, purpose,
+            bankName, accountHolder, accountNumber, branchCode, accountType,
+            source
+        } = req.body || {};
+
+        if (!idNumber || !fullName) {
+            return res.status(400).json({ error: 'idNumber and fullName are required' });
+        }
+        const loanAmount = Number(amount);
+        if (!Number.isFinite(loanAmount) || loanAmount <= 0) {
+            return res.status(400).json({ error: 'amount must be a positive number' });
+        }
+        const loanTermMonths = Number(termMonths);
+        if (!Number.isInteger(loanTermMonths) || loanTermMonths <= 0) {
+            return res.status(400).json({ error: 'termMonths must be a positive integer' });
+        }
+
+        // Find or create the borrower profile by ID number.
+        let { data: profile, error: profileError } = await supabaseService
+            .from('profiles')
+            .select('id')
+            .eq('identity_number', idNumber)
+            .maybeSingle();
+        if (profileError) throw profileError;
+
+        if (!profile) {
+            const { data: newProfile, error: createProfileError } = await supabaseService
+                .from('profiles')
+                .insert([{
+                    id: crypto.randomUUID(),
+                    full_name: fullName,
+                    identity_number: idNumber,
+                    cell_tel_no: phone || null,
+                    email: email || null,
+                    role: 'borrower'
+                }])
+                .select('id')
+                .single();
+            if (createProfileError) throw createProfileError;
+            profile = newProfile;
+        }
+
+        // Optionally link a bank account, validated the same way mandate creation requires.
+        let bankAccountId = null;
+        if (accountNumber && branchCode) {
+            const normalizedBranchCode = String(branchCode).replace(/[^0-9]/g, '');
+            const expectedBranchCode = INTEGRATION_BRANCH_CODES[String(bankName || '').trim().toLowerCase()];
+            if (expectedBranchCode && normalizedBranchCode !== expectedBranchCode) {
+                return res.status(400).json({
+                    error: `Branch code "${branchCode}" does not match ${bankName}'s universal branch code (${expectedBranchCode}).`
+                });
+            }
+            if (!/^[0-9]{6}$/.test(normalizedBranchCode)) {
+                return res.status(400).json({ error: `branchCode must be a 6-digit universal branch code, got "${branchCode}".` });
+            }
+            const normalizedAccountNumber = String(accountNumber).replace(/[^0-9]/g, '');
+
+            const { data: existingBankAccount, error: existingBankError } = await supabaseService
+                .from('bank_accounts')
+                .select('id')
+                .eq('user_id', profile.id)
+                .eq('account_number', normalizedAccountNumber)
+                .eq('bank_name', bankName || null)
+                .maybeSingle();
+            if (existingBankError) throw existingBankError;
+
+            if (existingBankAccount) {
+                bankAccountId = existingBankAccount.id;
+            } else {
+                const { data: bankAccount, error: bankError } = await supabaseService
+                    .from('bank_accounts')
+                    .insert([{
+                        user_id: profile.id,
+                        bank_name: bankName || null,
+                        account_holder: accountHolder || fullName,
+                        account_number: normalizedAccountNumber,
+                        branch_code: normalizedBranchCode,
+                        account_type: accountType || 'cheque',
+                        is_verified: false
+                    }])
+                    .select('id')
+                    .single();
+                if (bankError) throw bankError;
+                bankAccountId = bankAccount.id;
+            }
+        }
+
+        const { data: application, error: appError } = await supabaseService
+            .from('loan_applications')
+            .insert([{
+                user_id: profile.id,
+                amount: loanAmount,
+                term_months: loanTermMonths,
+                purpose: purpose || null,
+                status: 'STARTED',
+                source: source || 'PARTNER_API',
+                bank_account_id: bankAccountId
+            }])
+            .select('id')
+            .single();
+        if (appError) throw appError;
+
+        return res.status(201).json({ success: true, applicationId: application.id, userId: profile.id });
+    } catch (err) {
+        console.error('[integrations/loans] error:', err.message || err);
+        return res.status(500).json({ error: err.message || 'Failed to create loan application' });
+    }
+});
+
 // --- 8. Start Server ---
 process.on('unhandledRejection', (reason) => {
     console.error('[unhandledRejection]', reason);
