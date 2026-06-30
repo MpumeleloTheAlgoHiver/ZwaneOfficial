@@ -368,7 +368,7 @@ function renderPayoutTable(payouts) {
             </td>
             <td class="px-6 py-4 text-xs text-gray-600 font-medium whitespace-nowrap">${dateStr}</td>
             <td class="px-6 py-4">
-                <div class="text-xs font-mono text-gray-500 bg-gray-50 px-2 py-1 rounded inline-block border border-gray-100">#${p.id.slice(0,8)}</div>
+                <div class="text-xs font-mono text-gray-500 bg-gray-50 px-2 py-1 rounded inline-block border border-gray-100">#${String(p.id || '').slice(0,8)}</div>
             </td>
             <td class="px-6 py-4">
                 <div class="text-xs font-bold text-gray-900">${isThirdParty ? (p.third_party_name || 'Third Party') : (p.profile?.full_name || 'N/A')}</div>
