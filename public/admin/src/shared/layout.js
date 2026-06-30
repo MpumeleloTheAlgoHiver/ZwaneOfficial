@@ -503,12 +503,12 @@ async function initNotifications(role, userId) {
 
     if(markAllReadBtn) {
         markAllReadBtn.addEventListener('click', async () => {
-            // Fetch all unread notifications for this user and add userId to read_by
-            const { data: unread } = await supabase
+            const { data: all } = await supabase
                 .from('admin_notifications')
-                .select('id, read_by')
-                .not('read_by', 'cs', `["${userId}"]`);
-            if (!unread?.length) return;
+                .select('id, read_by');
+            if (!all?.length) return;
+            const unread = all.filter(n => !(n.read_by || []).includes(userId));
+            if (!unread.length) return;
             await Promise.all(unread.map(n =>
                 supabase.from('admin_notifications')
                     .update({ read_by: [...(n.read_by || []), userId] })
