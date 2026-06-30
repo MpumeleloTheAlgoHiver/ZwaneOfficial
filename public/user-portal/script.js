@@ -302,21 +302,29 @@ async function checkAuth() {
     return null;
   }
 
-  const { data: profile, error: profileErr } = await supabase
+  const { data: profileData, error: profileErr } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', session.user.id)
     .maybeSingle();
 
-  if (!profile && !profileErr) {
+  if (!profileData && !profileErr) {
     console.log('⛔ No profile row found for user');
     await supabase.auth.signOut();
     window.location.replace('/auth/login.html');
     return null;
   }
   if (profileErr) {
-    console.warn('Profile fetch error (RLS?) — continuing with partial profile:', profileErr.message);
+    console.warn('Profile fetch error (RLS?) — continuing with session data:', profileErr.message);
   }
+
+  // Fall back to session metadata if RLS blocked the profile read
+  const profile = profileData || {
+    id: session.user.id,
+    full_name: session.user.user_metadata?.full_name || '',
+    identity_number: session.user.user_metadata?.id_number || null,
+    cell_tel_no: session.user.user_metadata?.mobile || null,
+  };
   profile.role = role;
   profile.email = profile.email || session.user?.email;
   
