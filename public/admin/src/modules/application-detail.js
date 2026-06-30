@@ -857,20 +857,18 @@ window.notifyClientToSign = async (appId) => {
   const btn = document.getElementById('notify-sign-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="material-symbols-outlined text-[14px] align-middle animate-spin">progress_activity</span> Sending...'; }
   try {
-    const res = await apiFetch('/api/messaging/send', {
+    const res = await apiFetch('/api/contracts/notify-to-sign', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        to: currentApplication?.profiles?.cell_tel_no || currentApplication?.profiles?.contact_number,
-        message: `Hi ${currentApplication?.profiles?.full_name?.split(' ')[0] || 'there'}, your loan agreement is ready to sign. Please log in to your portal and sign your agreement to proceed. ${window.location.origin}/user-portal/?page=sign-contract`,
-        channel: 'sms'
-      })
+      body: JSON.stringify({ applicationId: currentApplication?.id })
     });
     const payload = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(payload?.error || 'Send failed');
-    showFeedback('Signing link sent to client via SMS.', 'success');
+    const channels = payload.sent?.join(' & ') || 'SMS/email';
+    showFeedback(`Signing link sent to client via ${channels}.`, 'success');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="material-symbols-outlined text-[14px]">check_circle</span> Sent'; }
   } catch (err) {
-    showFeedback('Could not send SMS: ' + err.message, 'error');
+    showFeedback('Could not send signing link: ' + err.message, 'error');
     if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-symbols-outlined text-[14px]">send</span> Send Signing Link to Client'; }
   }
 };

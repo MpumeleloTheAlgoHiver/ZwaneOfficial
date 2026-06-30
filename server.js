@@ -5597,6 +5597,82 @@ process.on('uncaughtException', (err) => {
     console.error('[uncaughtException]', err);
 });
 
+// POST /api/contracts/notify-to-sign — admin sends client a signing invitation via SMS and/or email
+app.post('/api/contracts/notify-to-sign', requireAdmin, async (req, res) => {
+    try {
+        const { applicationId } = req.body || {};
+        if (!applicationId) return res.status(400).json({ error: 'applicationId required' });
+
+        const { data: app, error: appErr } = await supabaseService
+            .from('loan_applications')
+            .select('id, status, profiles:user_id(full_name, email, cell_tel_no, contact_number)')
+            .eq('id', applicationId)
+            .maybeSingle();
+
+        if (appErr || !app) return res.status(404).json({ error: 'Application not found' });
+
+        const profile  = app.profiles || {};
+        const phone    = profile.cell_tel_no || profile.contact_number;
+        const email    = profile.email;
+        const firstName = (profile.full_name || 'there').split(' ')[0];
+        const portalUrl = `${process.env.APP_URL || 'https://zwane-official-three-seven.vercel.app'}/user-portal/?page=sign-contract`;
+        const smsMessage = `Hi ${firstName}, your loan agreement is ready to sign. Please log in to your portal to proceed: ${portalUrl}`;
+
+        const results = { sms: null, email: null };
+
+        // Try SMS
+        if (phone) {
+            try {
+                await messaging.sendSMS(phone, smsMessage);
+                results.sms = 'sent';
+            } catch (smsErr) {
+                results.sms = 'failed: ' + smsErr.message;
+            }
+        }
+
+        // Try email via Resend
+        if (email && process.env.RESEND_API_KEY) {
+            try {
+                const { Resend } = require('resend');
+                const resend = new Resend(process.env.RESEND_API_KEY);
+                const settings = await getSystemTheme();
+                const company  = settings?.company_name || process.env.COMPANY_NAME || 'Zwane Financial Services';
+                await resend.emails.send({
+                    from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+                    to: email,
+                    subject: `Your Loan Agreement is Ready to Sign — ${company}`,
+                    html: `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;color:#1a1a1a">
+  <div style="background:#E7762E;padding:20px 24px;border-radius:10px 10px 0 0">
+    <h1 style="color:#fff;font-size:20px;margin:0">${company}</h1>
+  </div>
+  <div style="background:#f9fafb;border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 10px 10px">
+    <h2 style="font-size:16px;margin:0 0 12px">Your loan agreement is ready to sign</h2>
+    <p style="margin:0 0 16px;color:#444">Dear <strong>${profile.full_name || 'Client'}</strong>, please click the button below to review and sign your loan agreement.</p>
+    <div style="text-align:center;margin:24px 0">
+      <a href="${portalUrl}" style="background:#E7762E;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px">Sign My Agreement</a>
+    </div>
+    <p style="color:#888;font-size:12px;margin-top:20px">If the button doesn't work, copy this link: ${portalUrl}</p>
+  </div>
+</div>`
+                });
+                results.email = 'sent';
+            } catch (emailErr) {
+                results.email = 'failed: ' + emailErr.message;
+            }
+        }
+
+        if (!phone && !email) return res.status(400).json({ error: 'No phone number or email address on this client profile.' });
+        if (results.sms === null && results.email === null) return res.status(400).json({ error: 'No contact channels configured (SMS or Resend not set up).' });
+
+        const channels = [phone && results.sms === 'sent' ? 'SMS' : null, email && results.email === 'sent' ? 'email' : null].filter(Boolean);
+        return res.json({ success: true, sent: channels, results });
+    } catch (err) {
+        console.error('[notify-to-sign]', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
 // ─── In-house contract signing ───────────────────────────────────────────────
 // POST /api/contracts/sign  (user-portal, no admin auth required — OTP-gated at the portal level)
 app.post('/api/contracts/sign', async (req, res) => {
