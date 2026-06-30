@@ -78,6 +78,12 @@ async function fetchSureSystemsActivationStatus() {
 
 // ---------- Bootstrap ----------
 document.addEventListener('DOMContentLoaded', async () => {
+  // Layout/auth init doesn't depend on the charts CDN script — run them in
+  // parallel instead of blocking initLayout() behind the chart fetch (the
+  // sequential wait was pushing the layout chunk's first use past the
+  // browser's unused-preload window).
+  const layoutPromise = initLayout();
+
   try {
     await loadApexCharts();
   } catch (err) {
@@ -90,7 +96,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  const authInfo = await initLayout();
+  const authInfo = await layoutPromise;
   if (!authInfo) return;
 
   const profile = getProfile();
