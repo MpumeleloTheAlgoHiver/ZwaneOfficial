@@ -5609,10 +5609,21 @@ app.post('/api/contracts/sign', async (req, res) => {
             return res.status(400).json({ error: 'signatureDataUrl must be a PNG data URL' });
         }
 
-        // Verify application exists and is in a signable state
+        // Fetch full application + profile for contract generation
         const { data: app, error: appErr } = await supabaseService
             .from('loan_applications')
-            .select('id, status, user_id, contract_signed_at')
+            .select(`
+                id, status, user_id, contract_signed_at, loan_number, agreement_number,
+                amount, offer_principal, offer_total_repayment, offer_monthly_repayment,
+                offer_total_interest, offer_total_initiation_fees, offer_total_admin_fees,
+                offer_credit_life_monthly, offer_vat_amount, offer_total_cost_of_credit,
+                term_months, repayment_start_date, is_first_loan,
+                profiles:user_id (
+                    full_name, identity_number, email, cell_tel_no, contact_number,
+                    address, postal_code, suburb_area, employer_name,
+                    nok_name, nok_phone, nok_relationship, client_number
+                )
+            `)
             .eq('id', applicationId)
             .maybeSingle();
 
@@ -5624,27 +5635,137 @@ app.post('/api/contracts/sign', async (req, res) => {
             return res.status(400).json({ error: `Application status "${app.status}" is not signable` });
         }
 
-        // Save signature PNG to Supabase Storage
+        const now = new Date().toISOString();
+        const profile = app.profiles || {};
+
+        // 1. Save signature PNG
         const base64Data = signatureDataUrl.replace('data:image/png;base64,', '');
-        const buffer = Buffer.from(base64Data, 'base64');
-        const filePath = `signatures/${applicationId}/contract-signature.png`;
+        const sigBuffer = Buffer.from(base64Data, 'base64');
+        const sigPath = `signatures/${applicationId}/contract-signature.png`;
 
         const { error: storageErr } = await supabaseService.storage
             .from('documents')
-            .upload(filePath, buffer, { contentType: 'image/png', upsert: true });
+            .upload(sigPath, sigBuffer, { contentType: 'image/png', upsert: true });
 
         if (storageErr) throw new Error('Failed to save signature: ' + storageErr.message);
 
-        const { data: { publicUrl } } = supabaseService.storage
+        const { data: { publicUrl: signatureUrl } } = supabaseService.storage
             .from('documents')
-            .getPublicUrl(filePath);
+            .getPublicUrl(sigPath);
 
-        const now = new Date().toISOString();
+        // 2. Build signed contract HTML (reuse preview HTML, append signature block)
+        const settings  = await getSystemTheme();
+        const company   = settings?.company_name || process.env.COMPANY_NAME || 'Zwane Financial Services';
+        const ncrNumber = settings?.ncr_number || process.env.COMPANY_NCR || 'NCRCP13510';
+        const principal = Number(app.offer_principal || app.amount || 0);
+        const term      = Number(app.term_months || 1);
+        const monthly   = Number(app.offer_monthly_repayment || 0);
+        const totalRepay= Number(app.offer_total_repayment || 0);
+        const clientNum = profile.client_number ? String(profile.client_number) : 'C' + String(applicationId).slice(-4).toUpperCase();
+        const loanSeq   = app.loan_number ? `L${String(app.loan_number).padStart(4,'0')}` : app.id.slice(0,8).toUpperCase();
+        const agreementNo = app.agreement_number || `${clientNum}-${loanSeq}`;
+        const signedDate  = new Date(now).toLocaleDateString('en-ZA', { year:'numeric', month:'long', day:'numeric' });
+        const fmtR = v => `R ${Number(v).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
+
+        const signedContractHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Signed Contract — ${agreementNo}</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 9pt; color: #1a1a1a; background: #fff; padding: 12mm 14mm; max-width: 210mm; margin: 0 auto; }
+  h1 { font-size: 14pt; font-weight: bold; margin-bottom: 4px; }
+  h2 { font-size: 10pt; font-weight: bold; margin: 12px 0 6px; border-bottom: 1px solid #ddd; padding-bottom: 3px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+  td, th { padding: 5px 8px; border: 1px solid #ddd; font-size: 9pt; }
+  th { background: #f5f5f5; font-weight: bold; width: 45%; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; border-bottom: 2px solid #E7762E; padding-bottom: 10px; }
+  .logo { font-size: 16pt; font-weight: bold; color: #E7762E; }
+  .badge { background: #16a34a; color: #fff; padding: 4px 12px; border-radius: 20px; font-size: 9pt; font-weight: bold; }
+  .sig-block { margin-top: 20px; border-top: 2px solid #E7762E; padding-top: 16px; }
+  .sig-img { border: 1px solid #ddd; border-radius: 6px; padding: 8px; background: #fafafa; display: inline-block; margin: 8px 0; }
+  .sig-img img { height: 60px; display: block; }
+  .footer { margin-top: 20px; font-size: 8pt; color: #666; border-top: 1px solid #eee; padding-top: 8px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <div class="logo">${company}</div>
+    <div style="font-size:8pt;color:#666;margin-top:2px">NCR: ${ncrNumber}</div>
+  </div>
+  <div style="text-align:right">
+    <div style="font-weight:bold;font-size:10pt">Loan Agreement</div>
+    <div style="font-size:8pt;color:#666">${agreementNo}</div>
+    <div class="badge" style="margin-top:6px">✓ SIGNED</div>
+  </div>
+</div>
+
+<h2>Borrower Details</h2>
+<table>
+  <tr><th>Full Name</th><td>${profile.full_name || ''}</td></tr>
+  <tr><th>ID Number</th><td>${profile.identity_number || ''}</td></tr>
+  <tr><th>Cell Number</th><td>${profile.cell_tel_no || profile.contact_number || ''}</td></tr>
+  <tr><th>Email</th><td>${profile.email || ''}</td></tr>
+  <tr><th>Address</th><td>${[profile.address, profile.suburb_area, profile.postal_code].filter(Boolean).join(', ')}</td></tr>
+  <tr><th>Employer</th><td>${profile.employer_name || ''}</td></tr>
+</table>
+
+<h2>Loan Summary</h2>
+<table>
+  <tr><th>Principal Amount</th><td>${fmtR(principal)}</td></tr>
+  <tr><th>Term</th><td>${term} month${term !== 1 ? 's' : ''}</td></tr>
+  <tr><th>Monthly Repayment</th><td>${fmtR(monthly)}</td></tr>
+  <tr><th>Total Repayment</th><td>${fmtR(totalRepay)}</td></tr>
+  <tr><th>Interest Rate</th><td>5% per month</td></tr>
+  <tr><th>Initiation Fee Rate</th><td>${app.is_first_loan ? '5%' : '15%'}</td></tr>
+</table>
+
+<div class="sig-block">
+  <h2 style="border:none;padding:0;margin-bottom:10px">Electronic Signature</h2>
+  <p style="margin-bottom:8px">I, <strong>${profile.full_name || ''}</strong>, confirm that I have read, understood and agree to the terms and conditions of this loan agreement.</p>
+  <div class="sig-img"><img src="${signatureDataUrl}" alt="Signature" /></div>
+  <table style="width:auto;margin-top:10px;border:none">
+    <tr><th style="border:none;background:none;padding:0 12px 0 0">Signed by:</th><td style="border:none;padding:0">${profile.full_name || ''}</td></tr>
+    <tr><th style="border:none;background:none;padding:0 12px 0 0">Date:</th><td style="border:none;padding:0">${signedDate}</td></tr>
+    <tr><th style="border:none;background:none;padding:0 12px 0 0">Agreement:</th><td style="border:none;padding:0">${agreementNo}</td></tr>
+  </table>
+</div>
+
+<div class="footer">
+  This is an electronically signed loan agreement issued by ${company} (${ncrNumber}).
+  Signed on ${signedDate}.
+</div>
+</body>
+</html>`;
+
+        // 3. Upload signed contract HTML to Supabase Storage
+        const contractPath = `contracts/${applicationId}/signed-contract.html`;
+        const { error: contractUploadErr } = await supabaseService.storage
+            .from('documents')
+            .upload(contractPath, Buffer.from(signedContractHtml, 'utf8'), {
+                contentType: 'text/html',
+                upsert: true
+            });
+
+        let contractUrl = null;
+        if (!contractUploadErr) {
+            const { data: { publicUrl } } = supabaseService.storage
+                .from('documents')
+                .getPublicUrl(contractPath);
+            contractUrl = publicUrl;
+        } else {
+            console.warn('Contract HTML upload failed:', contractUploadErr.message);
+        }
+
+        // 4. Update application
         const { error: updateErr } = await supabaseService
             .from('loan_applications')
             .update({
                 contract_signed_at: now,
-                contract_signature_url: publicUrl,
+                contract_signature_url: signatureUrl,
+                contract_pdf_url: contractUrl,
                 status: 'OFFER_ACCEPTED',
                 updated_at: now
             })
@@ -5652,7 +5773,44 @@ app.post('/api/contracts/sign', async (req, res) => {
 
         if (updateErr) throw new Error('Failed to update application: ' + updateErr.message);
 
-        return res.json({ success: true, signedAt: now, signatureUrl: publicUrl });
+        // 5. Email the signed contract to the client (non-blocking)
+        const clientEmail = profile.email;
+        if (clientEmail && process.env.RESEND_API_KEY) {
+            try {
+                const { Resend } = require('resend');
+                const resend = new Resend(process.env.RESEND_API_KEY);
+                const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+                await resend.emails.send({
+                    from: fromEmail,
+                    to: clientEmail,
+                    subject: `Your Signed Loan Agreement — ${agreementNo}`,
+                    html: `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;color:#1a1a1a">
+  <div style="background:#E7762E;padding:20px 24px;border-radius:10px 10px 0 0">
+    <h1 style="color:#fff;font-size:20px;margin:0">${company}</h1>
+  </div>
+  <div style="background:#f9fafb;border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 10px 10px">
+    <h2 style="font-size:16px;margin:0 0 12px">Your loan agreement has been signed</h2>
+    <p style="margin:0 0 8px">Dear <strong>${profile.full_name || 'Client'}</strong>,</p>
+    <p style="margin:0 0 16px;color:#444">Thank you for signing your loan agreement (<strong>${agreementNo}</strong>) on <strong>${signedDate}</strong>. Please keep this for your records.</p>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
+      <tr style="background:#fff"><td style="padding:8px 12px;border:1px solid #e5e7eb;font-weight:bold">Principal</td><td style="padding:8px 12px;border:1px solid #e5e7eb">${fmtR(principal)}</td></tr>
+      <tr style="background:#f9fafb"><td style="padding:8px 12px;border:1px solid #e5e7eb;font-weight:bold">Monthly Repayment</td><td style="padding:8px 12px;border:1px solid #e5e7eb">${fmtR(monthly)}</td></tr>
+      <tr style="background:#fff"><td style="padding:8px 12px;border:1px solid #e5e7eb;font-weight:bold">Term</td><td style="padding:8px 12px;border:1px solid #e5e7eb">${term} month${term !== 1 ? 's' : ''}</td></tr>
+      <tr style="background:#f9fafb"><td style="padding:8px 12px;border:1px solid #e5e7eb;font-weight:bold">Total Repayment</td><td style="padding:8px 12px;border:1px solid #e5e7eb">${fmtR(totalRepay)}</td></tr>
+    </table>
+    ${contractUrl ? `<div style="text-align:center;margin:20px 0"><a href="${contractUrl}" style="background:#E7762E;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:14px">View Signed Contract</a></div>` : ''}
+    <p style="color:#888;font-size:12px;margin-top:20px">If you have any questions, please contact us. This agreement was signed electronically on ${signedDate}.</p>
+  </div>
+</div>`
+                });
+                console.log(`[Contract] Email sent to ${clientEmail} for application ${applicationId}`);
+            } catch (emailErr) {
+                console.warn('[Contract] Email send failed (non-fatal):', emailErr.message);
+            }
+        }
+
+        return res.json({ success: true, signedAt: now, signatureUrl, contractUrl });
     } catch (err) {
         console.error('Contract sign error:', err.message);
         return res.status(500).json({ error: err.message || 'Failed to process signature' });

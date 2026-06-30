@@ -791,15 +791,16 @@ const initDocuSealCard = async () => {
   const statusSection = document.getElementById('contract-status-section');
   if (!currentApplication) return;
 
-  const signedAt = currentApplication.contract_signed_at;
-  const sigUrl   = currentApplication.contract_signature_url;
+  const signedAt   = currentApplication.contract_signed_at;
+  const sigUrl     = currentApplication.contract_signature_url;
+  const contractUrl= currentApplication.contract_pdf_url;
 
   if (signedAt) {
-    // Signed in-house
     if (statusSection) statusSection.classList.add('hidden');
     if (emptyState) {
       emptyState.classList.remove('hidden');
       const date = new Date(signedAt).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const viewHref = contractUrl || `/api/contracts/${currentApplication.id}/preview`;
       emptyState.innerHTML = `
         <div class="rounded-xl border border-green-200 bg-green-50 p-4 space-y-3">
           <div class="flex items-center gap-2">
@@ -815,10 +816,16 @@ const initDocuSealCard = async () => {
             <p class="text-[10px] text-outline uppercase tracking-widest mb-2">Client Signature</p>
             <img src="${sigUrl}" alt="Client signature" class="max-h-16 border border-outline-variant/20 rounded-lg bg-white p-1">
           </div>` : ''}
-          <button onclick="window.open('/api/contracts/${currentApplication.id}/preview','_blank')"
-            class="w-full py-2 text-xs font-bold rounded-xl border border-green-300 text-green-800 hover:bg-green-100 transition-all flex items-center justify-center gap-1">
-            <span class="material-symbols-outlined text-[14px]">open_in_new</span> View Agreement
-          </button>
+          <div class="flex gap-2 border-t border-green-200 pt-2">
+            <a href="${viewHref}" target="_blank"
+              class="flex-1 py-2 text-xs font-bold rounded-xl border border-green-300 text-green-800 hover:bg-green-100 transition-all flex items-center justify-center gap-1">
+              <span class="material-symbols-outlined text-[14px]">open_in_new</span> View Signed Contract
+            </a>
+            <a href="/api/contracts/${currentApplication.id}/preview" target="_blank"
+              class="flex-1 py-2 text-xs font-bold rounded-xl border border-outline-variant/30 text-on-surface-variant hover:bg-surface-container-low transition-all flex items-center justify-center gap-1">
+              <span class="material-symbols-outlined text-[14px]">description</span> Preview Template
+            </a>
+          </div>
         </div>`;
     }
     return;
