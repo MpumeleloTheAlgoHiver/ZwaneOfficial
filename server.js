@@ -5746,6 +5746,52 @@ app.post('/api/integrations/loans', sensitiveLimiter, requireIntegrationAuth, as
     }
 });
 
+// PATCH /api/integrations/loans/:id — partner marketplace relays its own approve/decline
+// decision for an application it referred. This does NOT drive Zwane's underwriting
+// pipeline (bureau check, affordability, contract) — that still happens in the admin
+// panel regardless. "approve" just leaves a note for staff; "decline" marks the
+// application CANCELLED since there's nothing further for Zwane to action.
+app.patch('/api/integrations/loans/:id', sensitiveLimiter, requireIntegrationAuth, async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        if (!Number.isInteger(id) || id <= 0) {
+            return res.status(400).json({ error: 'id must be a positive integer' });
+        }
+        const { action, reason } = req.body || {};
+        if (!['approve', 'decline'].includes(action)) {
+            return res.status(400).json({ error: 'action must be "approve" or "decline"' });
+        }
+
+        const { data: application, error: fetchError } = await supabaseService
+            .from('loan_applications')
+            .select('id, notes, status')
+            .eq('id', id)
+            .maybeSingle();
+        if (fetchError) throw fetchError;
+        if (!application) return res.status(404).json({ error: `Application ${id} not found` });
+
+        const stamp = new Date().toISOString();
+        const noteLine = action === 'approve'
+            ? `[${stamp}] Approved via partner marketplace.`
+            : `[${stamp}] Declined via partner marketplace.${reason ? ` Reason: ${reason}` : ''}`;
+        const updatedNotes = [application.notes, noteLine].filter(Boolean).join('\n');
+
+        const update = { notes: updatedNotes };
+        if (action === 'decline') update.status = 'CANCELLED';
+
+        const { error: updateError } = await supabaseService
+            .from('loan_applications')
+            .update(update)
+            .eq('id', id);
+        if (updateError) throw updateError;
+
+        return res.json({ success: true, applicationId: id, status: update.status || application.status });
+    } catch (err) {
+        console.error('[integrations/loans PATCH] error:', err.message || err);
+        return res.status(500).json({ error: err.message || 'Failed to update loan application' });
+    }
+});
+
 // --- 8. Start Server ---
 process.on('unhandledRejection', (reason) => {
     console.error('[unhandledRejection]', reason);
