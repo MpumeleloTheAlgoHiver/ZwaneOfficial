@@ -2853,6 +2853,22 @@ app.get('/admin/sacrra-validator', (req, res) => {
     sendAdminPage('sacrra-validator.html', res);
 });
 
+app.get('/admin/ncr-registers', (req, res) => {
+    sendAdminPage('ncr-registers.html', res);
+});
+
+app.get('/admin/compliance-tracker', (req, res) => {
+    sendAdminPage('compliance-tracker.html', res);
+});
+
+app.get('/admin/goaml', (req, res) => {
+    sendAdminPage('goaml.html', res);
+});
+
+app.get('/admin/portfolio', (req, res) => {
+    sendAdminPage('portfolio.html', res);
+});
+
 // ─── MOVEit / SACRRA transmission routes ─────────────────────────────────────
 
 // Step 1: Initiate auth — returns access_token or triggers MFA email
