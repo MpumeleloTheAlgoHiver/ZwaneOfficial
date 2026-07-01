@@ -2853,6 +2853,10 @@ app.get('/admin/sacrra-validator', (req, res) => {
     sendAdminPage('sacrra-validator.html', res);
 });
 
+app.get('/admin/ncr-reporting', (req, res) => {
+    sendAdminPage('ncr-reporting.html', res);
+});
+
 app.get('/admin/ncr-registers', (req, res) => {
     sendAdminPage('ncr-registers.html', res);
 });
