@@ -280,6 +280,7 @@ function renderSidebarNav(role) {
         ${navLink('/admin/ncr-reporting', 'assignment', 'NCR Reporting')}
         ${navLink('/admin/ncr-registers', 'manage_accounts', 'NCR Registers')}
         ${navLink('/admin/compliance-tracker', 'checklist', 'Compliance Tracker')}
+        ${navLink('/admin/goaml', 'security', 'FIC goAML')}
       ` : ''}
 
       ${isSuperAdmin ? `

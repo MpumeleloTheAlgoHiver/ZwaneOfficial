@@ -5813,6 +5813,137 @@ app.put('/api/admin/ncr/statutory-registers/:year', async (req, res) => {
     return res.json(data);
 });
 
+// ─── Phase 5: PEP/Sanctions, CIPC, FIC goAML ────────────────────────────────
+
+// PATCH /api/admin/applications/:id/pep-sanctions
+// Records the PEP/sanctions screening result (manual or API-sourced).
+// Blocks contract signing downstream if pep_sanctions_cleared = false.
+app.patch('/api/admin/applications/:id/pep-sanctions', async (req, res) => {
+    const { data: { user }, error: authErr } = await supabaseService.auth.getUser(
+        (req.headers.authorization || '').replace('Bearer ', '')
+    );
+    if (authErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const role = user.app_metadata?.role || user.user_metadata?.role || '';
+    if (!['admin','super_admin','owner'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const { cleared, provider = 'manual', ref, notes } = req.body;
+    const now = new Date().toISOString();
+    const { error } = await supabaseService
+        .from('loan_applications')
+        .update({
+            pep_sanctions_checked:    true,
+            pep_sanctions_cleared:    !!cleared,
+            pep_sanctions_checked_at: now,
+            pep_sanctions_checked_by: user.id,
+            pep_sanctions_provider:   provider,
+            pep_sanctions_ref:        ref   || null,
+            pep_sanctions_notes:      notes || null,
+            updated_at:               now,
+        })
+        .eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ ok: true });
+});
+
+// PATCH /api/admin/users/:id/cipc
+// Records CIPC company verification for juristic person clients.
+app.patch('/api/admin/users/:id/cipc', async (req, res) => {
+    const { data: { user }, error: authErr } = await supabaseService.auth.getUser(
+        (req.headers.authorization || '').replace('Bearer ', '')
+    );
+    if (authErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const role = user.app_metadata?.role || user.user_metadata?.role || '';
+    if (!['admin','super_admin','owner'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const { is_juristic_person, entity_name, cipc_reg_number, cipc_verified, cipc_notes } = req.body;
+    const now = new Date().toISOString();
+    const updates = { updated_at: now };
+    if (is_juristic_person !== undefined) updates.is_juristic_person = !!is_juristic_person;
+    if (entity_name       !== undefined) updates.entity_name         = entity_name || null;
+    if (cipc_reg_number   !== undefined) updates.cipc_reg_number     = cipc_reg_number || null;
+    if (cipc_notes        !== undefined) updates.cipc_notes          = cipc_notes || null;
+    if (cipc_verified     !== undefined) {
+        updates.cipc_verified    = !!cipc_verified;
+        updates.cipc_verified_at = cipc_verified ? now : null;
+        updates.cipc_verified_by = cipc_verified ? user.id : null;
+    }
+    const { error } = await supabaseService.from('profiles').update(updates).eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ ok: true });
+});
+
+// GET /api/admin/goaml
+app.get('/api/admin/goaml', async (req, res) => {
+    const { data: { user }, error: authErr } = await supabaseService.auth.getUser(
+        (req.headers.authorization || '').replace('Bearer ', '')
+    );
+    if (authErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const role = user.app_metadata?.role || user.user_metadata?.role || '';
+    if (!['admin','super_admin','owner','base_admin'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const { data, error } = await supabaseService
+        .from('fic_goaml_reports')
+        .select('*, profiles:user_id (full_name, identity_number), reporter:submitted_by (full_name)')
+        .order('created_at', { ascending: false });
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+});
+
+// POST /api/admin/goaml
+app.post('/api/admin/goaml', async (req, res) => {
+    const { data: { user }, error: authErr } = await supabaseService.auth.getUser(
+        (req.headers.authorization || '').replace('Bearer ', '')
+    );
+    if (authErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const role = user.app_metadata?.role || user.user_metadata?.role || '';
+    if (!['admin','super_admin','owner'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const { report_type, application_id, user_id, amount, description, goaml_ref, status, notes } = req.body;
+    if (!report_type || !description) return res.status(400).json({ error: 'report_type and description are required' });
+
+    const now = new Date().toISOString();
+    const payload = {
+        report_type, application_id: application_id || null, user_id: user_id || null,
+        amount: amount || null, description, goaml_ref: goaml_ref || null,
+        status: status || 'draft', notes: notes || null, created_by: user.id,
+        submitted_at:    ['submitted','acknowledged'].includes(status) ? now : null,
+        submitted_by:    ['submitted','acknowledged'].includes(status) ? user.id : null,
+        acknowledged_at: status === 'acknowledged' ? now : null,
+    };
+    const { data, error } = await supabaseService
+        .from('fic_goaml_reports').insert(payload).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(201).json(data);
+});
+
+// PATCH /api/admin/goaml/:id
+app.patch('/api/admin/goaml/:id', async (req, res) => {
+    const { data: { user }, error: authErr } = await supabaseService.auth.getUser(
+        (req.headers.authorization || '').replace('Bearer ', '')
+    );
+    if (authErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const role = user.app_metadata?.role || user.user_metadata?.role || '';
+    if (!['admin','super_admin','owner'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const now = new Date().toISOString();
+    const { status, goaml_ref, notes } = req.body;
+    const updates = { updated_at: now };
+    if (goaml_ref !== undefined) updates.goaml_ref = goaml_ref || null;
+    if (notes     !== undefined) updates.notes     = notes || null;
+    if (status    !== undefined) {
+        updates.status = status;
+        if (['submitted','acknowledged'].includes(status) && !req.body.submitted_at) {
+            updates.submitted_at = now;
+            updates.submitted_by = user.id;
+        }
+        if (status === 'acknowledged') updates.acknowledged_at = now;
+    }
+    const { data, error } = await supabaseService
+        .from('fic_goaml_reports').update(updates).eq('id', req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+});
+
 // ─── Compliance Checkpoint Tracker (Phase 4) ─────────────────────────────────
 
 const COMPLIANCE_CHECKPOINTS = [
@@ -6865,6 +6996,7 @@ app.post('/api/contracts/sign', async (req, res) => {
                 offer_credit_life_monthly, offer_vat_amount, offer_total_cost_of_credit,
                 term_months, repayment_start_date, is_first_loan,
                 affordability_passed, under_debt_review,
+                pep_sanctions_cleared,
                 profiles:user_id (
                     full_name, identity_number, email, cell_tel_no, contact_number,
                     address, postal_code, suburb_area, employer_name,
@@ -6907,6 +7039,14 @@ app.post('/api/contracts/sign', async (req, res) => {
                     code: 'AFFORDABILITY_MISSING'
                 });
             }
+        }
+
+        // PEP / Sanctions screening gate (FICA)
+        if (!app.pep_sanctions_cleared) {
+            return res.status(422).json({
+                error: 'Cannot conclude agreement — PEP/sanctions screening has not been cleared for this applicant (FICA requirement).',
+                code: 'PEP_SANCTIONS_NOT_CLEARED'
+            });
         }
 
         // Fee cap validation (NCA Regulations)

@@ -473,6 +473,18 @@ const pageTemplate = `
               Loading debit order status...
             </div>
            </div>
+
+           <!-- FICA Compliance card -->
+           <div id="fica-compliance-card" class="glass-card rounded-2xl p-6">
+            <h3 class="font-headline font-bold text-on-surface mb-4 flex items-center gap-2 text-xs uppercase tracking-widest">
+              <span class="material-symbols-outlined text-[16px]" style="color:var(--color-primary)">shield</span> FICA Compliance
+            </h3>
+            <div id="fica-card-body" class="space-y-3 text-sm text-outline">
+              <div class="flex items-center justify-center py-4">
+                <i class="fa-solid fa-circle-notch fa-spin text-gray-300"></i>
+              </div>
+            </div>
+           </div>
     </div>
 
     <div class="lg:col-span-4">
@@ -3188,6 +3200,136 @@ const renderMandateCard = async (app) => {
   }
 };
 
+// ── FICA Compliance Card (PEP/Sanctions + CIPC) ───────────────────────────────
+
+const renderFicaCard = async (app) => {
+    const body = document.getElementById('fica-card-body');
+    if (!body) return;
+
+    // Fetch profile for CIPC fields
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('is_juristic_person, entity_name, cipc_reg_number, cipc_verified, cipc_verified_at')
+        .eq('id', app.user_id)
+        .maybeSingle();
+
+    const pepCleared   = app.pep_sanctions_cleared;
+    const pepChecked   = app.pep_sanctions_checked;
+    const pepDate      = app.pep_sanctions_checked_at ? new Date(app.pep_sanctions_checked_at).toLocaleDateString('en-ZA') : null;
+    const isJuristic   = profile?.is_juristic_person;
+    const cipcVerified = profile?.cipc_verified;
+
+    body.innerHTML = `
+    <!-- PEP / Sanctions -->
+    <div class="flex items-start justify-between gap-3 pb-3 border-b border-outline-variant/10">
+        <div>
+            <div class="text-xs font-semibold text-gray-700">PEP / Sanctions Screening</div>
+            <div class="text-xs text-gray-400 mt-0.5">${pepDate ? `Checked ${pepDate}` : 'Not yet checked'}</div>
+        </div>
+        <div class="flex items-center gap-2">
+            <span class="text-xs px-2 py-0.5 rounded-full font-semibold ${
+                pepCleared ? 'bg-green-100 text-green-700'
+              : pepChecked ? 'bg-red-100 text-red-600'
+              : 'bg-gray-100 text-gray-500'}">
+                ${pepCleared ? 'Cleared' : pepChecked ? 'Not Cleared' : 'Pending'}
+            </span>
+            <button onclick="openPepModal()" class="text-xs text-blue-600 hover:underline font-medium">${pepChecked ? 'Update' : 'Screen'}</button>
+        </div>
+    </div>
+
+    <!-- CIPC (juristic) -->
+    <div class="flex items-start justify-between gap-3 pt-1">
+        <div>
+            <div class="text-xs font-semibold text-gray-700">Juristic Person / CIPC</div>
+            <div class="text-xs text-gray-400 mt-0.5">${isJuristic ? (profile?.entity_name || 'Business client') + (profile?.cipc_reg_number ? ' · ' + profile.cipc_reg_number : '') : 'Natural person'}</div>
+        </div>
+        <div class="flex items-center gap-2">
+            <span class="text-xs px-2 py-0.5 rounded-full font-semibold ${
+                !isJuristic ? 'bg-gray-100 text-gray-400'
+              : cipcVerified ? 'bg-green-100 text-green-700'
+              : 'bg-yellow-100 text-yellow-700'}">
+                ${!isJuristic ? 'N/A' : cipcVerified ? 'Verified' : 'Unverified'}
+            </span>
+            <button onclick="openCipcModal()" class="text-xs text-blue-600 hover:underline font-medium">Edit</button>
+        </div>
+    </div>
+
+    <!-- PEP modal (inline, hidden) -->
+    <div id="pep-modal" class="hidden mt-3 pt-3 border-t border-outline-variant/10">
+        <div class="text-xs font-semibold text-gray-600 mb-2">PEP / Sanctions Screening Result</div>
+        <div class="flex gap-2 mb-2">
+            <button onclick="savePep(true)"  class="flex-1 py-2 text-xs font-bold rounded-lg bg-green-100 text-green-700 hover:bg-green-200">✓ Clear — No Match</button>
+            <button onclick="savePep(false)" class="flex-1 py-2 text-xs font-bold rounded-lg bg-red-100 text-red-600 hover:bg-red-200">✗ Match Found</button>
+        </div>
+        <input id="pep-ref"   type="text" placeholder="Screening reference (optional)" class="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs mb-2 outline-none focus:border-orange-400" />
+        <textarea id="pep-notes" rows="2" placeholder="Notes…" class="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs outline-none focus:border-orange-400"></textarea>
+        <button onclick="document.getElementById('pep-modal').classList.add('hidden')" class="text-xs text-gray-400 hover:text-gray-600 mt-1">Cancel</button>
+    </div>
+
+    <!-- CIPC modal (inline, hidden) -->
+    <div id="cipc-modal" class="hidden mt-3 pt-3 border-t border-outline-variant/10">
+        <div class="text-xs font-semibold text-gray-600 mb-2">Juristic Person / CIPC Details</div>
+        <label class="flex items-center gap-2 mb-2 text-xs">
+            <input type="checkbox" id="cipc-is-juristic" ${isJuristic ? 'checked' : ''} class="w-4 h-4" style="accent-color:var(--color-secondary)" />
+            Business / Juristic Person
+        </label>
+        <input id="cipc-entity-name"   type="text" placeholder="Registered entity name" value="${profile?.entity_name || ''}" class="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs mb-2 outline-none focus:border-orange-400" />
+        <input id="cipc-reg-number"    type="text" placeholder="CIPC registration number" value="${profile?.cipc_reg_number || ''}" class="w-full border border-gray-200 rounded-lg px-3 py-1.5 text-xs mb-2 outline-none focus:border-orange-400" />
+        <label class="flex items-center gap-2 mb-2 text-xs">
+            <input type="checkbox" id="cipc-verified-check" ${cipcVerified ? 'checked' : ''} class="w-4 h-4" style="accent-color:var(--color-secondary)" />
+            CIPC registration verified
+        </label>
+        <div class="flex gap-2 mt-1">
+            <button onclick="saveCipc('${app.user_id}')" class="flex-1 py-2 text-xs font-bold rounded-lg bg-blue-600 text-white hover:bg-blue-700">Save</button>
+            <button onclick="document.getElementById('cipc-modal').classList.add('hidden')" class="flex-1 py-2 text-xs font-bold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">Cancel</button>
+        </div>
+    </div>`;
+};
+
+window.openPepModal = () => document.getElementById('pep-modal')?.classList.remove('hidden');
+window.openCipcModal = () => document.getElementById('cipc-modal')?.classList.remove('hidden');
+
+window.savePep = async (cleared) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const ref   = document.getElementById('pep-ref')?.value  || null;
+    const notes = document.getElementById('pep-notes')?.value || null;
+    const res = await fetch(`/api/admin/applications/${currentApplication.id}/pep-sanctions`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ cleared, provider: 'manual', ref, notes }),
+    });
+    if (res.ok) {
+        // Update local state and re-render card
+        currentApplication.pep_sanctions_cleared = cleared;
+        currentApplication.pep_sanctions_checked = true;
+        currentApplication.pep_sanctions_checked_at = new Date().toISOString();
+        await renderFicaCard(currentApplication);
+        showFeedback(cleared ? 'PEP/Sanctions cleared.' : 'PEP match recorded — do not proceed.', cleared ? 'success' : 'error');
+    } else {
+        showFeedback('Failed to save PEP result.', 'error');
+    }
+};
+
+window.saveCipc = async (userId) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(`/api/admin/users/${userId}/cipc`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({
+            is_juristic_person: document.getElementById('cipc-is-juristic')?.checked,
+            entity_name:        document.getElementById('cipc-entity-name')?.value  || null,
+            cipc_reg_number:    document.getElementById('cipc-reg-number')?.value   || null,
+            cipc_verified:      document.getElementById('cipc-verified-check')?.checked,
+        }),
+    });
+    if (res.ok) {
+        await renderFicaCard(currentApplication);
+        showFeedback('CIPC details saved.', 'success');
+    } else {
+        showFeedback('Failed to save CIPC details.', 'error');
+    }
+};
+
 window.setupMandate = async (appId) => {
   const btn = document.getElementById('mandate-action-btn');
   if (btn) {
@@ -3250,6 +3392,7 @@ const loadApplicationData = async () => {
       renderSidePanel(data); 
       renderContractRepaymentScheduler(data);
       renderMandateCard(data); // non-blocking
+      renderFicaCard(data);   // non-blocking
 
       // 3. Initialize Signatures & Visibility
       await initDocuSealCard();
