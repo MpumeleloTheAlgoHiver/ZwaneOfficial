@@ -29,7 +29,7 @@ ALTER TABLE public.profiles
 CREATE TABLE IF NOT EXISTS public.fic_goaml_reports (
     id              UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     report_type     TEXT          NOT NULL,   -- STR | CTR | TPR
-    application_id  UUID          REFERENCES public.loan_applications(id),
+    application_id  BIGINT        REFERENCES public.loan_applications(id),
     user_id         UUID          REFERENCES public.profiles(id),
     amount          NUMERIC(14,2) NULL,
     description     TEXT          NOT NULL,
