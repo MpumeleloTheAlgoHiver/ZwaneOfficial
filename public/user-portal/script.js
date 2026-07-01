@@ -17,7 +17,7 @@ const NAV_SEARCH_ITEMS = [
   { label: 'Apply Loan - Offers', page: 'apply-loan-2', keywords: ['credit', 'offer', 'summary'] },
   { label: 'Apply Loan - Config', page: 'apply-loan-3', keywords: ['loan config', 'terms', 'offer builder'] },
   { label: 'Confirmation', page: 'confirmation', keywords: ['bank', 'payout', 'final'] },
-  { label: 'Payments', page: 'documents', keywords: ['transactions', 'payments', 'bank accounts'] },
+  { label: 'Payments', page: 'payments', keywords: ['transactions', 'payments', 'bank accounts', 'statement', 'history'] },
   { label: 'Transcripts', page: 'transcripts', keywords: ['credit report', 'history', 'documents'] },
   { label: 'Notifications', page: 'notifications', keywords: ['alerts', 'messages'] },
   { label: 'Support', page: 'support', keywords: ['help', 'contact'] },

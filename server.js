@@ -5707,6 +5707,175 @@ app.delete('/api/admin/remove-staff/:userId', async (req, res) => {
     }
 });
 
+// ─── Collections ─────────────────────────────────────────────────────────────
+
+// GET /api/admin/collections/notes/:appId
+app.get('/api/admin/collections/notes/:appId', async (req, res) => {
+    const { data: { user }, error: ae } = await supabaseService.auth.getUser(
+        (req.headers.authorization || '').replace('Bearer ', '')
+    );
+    if (ae || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const role = user.app_metadata?.role || user.user_metadata?.role || '';
+    if (!['admin','super_admin','owner','base_admin'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const { data, error } = await supabaseService
+        .from('collection_notes')
+        .select('*, profiles:created_by (full_name)')
+        .eq('application_id', req.params.appId)
+        .order('created_at', { ascending: false });
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+});
+
+// POST /api/admin/collections/notes/:appId
+app.post('/api/admin/collections/notes/:appId', async (req, res) => {
+    const { data: { user }, error: ae } = await supabaseService.auth.getUser(
+        (req.headers.authorization || '').replace('Bearer ', '')
+    );
+    if (ae || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const role = user.app_metadata?.role || user.user_metadata?.role || '';
+    if (!['admin','super_admin','owner','base_admin'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const { note_type = 'note', body, promise_date, promise_amount, outcome } = req.body;
+    if (!body?.trim()) return res.status(400).json({ error: 'body is required' });
+
+    const { data, error } = await supabaseService
+        .from('collection_notes')
+        .insert({
+            application_id: req.params.appId,
+            note_type, body: body.trim(),
+            promise_date:   promise_date   || null,
+            promise_amount: promise_amount || null,
+            outcome:        outcome        || null,
+            created_by:     user.id,
+        })
+        .select('*, profiles:created_by (full_name)')
+        .single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(201).json(data);
+});
+
+// POST /api/admin/collections/bulk-sms
+// Sends a payment reminder SMS to a list of application IDs
+app.post('/api/admin/collections/bulk-sms', async (req, res) => {
+    const { data: { user }, error: ae } = await supabaseService.auth.getUser(
+        (req.headers.authorization || '').replace('Bearer ', '')
+    );
+    if (ae || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const role = user.app_metadata?.role || user.user_metadata?.role || '';
+    if (!['admin','super_admin','owner'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const { applicationIds = [], message } = req.body;
+    if (!applicationIds.length) return res.status(400).json({ error: 'applicationIds required' });
+
+    const { data: apps } = await supabaseService
+        .from('loan_applications')
+        .select('id, profiles:user_id (full_name, phone_number)')
+        .in('id', applicationIds);
+
+    let sent = 0, failed = 0;
+    for (const app of (apps || [])) {
+        const phone = app.profiles?.phone_number;
+        if (!phone) { failed++; continue; }
+        try {
+            const smsBody = message || `Hi ${app.profiles?.full_name?.split(' ')[0] || 'there'}, your loan repayment is overdue. Please make payment to avoid further action. Call us for assistance.`;
+            await messaging.sendSMS(phone, smsBody);
+            sent++;
+        } catch { failed++; }
+    }
+    return res.json({ ok: true, sent, failed, total: apps?.length || 0 });
+});
+
+// GET /api/admin/portfolio/metrics
+// Management dashboard — book value, NPL, yield, monthly disbursements, aging buckets
+app.get('/api/admin/portfolio/metrics', async (req, res) => {
+    const { data: { user }, error: ae } = await supabaseService.auth.getUser(
+        (req.headers.authorization || '').replace('Bearer ', '')
+    );
+    if (ae || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const role = user.app_metadata?.role || user.user_metadata?.role || '';
+    if (!['admin','super_admin','owner','base_admin'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const [
+        { data: activeLoans },
+        { data: monthlyDisbursements },
+        { data: settledLoans },
+    ] = await Promise.all([
+        supabaseService
+            .from('loan_applications')
+            .select('id, amount, offer_total_repayment, offer_monthly_repayment, offer_total_interest, status, contract_signed_at, repayment_start_date, term_months')
+            .in('status', ['DISBURSED', 'IN_ARREARS', 'IN_DEFAULT', 'DEBICHECK_AUTH'])
+            .not('contract_signed_at', 'is', null),
+        supabaseService
+            .from('loan_applications')
+            .select('id, amount, offer_total_repayment, contract_signed_at')
+            .in('status', ['DISBURSED', 'IN_ARREARS', 'IN_DEFAULT', 'SETTLED', 'DEBICHECK_AUTH'])
+            .not('contract_signed_at', 'is', null)
+            .gte('contract_signed_at', new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString()),
+        supabaseService
+            .from('loan_applications')
+            .select('id, amount, offer_total_repayment')
+            .eq('status', 'SETTLED')
+            .not('contract_signed_at', 'is', null),
+    ]);
+
+    const active   = activeLoans   || [];
+    const settled  = settledLoans  || [];
+    const monthly  = monthlyDisbursements || [];
+
+    // Book value = sum of outstanding (approximated as total repayable for active)
+    const bookValue   = active.reduce((s, l) => s + Number(l.offer_total_repayment || l.amount || 0), 0);
+    const principalBook = active.reduce((s, l) => s + Number(l.amount || 0), 0);
+    const nplLoans    = active.filter(l => l.status === 'IN_ARREARS' || l.status === 'IN_DEFAULT');
+    const nplValue    = nplLoans.reduce((s, l) => s + Number(l.offer_total_repayment || l.amount || 0), 0);
+    const nplRatio    = bookValue > 0 ? (nplValue / bookValue) * 100 : 0;
+    const totalInterest = active.reduce((s, l) => s + Number(l.offer_total_interest || 0), 0);
+    const yieldPct    = principalBook > 0 ? (totalInterest / principalBook) * 100 : 0;
+
+    // Aging buckets by days overdue
+    const now = Date.now();
+    const aging = { current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90plus: 0 };
+    for (const l of nplLoans) {
+        const start = l.repayment_start_date ? new Date(l.repayment_start_date).getTime() : new Date(l.contract_signed_at).getTime();
+        const daysOverdue = Math.floor((now - start) / (1000 * 60 * 60 * 24));
+        if (daysOverdue <= 0)        aging.current++;
+        else if (daysOverdue <= 30)  aging.d1_30++;
+        else if (daysOverdue <= 60)  aging.d31_60++;
+        else if (daysOverdue <= 90)  aging.d61_90++;
+        else                         aging.d90plus++;
+    }
+
+    // Monthly disbursements — last 12 months
+    const monthBuckets = {};
+    for (let i = 11; i >= 0; i--) {
+        const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i);
+        const key = d.toISOString().slice(0, 7); // YYYY-MM
+        monthBuckets[key] = { month: key, count: 0, amount: 0 };
+    }
+    for (const l of monthly) {
+        const key = (l.contract_signed_at || '').slice(0, 7);
+        if (monthBuckets[key]) {
+            monthBuckets[key].count++;
+            monthBuckets[key].amount += Number(l.amount || 0);
+        }
+    }
+
+    return res.json({
+        summary: {
+            active_count:     active.length,
+            book_value:       bookValue,
+            principal_book:   principalBook,
+            npl_count:        nplLoans.length,
+            npl_value:        nplValue,
+            npl_ratio_pct:    Math.round(nplRatio * 100) / 100,
+            yield_pct:        Math.round(yieldPct * 100) / 100,
+            settled_count:    settled.length,
+        },
+        aging,
+        monthly_disbursements: Object.values(monthBuckets),
+    });
+});
+
 // ─── NCR Registers (Phase 3) ─────────────────────────────────────────────────
 
 // GET /api/admin/ncr/agents
