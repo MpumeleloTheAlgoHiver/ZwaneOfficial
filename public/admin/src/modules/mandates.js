@@ -349,8 +349,12 @@ function openMandateModal(id) {
   document.getElementById('btn-check-fate')?.classList.toggle('hidden', !hasRef);
   document.getElementById('btn-run-enquiry')?.classList.toggle('hidden', !hasRef);
   document.getElementById('btn-run-cancel')?.classList.toggle('hidden', !hasRef);
-  // Retry button is removed, admins should activate from application detail page
-  document.getElementById('btn-retry-mandate')?.classList.add('hidden');
+  const isFailed = mandate.status === 'failed';
+  const retryBtn = document.getElementById('btn-retry-mandate');
+  if (retryBtn) {
+    retryBtn.classList.toggle('hidden', !isFailed);
+    retryBtn.onclick = () => retryMandate(mandate.application_id);
+  }
 
   const openAppBtn = document.getElementById('btn-open-application');
   if (openAppBtn) {
@@ -391,6 +395,29 @@ function openMandateModal(id) {
       if (canvas) { canvas._padInit = false; }
       initSignaturePad();
     }, 10);
+  }
+}
+
+async function retryMandate(applicationId) {
+  if (!applicationId) return;
+  const btn = document.getElementById('btn-retry-mandate');
+  if (btn) { btn.disabled = true; btn.textContent = 'Retrying…'; }
+  try {
+    const res = await fetchJson('/api/suresystems/activate-application', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ applicationId })
+    });
+    if (res.success) {
+      closePayloadModal();
+      window.showToast?.('Mandate activated successfully', 'success');
+      await loadMandates();
+    } else {
+      throw new Error(res.error || 'Activation failed');
+    }
+  } catch (err) {
+    window.showToast?.(`Retry failed: ${err.message}`, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Retry Activation'; }
   }
 }
 
