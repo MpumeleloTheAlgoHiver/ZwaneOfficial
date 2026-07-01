@@ -823,6 +823,183 @@ app.use('/api/tillslip', tillSlipRoute);
 app.use('/api/bankstatement', bankStatementRoute);
 app.use('/api/idcard', idcardRoute);
 
+// ─── NCR Statutory Reporting ─────────────────────────────────────────────────
+
+// GET /api/compliance/form39?from=YYYY-MM-DD&to=YYYY-MM-DD
+// Returns aggregated Form 39 (Statistical Return) data for the given period.
+app.get('/api/compliance/form39', async (req, res) => {
+    try {
+        const { from, to } = req.query;
+        if (!from || !to) return res.status(400).json({ error: 'from and to date params required (YYYY-MM-DD)' });
+
+        const fromIso = new Date(from).toISOString();
+        const toIso   = new Date(to + 'T23:59:59.999Z').toISOString();
+
+        // 1. New agreements concluded in period (contract signed within range)
+        const { data: newAgreements } = await supabaseService
+            .from('loan_applications')
+            .select('id, offer_principal, offer_total_repayment, offer_total_interest, offer_total_initiation_fees, offer_total_admin_fees, offer_credit_life_total, source')
+            .gte('contract_signed_at', fromIso)
+            .lte('contract_signed_at', toIso)
+            .not('contract_signed_at', 'is', null);
+
+        // 2. All active accounts (snapshot at query time — end of period)
+        const { data: activeAccounts } = await supabaseService
+            .from('loan_applications')
+            .select('id, offer_principal')
+            .in('status', ['DISBURSED', 'OFFER_ACCEPTED', 'DEBICHECK_AUTH', 'IN_ARREARS', 'IN_DEFAULT']);
+
+        // 3. Accounts in arrears
+        const { data: arrearsAccounts } = await supabaseService
+            .from('loan_applications')
+            .select('id, offer_principal')
+            .in('status', ['IN_ARREARS', 'IN_DEFAULT']);
+
+        // 4. Written off (IN_DEFAULT) — loans the system has flagged as defaulted
+        const { data: defaultedAccounts } = await supabaseService
+            .from('loan_applications')
+            .select('id, offer_principal')
+            .eq('status', 'IN_DEFAULT')
+            .gte('updated_at', fromIso)
+            .lte('updated_at', toIso);
+
+        // 5. Settled / cancelled in period
+        const { data: settledAccounts } = await supabaseService
+            .from('loan_applications')
+            .select('id, offer_principal')
+            .eq('status', 'SETTLED')
+            .gte('updated_at', fromIso)
+            .lte('updated_at', toIso);
+
+        const { data: cancelledAccounts } = await supabaseService
+            .from('loan_applications')
+            .select('id, offer_principal')
+            .eq('status', 'CANCELLED')
+            .gte('updated_at', fromIso)
+            .lte('updated_at', toIso);
+
+        const sum = (arr, field) => (arr || []).reduce((acc, r) => acc + Number(r[field] || 0), 0);
+
+        return res.json({
+            period: { from, to },
+            new_agreements: {
+                count:               (newAgreements || []).length,
+                total_principal:     sum(newAgreements, 'offer_principal'),
+                total_interest:      sum(newAgreements, 'offer_total_interest'),
+                total_initiation:    sum(newAgreements, 'offer_total_initiation_fees'),
+                total_service_fees:  sum(newAgreements, 'offer_total_admin_fees'),
+                total_credit_life:   sum(newAgreements, 'offer_credit_life_total'),
+                total_repayable:     sum(newAgreements, 'offer_total_repayment'),
+                by_source: {
+                    organic:     (newAgreements || []).filter(r => r.source !== 'PARTNER_API').length,
+                    marketplace: (newAgreements || []).filter(r => r.source === 'PARTNER_API').length,
+                }
+            },
+            active_book: {
+                count:           (activeAccounts || []).length,
+                total_principal: sum(activeAccounts, 'offer_principal'),
+            },
+            in_arrears: {
+                count:           (arrearsAccounts || []).length,
+                total_principal: sum(arrearsAccounts, 'offer_principal'),
+            },
+            written_off_period: {
+                count:           (defaultedAccounts || []).length,
+                total_principal: sum(defaultedAccounts, 'offer_principal'),
+            },
+            settled_period: {
+                count:           (settledAccounts || []).length,
+                total_principal: sum(settledAccounts, 'offer_principal'),
+            },
+            cancelled_period: {
+                count:           (cancelledAccounts || []).length,
+                total_principal: sum(cancelledAccounts, 'offer_principal'),
+            },
+        });
+    } catch (err) {
+        console.error('[form39]', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// GET /api/compliance/form40?year=YYYY
+// Returns aggregated Form 40 (Annual Financial & Operational Return) data.
+app.get('/api/compliance/form40', async (req, res) => {
+    try {
+        const { year } = req.query;
+        if (!year) return res.status(400).json({ error: 'year param required (YYYY)' });
+
+        const fromIso = new Date(`${year}-01-01`).toISOString();
+        const toIso   = new Date(`${year}-12-31T23:59:59.999Z`).toISOString();
+
+        // All agreements concluded in the financial year
+        const { data: yearAgreements } = await supabaseService
+            .from('loan_applications')
+            .select('id, offer_principal, offer_total_interest, offer_total_initiation_fees, offer_total_admin_fees, offer_credit_life_total, offer_total_repayment')
+            .gte('contract_signed_at', fromIso)
+            .lte('contract_signed_at', toIso)
+            .not('contract_signed_at', 'is', null);
+
+        // Book at year-end snapshot
+        const { data: activeAtYearEnd } = await supabaseService
+            .from('loan_applications')
+            .select('id, offer_principal')
+            .in('status', ['DISBURSED', 'OFFER_ACCEPTED', 'DEBICHECK_AUTH', 'IN_ARREARS', 'IN_DEFAULT']);
+
+        const { data: nplAccounts } = await supabaseService
+            .from('loan_applications')
+            .select('id, offer_principal')
+            .in('status', ['IN_ARREARS', 'IN_DEFAULT']);
+
+        const { data: writtenOff } = await supabaseService
+            .from('loan_applications')
+            .select('id, offer_principal')
+            .eq('status', 'IN_DEFAULT')
+            .gte('updated_at', fromIso)
+            .lte('updated_at', toIso);
+
+        // Branches
+        const { data: branches } = await supabaseService.from('branches').select('id');
+
+        const sum = (arr, field) => (arr || []).reduce((acc, r) => acc + Number(r[field] || 0), 0);
+        const totalBook    = sum(activeAtYearEnd, 'offer_principal');
+        const totalNpl     = sum(nplAccounts, 'offer_principal');
+        const nplRatio     = totalBook > 0 ? ((totalNpl / totalBook) * 100).toFixed(2) : '0.00';
+
+        return res.json({
+            year,
+            credit_book: {
+                total_principal_outstanding: totalBook,
+                npl_amount:  totalNpl,
+                npl_ratio_pct: Number(nplRatio),
+                total_accounts: (activeAtYearEnd || []).length,
+            },
+            revenue_year: {
+                total_interest:     sum(yearAgreements, 'offer_total_interest'),
+                total_initiation:   sum(yearAgreements, 'offer_total_initiation_fees'),
+                total_service_fees: sum(yearAgreements, 'offer_total_admin_fees'),
+                total_credit_life:  sum(yearAgreements, 'offer_credit_life_total'),
+                total_revenue:      sum(yearAgreements, 'offer_total_interest') +
+                                    sum(yearAgreements, 'offer_total_initiation_fees') +
+                                    sum(yearAgreements, 'offer_total_admin_fees'),
+            },
+            impairments_year: {
+                count:           (writtenOff || []).length,
+                total_principal: sum(writtenOff, 'offer_principal'),
+            },
+            operational: {
+                branches: (branches || []).length,
+                // staff_count is entered manually on the reporting screen
+            },
+        });
+    } catch (err) {
+        console.error('[form40]', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 app.get('/api/system-settings', async (req, res) => {
     try {
         const forceRefresh = ['true', '1'].includes((req.query.refresh || '').toString());
