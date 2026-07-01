@@ -2010,9 +2010,10 @@ const renderDocuments = (docs, truidInfo, kycInfo) => {
   if (!docList || !docCount) return;
 
   const docTypes = [
-      { key: 'idcard', label: 'ID Document' }, 
-      { key: 'till_slip', label: 'Latest Payslip' }, 
+      { key: 'idcard', label: 'ID Document' },
+      { key: 'till_slip', label: 'Latest Payslip' },
       { key: 'bank_statement', label: 'Bank Statement' },
+      { key: 'proof_of_residence', label: 'Proof of Residence', maxAgeDays: 90 },
       { key: 'credit_life_contract', label: 'Credit Life Contract' }
   ];
   
@@ -2033,10 +2034,22 @@ const renderDocuments = (docs, truidInfo, kycInfo) => {
       // NEW LOGIC: Check if this is an ID card AND if we have KYC session images
       const hasKycId = type.key === 'idcard' && (kycInfo?.id_front_image_url || kycInfo?.id_back_image_url);
       
-      const isVerified = manualDoc || hasKycId;
-      const statusColor = isVerified ? 'text-green-600 bg-green-100' : 'text-gray-400 bg-gray-100';
-      const icon = isVerified ? 'fa-check-circle' : 'fa-upload';
-      const subtext = hasKycId ? 'Verified via KYC Session' : (manualDoc ? 'File Verified' : 'Missing Document');
+      // Check max-age (e.g. proof of residence must be < 90 days old — FICA requirement)
+      let porExpired = false;
+      if (manualDoc && type.maxAgeDays && manualDoc.created_at) {
+          const ageMs  = Date.now() - new Date(manualDoc.created_at).getTime();
+          const ageDays = ageMs / (1000 * 60 * 60 * 24);
+          if (ageDays > type.maxAgeDays) porExpired = true;
+      }
+
+      const isVerified = (manualDoc || hasKycId) && !porExpired;
+      const statusColor = porExpired ? 'text-yellow-600 bg-yellow-100'
+          : isVerified ? 'text-green-600 bg-green-100' : 'text-gray-400 bg-gray-100';
+      const icon = porExpired ? 'fa-triangle-exclamation'
+          : isVerified ? 'fa-check-circle' : 'fa-upload';
+      const subtext = hasKycId ? 'Verified via KYC Session'
+          : porExpired ? `Expired — older than ${type.maxAgeDays} days (FICA). Please re-upload.`
+          : manualDoc ? 'File Verified' : 'Missing Document';
 
       const div = document.createElement('div');
       div.className = 'flex items-center justify-between p-4 bg-white border border-gray-200 rounded-xl hover:border-orange-300 transition-all group';

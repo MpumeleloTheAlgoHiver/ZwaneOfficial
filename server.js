@@ -5707,6 +5707,112 @@ app.delete('/api/admin/remove-staff/:userId', async (req, res) => {
     }
 });
 
+// ─── NCR Registers (Phase 3) ─────────────────────────────────────────────────
+
+// GET /api/admin/ncr/agents
+app.get('/api/admin/ncr/agents', async (req, res) => {
+    const { data: { user }, error: authErr } = await supabaseService.auth.getUser(
+        (req.headers.authorization || '').replace('Bearer ', '')
+    );
+    if (authErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const role = user.app_metadata?.role || user.user_metadata?.role || '';
+    if (!['admin','super_admin','owner','base_admin'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const { data, error } = await supabaseService
+        .from('ncr_agent_register')
+        .select('*')
+        .order('appointment_date', { ascending: false });
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+});
+
+// POST /api/admin/ncr/agents
+app.post('/api/admin/ncr/agents', async (req, res) => {
+    const { data: { user }, error: authErr } = await supabaseService.auth.getUser(
+        (req.headers.authorization || '').replace('Bearer ', '')
+    );
+    if (authErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const role = user.app_metadata?.role || user.user_metadata?.role || '';
+    if (!['admin','super_admin','owner'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const { full_name, id_number, ncr_number, role: agentRole, branch, appointment_date, notes } = req.body;
+    if (!full_name || !id_number || !agentRole || !appointment_date) {
+        return res.status(400).json({ error: 'full_name, id_number, role, appointment_date are required' });
+    }
+    const { data, error } = await supabaseService
+        .from('ncr_agent_register')
+        .insert({ full_name, id_number, ncr_number, role: agentRole, branch, appointment_date, notes, created_by: user.id })
+        .select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(201).json(data);
+});
+
+// PATCH /api/admin/ncr/agents/:id
+app.patch('/api/admin/ncr/agents/:id', async (req, res) => {
+    const { data: { user }, error: authErr } = await supabaseService.auth.getUser(
+        (req.headers.authorization || '').replace('Bearer ', '')
+    );
+    if (authErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const role = user.app_metadata?.role || user.user_metadata?.role || '';
+    if (!['admin','super_admin','owner'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const allowed = ['full_name','id_number','ncr_number','role','branch','appointment_date','termination_date','status','notes'];
+    const updates = {};
+    for (const k of allowed) { if (req.body[k] !== undefined) updates[k] = req.body[k]; }
+    updates.updated_at = new Date().toISOString();
+
+    const { data, error } = await supabaseService
+        .from('ncr_agent_register')
+        .update(updates)
+        .eq('id', req.params.id)
+        .select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+});
+
+// GET /api/admin/ncr/statutory-registers
+app.get('/api/admin/ncr/statutory-registers', async (req, res) => {
+    const { data: { user }, error: authErr } = await supabaseService.auth.getUser(
+        (req.headers.authorization || '').replace('Bearer ', '')
+    );
+    if (authErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const role = user.app_metadata?.role || user.user_metadata?.role || '';
+    if (!['admin','super_admin','owner','base_admin'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const { data, error } = await supabaseService
+        .from('ncr_statutory_registers')
+        .select('*')
+        .order('financial_year', { ascending: false });
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+});
+
+// PUT /api/admin/ncr/statutory-registers/:year  (upsert by financial year)
+app.put('/api/admin/ncr/statutory-registers/:year', async (req, res) => {
+    const { data: { user }, error: authErr } = await supabaseService.auth.getUser(
+        (req.headers.authorization || '').replace('Bearer ', '')
+    );
+    if (authErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const role = user.app_metadata?.role || user.user_metadata?.role || '';
+    if (!['admin','super_admin','owner'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const year = parseInt(req.params.year, 10);
+    if (!year || year < 2000 || year > 2100) return res.status(400).json({ error: 'Invalid financial year' });
+
+    const fields = ['total_agreements','total_book_value','npl_count','npl_value','write_offs',
+        'recoveries','total_revenue','impairment_provision','complaints_received','complaints_resolved',
+        'debt_review_referrals','submitted_to_ncr','submitted_at','submission_reference','notes'];
+    const payload = { financial_year: year, updated_at: new Date().toISOString(), created_by: user.id };
+    for (const k of fields) { if (req.body[k] !== undefined) payload[k] = req.body[k]; }
+
+    const { data, error } = await supabaseService
+        .from('ncr_statutory_registers')
+        .upsert(payload, { onConflict: 'financial_year' })
+        .select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+});
+
 // ─── NCA Compliance Endpoints ────────────────────────────────────────────────
 
 // PATCH /api/admin/applications/:id/affordability
