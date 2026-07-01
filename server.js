@@ -719,11 +719,17 @@ async function triggerSureSystemsMandateForApplication(applicationId, overrides 
 }
 
 // Partner-API (marketplace) applicants are created via the service-role client and never
-// get a Supabase Auth account, so they have no way to log into the user portal to track
-// repayments. Once their DocuSeal contract completes, give them real portal access — keep
-// the new auth user's id identical to their existing profiles.id so every FK (loan
-// applications, bank accounts, etc.) already set up under that id keeps working untouched.
-async function inviteBorrowerToPortal(applicationId) {
+// get a Supabase Auth account, so they have no way to log into the user portal. This helper
+// creates a matching Supabase Auth user (same id as their existing profiles row — no FK
+// migration needed) and emails them a recovery link to set their password.
+//
+// opts.signContext = true  → called when admin sends "notify to sign"; email says
+//                            "set your password then sign your contract" and the recovery
+//                            link redirects to set-password.html?next=sign-contract.
+// opts.signContext = false → called post-signing; email says "portal is ready, track
+//                            your repayments" and redirects to the dashboard.
+async function inviteBorrowerToPortal(applicationId, opts = {}) {
+    const { signContext = false } = opts;
     if (!applicationId) return null;
 
     const { data: application, error: appError } = await supabaseService
@@ -756,10 +762,15 @@ async function inviteBorrowerToPortal(applicationId) {
     if (createUserError) throw createUserError;
 
     const siteUrl = process.env.APP_URL || 'https://zwane-official-three-seven.vercel.app';
+    // After setting password, redirect straight to the sign-contract page (signContext)
+    // or to the dashboard (post-signing portal access).
+    const nextPage = signContext
+        ? encodeURIComponent('/user-portal/?page=sign-contract')
+        : encodeURIComponent('/user-portal/?page=dashboard');
     const { data: linkData, error: linkError } = await supabaseService.auth.admin.generateLink({
         type: 'recovery',
         email: profile.email,
-        options: { redirectTo: `${siteUrl}/auth/set-password.html` }
+        options: { redirectTo: `${siteUrl}/auth/set-password.html?next=${nextPage}` }
     });
     if (linkError) throw linkError;
     const actionLink = linkData?.properties?.action_link;
@@ -770,20 +781,31 @@ async function inviteBorrowerToPortal(applicationId) {
             const resend = new Resend(process.env.RESEND_API_KEY);
             const settings = await getSystemTheme();
             const company  = settings?.company_name || process.env.COMPANY_NAME || 'Zwane Financial Services';
+            const subject = signContext
+                ? `Action required: sign your loan agreement — ${company}`
+                : `Set up your ${company} portal access`;
+            const heading = signContext
+                ? 'Your loan offer is ready to sign'
+                : 'Your loan is signed — portal access ready';
+            const body = signContext
+                ? `Dear <strong>${profile.full_name || 'Client'}</strong>, your loan offer has been approved. Set a password to access your Zwane portal, then sign your loan agreement online — takes less than 2 minutes.`
+                : `Dear <strong>${profile.full_name || 'Client'}</strong>, your contract has been signed. Set a password to access your portal where you can track your repayment schedule and balance at any time.`;
+            const btnText = signContext ? 'Set Password & Sign My Agreement' : 'Set Up My Portal Access';
+
             await resend.emails.send({
                 from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
                 to: profile.email,
-                subject: `Set up your ${company} portal access`,
+                subject,
                 html: `
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;color:#1a1a1a">
   <div style="background:#E7762E;padding:20px 24px;border-radius:10px 10px 0 0">
     <h1 style="color:#fff;font-size:20px;margin:0">${company}</h1>
   </div>
   <div style="background:#f9fafb;border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 10px 10px">
-    <h2 style="font-size:16px;margin:0 0 12px">Your loan is signed — set up your portal</h2>
-    <p style="margin:0 0 16px;color:#444">Dear <strong>${profile.full_name || 'Client'}</strong>, your contract has been signed. Set a password below to access your portal, where you can track your repayment schedule and balance at any time.</p>
+    <h2 style="font-size:16px;margin:0 0 12px">${heading}</h2>
+    <p style="margin:0 0 16px;color:#444">${body}</p>
     <div style="text-align:center;margin:24px 0">
-      <a href="${actionLink}" style="background:#E7762E;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px">Set Up My Portal Access</a>
+      <a href="${actionLink}" style="background:#E7762E;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px">${btnText}</a>
     </div>
     <p style="color:#888;font-size:12px;margin-top:20px">If the button doesn't work, copy this link: ${actionLink}</p>
   </div>
@@ -5961,7 +5983,7 @@ app.post('/api/contracts/notify-to-sign', async (req, res) => {
 
         const { data: app, error: appErr } = await supabaseService
             .from('loan_applications')
-            .select('id, status, profiles:user_id(full_name, email, cell_tel_no, contact_number)')
+            .select('id, status, source, profiles:user_id(full_name, email, cell_tel_no, contact_number)')
             .eq('id', applicationId)
             .maybeSingle();
 
@@ -5976,7 +5998,7 @@ app.post('/api/contracts/notify-to-sign', async (req, res) => {
 
         const results = { sms: null, email: null };
 
-        // Try SMS
+        // Try SMS (all applicants)
         if (phone) {
             try {
                 await messaging.sendSMS(phone, smsMessage);
@@ -5986,8 +6008,24 @@ app.post('/api/contracts/notify-to-sign', async (req, res) => {
             }
         }
 
-        // Try email via Resend
-        if (email && process.env.RESEND_API_KEY) {
+        // For PARTNER_API applicants: create their portal account and send a combined
+        // "set password + sign your contract" email instead of the standard reminder.
+        // This replaces the regular email so they only receive one message.
+        if (app.source === 'PARTNER_API' && email) {
+            try {
+                const inviteResult = await inviteBorrowerToPortal(applicationId, { signContext: true });
+                if (inviteResult?.invited) {
+                    results.email = 'sent (portal invite)';
+                } else if (inviteResult?.skipped) {
+                    // Already has portal access — fall through to standard email below
+                }
+            } catch (inviteErr) {
+                console.warn('[notify-to-sign] partner invite failed, falling back to standard email', inviteErr.message);
+            }
+        }
+
+        // Try email via Resend (non-PARTNER_API, or partner invite skipped/failed)
+        if (email && process.env.RESEND_API_KEY && !results.email) {
             try {
                 const { Resend } = require('resend');
                 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -6205,7 +6243,30 @@ app.post('/api/contracts/sign', async (req, res) => {
 
         if (updateErr) throw new Error('Failed to update application: ' + updateErr.message);
 
-        // 5. Email the signed contract to the client (non-blocking)
+        // 5. Trigger SureSystems debit-order mandate (same as DocuSeal webhook does)
+        try {
+            const activation = await triggerSureSystemsMandateForApplication(applicationId);
+            await recordSureSystemsActivation({
+                applicationId,
+                userId: activation?.userId || null,
+                status: 'success',
+                contractReference: activation?.contractReference || null,
+                message: 'Mandate loaded after in-app contract signing',
+                requestPayload: activation?.requestPayload || null,
+                responsePayload: activation?.responsePayload || null,
+                at: now
+            });
+        } catch (mandateErr) {
+            await recordSureSystemsActivation({
+                applicationId,
+                status: 'failed',
+                message: mandateErr?.message || 'SureSystems activation failed after in-app sign',
+                at: now
+            });
+            console.warn('[contracts/sign] mandate activation failed (non-fatal):', mandateErr?.message || mandateErr);
+        }
+
+        // 6. Email the signed contract to the client (non-blocking)
         const clientEmail = profile.email;
         if (clientEmail && process.env.RESEND_API_KEY) {
             try {
