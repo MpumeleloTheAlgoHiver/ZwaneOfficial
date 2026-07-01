@@ -8,6 +8,14 @@
     {
       "path": "/api/cron/flag-defaults",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/section129",
+      "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/cron/monthly-statements",
+      "schedule": "0 7 1 * *"
     }
   ],
   "headers": [

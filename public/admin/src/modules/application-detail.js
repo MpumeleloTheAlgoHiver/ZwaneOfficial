@@ -1233,13 +1233,36 @@ window.updateStatus = async (newStatus) => {
             }
             const { data: fp } = await supabase
                 .from('financial_profiles')
-                .select('monthly_income')
+                .select('monthly_income, monthly_debt_repayments')
                 .eq('user_id', currentApplication.user_id)
                 .maybeSingle();
             if (!fp?.monthly_income) {
                 showFeedback('Cannot confirm affordability — no income on record. Complete open banking first.', 'error');
                 return;
             }
+
+            // Persist DTI assessment for NCA s81 audit trail
+            const income     = Number(fp.monthly_income || 0);
+            const debt       = Number(fp.monthly_debt_repayments || 0);
+            const instalment = Number(currentApplication.offer_monthly_repayment || 0);
+            const totalDebt  = debt + instalment;
+            const dtiPct     = income > 0 ? (totalDebt / income) * 100 : 999;
+            const passed     = dtiPct <= 40; // NCA-aligned: total debt service ≤ 40% of gross income
+            const { data: { session } } = await supabase.auth.getSession();
+            await fetch(`/api/admin/applications/${currentApplication.id}/affordability`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${session?.access_token}`
+                },
+                body: JSON.stringify({
+                    monthly_income: income,
+                    monthly_debt:   totalDebt,
+                    dti_pct:        Math.round(dtiPct * 100) / 100,
+                    passed,
+                    under_debt_review: false,
+                })
+            });
         }
     }
 

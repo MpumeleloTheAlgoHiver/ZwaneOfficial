@@ -5253,6 +5253,133 @@ app.get('/api/statement/:applicationId', async (req, res) => {
     }
 });
 
+// GET /api/cron/monthly-statements (NCA s108)
+// Runs on the 1st of each month — generates and emails a statement of account
+// to every borrower with an active loan. Skips accounts with no email on record.
+app.get('/api/cron/monthly-statements', async (req, res) => {
+    if (!process.env.CRON_SECRET || req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    try {
+        const { data: activeLoans } = await supabaseService
+            .from('loan_applications')
+            .select(`
+                id, loan_number, amount, offer_principal, offer_total_repayment,
+                offer_monthly_repayment, repayment_start_date, term_months, status,
+                profiles:user_id (full_name, identity_number, email, user_id:id)
+            `)
+            .in('status', ['DISBURSED', 'IN_ARREARS', 'IN_DEFAULT', 'DEBICHECK_AUTH'])
+            .not('contract_signed_at', 'is', null);
+
+        if (!activeLoans?.length) return res.json({ ok: true, sent: 0 });
+
+        const settings  = await getSystemTheme();
+        const company   = settings?.company_name || process.env.COMPANY_NAME || 'Zwane Financial Services';
+        const ncrNumber = settings?.ncr_number   || process.env.COMPANY_NCR  || 'NCRCP13510';
+        const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+        const fmtR      = v => `R ${Number(v || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
+        const period    = new Date().toLocaleDateString('en-ZA', { year: 'numeric', month: 'long' });
+        const today     = new Date().toLocaleDateString('en-ZA', { year: 'numeric', month: 'long', day: 'numeric' });
+
+        let sent = 0;
+
+        for (const app of activeLoans) {
+            const profile = app.profiles || {};
+            if (!profile.email) continue;
+
+            const userId = profile['user_id'] || app.user_id;
+            const loanRef = app.loan_number ? `L${String(app.loan_number).padStart(4,'0')}` : String(app.id).slice(0,8).toUpperCase();
+
+            // Fetch payments for this account
+            const [{ data: payments }, { data: manualPayments }] = await Promise.all([
+                supabaseService.from('payments').select('payment_date, amount, id').eq('user_id', userId).order('payment_date'),
+                supabaseService.from('manual_payments').select('created_at, amount, reference, id').eq('user_id', userId).eq('status', 'confirmed').order('created_at'),
+            ]);
+
+            const allPayments = [
+                ...(payments || []).map(p => ({ date: p.payment_date, amount: p.amount, type: 'Debit Order', ref: p.id?.slice(0,8) })),
+                ...(manualPayments || []).map(p => ({ date: p.created_at?.slice(0,10), amount: p.amount, type: 'Manual EFT', ref: p.reference || p.id?.slice(0,8) })),
+            ].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            const totalPaid   = allPayments.reduce((s, p) => s + Number(p.amount), 0);
+            const outstanding = Math.max(0, Number(app.offer_total_repayment || app.amount || 0) - totalPaid);
+            const isArrears   = app.status === 'IN_ARREARS' || app.status === 'IN_DEFAULT';
+
+            const statementHtml = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<style>
+  body { font-family: Arial, sans-serif; max-width: 680px; margin: 0 auto; padding: 32px; color: #1a1a1a; font-size: 10pt; }
+  .header { display: flex; justify-content: space-between; border-bottom: 2px solid #E7762E; padding-bottom: 12px; margin-bottom: 20px; }
+  .logo { font-size: 16pt; font-weight: bold; color: #E7762E; }
+  .ncr  { font-size: 8pt; color: #888; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+  th { background: #E7762E; color: #fff; padding: 6px 10px; text-align: left; font-size: 9pt; }
+  td { padding: 6px 10px; border-bottom: 1px solid #f0f0f0; font-size: 9.5pt; }
+  .summary { background: #fff8f3; border: 1px solid #fed7aa; border-radius: 8px; padding: 14px 18px; margin: 14px 0; }
+  .kv { display: flex; justify-content: space-between; margin: 3px 0; font-size: 9.5pt; }
+  .kv strong { font-weight: 700; }
+  .arrears-box { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 10px 14px; margin: 12px 0; font-size: 9.5pt; }
+  .footer { margin-top: 20px; font-size: 8pt; color: #666; border-top: 1px solid #eee; padding-top: 8px; }
+</style></head><body>
+<div class="header">
+  <div><div class="logo">${company}</div><div class="ncr">NCR: ${ncrNumber}</div></div>
+  <div style="text-align:right;font-size:9pt;color:#555">
+    <strong>Monthly Statement of Account</strong><br>
+    Period: ${period}<br>Ref: ${loanRef}<br>Date: ${today}
+  </div>
+</div>
+<p><strong>${profile.full_name || ''}</strong><br>ID: ${profile.identity_number || ''}</p>
+
+<div class="summary">
+  <div class="kv"><span>Loan Amount</span><strong>${fmtR(app.offer_principal || app.amount)}</strong></div>
+  <div class="kv"><span>Monthly Instalment</span><strong>${fmtR(app.offer_monthly_repayment)}</strong></div>
+  <div class="kv"><span>Total Repayable</span><strong>${fmtR(app.offer_total_repayment || app.amount)}</strong></div>
+  <div class="kv"><span>Total Paid to Date</span><strong style="color:#10b981">${fmtR(totalPaid)}</strong></div>
+  <div class="kv" style="border-top:2px solid #fed7aa;margin-top:8px;padding-top:8px">
+    <span><strong>Outstanding Balance</strong></span>
+    <strong style="color:${outstanding > 0 ? '#E7762E' : '#10b981'};font-size:12pt">${fmtR(outstanding)}</strong>
+  </div>
+</div>
+
+${isArrears ? `<div class="arrears-box">⚠ <strong>Your account is in arrears.</strong> Please contact us immediately to arrange payment and avoid further action. Section 129 notices may already have been issued.</div>` : ''}
+
+<h3 style="font-size:10pt;margin:14px 0 6px">Payment History</h3>
+${allPayments.length ? `
+<table>
+  <thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Amount</th></tr></thead>
+  <tbody>${allPayments.map(p => `<tr><td>${p.date || '—'}</td><td>${p.type}</td><td>${p.ref || '—'}</td><td>${fmtR(p.amount)}</td></tr>`).join('')}</tbody>
+</table>` : '<p style="color:#9ca3af;font-size:9pt">No payments recorded yet.</p>'}
+
+<div class="footer">
+  ${company} — NCR Registration: ${ncrNumber}<br>
+  This is your official monthly statement of account in terms of Section 108 of the National Credit Act No. 34 of 2005.<br>
+  If you have any questions, please contact us. This statement was automatically generated on ${today}.
+</div>
+</body></html>`;
+
+            try {
+                const { Resend } = require('resend');
+                const resend = new Resend(process.env.RESEND_API_KEY);
+                await resend.emails.send({
+                    from:    fromEmail,
+                    to:      profile.email,
+                    subject: `Your ${company} Statement — ${period} — Ref: ${loanRef}`,
+                    html:    statementHtml,
+                });
+                sent++;
+            } catch (emailErr) {
+                console.warn(`[monthly-statements] failed for app ${app.id}:`, emailErr.message);
+            }
+        }
+
+        console.log(`[monthly-statements cron] sent ${sent} / ${activeLoans.length}`);
+        return res.json({ ok: true, sent, total: activeLoans.length });
+    } catch (err) {
+        console.error('[monthly-statements cron]', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
 // POST /api/support/ticket — client submits a support request
 app.post('/api/support/ticket', async (req, res) => {
     try {
@@ -5580,6 +5707,50 @@ app.delete('/api/admin/remove-staff/:userId', async (req, res) => {
     }
 });
 
+// ─── NCA Compliance Endpoints ────────────────────────────────────────────────
+
+// PATCH /api/admin/applications/:id/affordability
+// Persists the DTI affordability assessment result (NCA s81 audit trail).
+// Called by the admin portal when confirming AFFORD_OK status.
+app.patch('/api/admin/applications/:id/affordability', async (req, res) => {
+    try {
+        const token = (req.headers.authorization || '').replace('Bearer ', '');
+        const { data: { user } } = await supabaseService.auth.getUser(token);
+        if (!user) return res.status(401).json({ error: 'Auth required' });
+        const role = user.app_metadata?.role || user.user_metadata?.role;
+        if (!['admin', 'super_admin', 'base_admin'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+        const { id } = req.params;
+        const {
+            monthly_income,
+            monthly_debt,
+            dti_pct,
+            passed,
+            under_debt_review = false,
+        } = req.body;
+
+        const now = new Date().toISOString();
+        const { error } = await supabaseService
+            .from('loan_applications')
+            .update({
+                affordability_monthly_income: monthly_income ?? null,
+                affordability_dti_pct:        dti_pct        ?? null,
+                affordability_passed:          passed         ?? null,
+                affordability_assessed_at:     now,
+                affordability_assessor_id:     user.id,
+                under_debt_review:             under_debt_review,
+                updated_at:                    now,
+            })
+            .eq('id', id);
+
+        if (error) throw error;
+        return res.json({ ok: true });
+    } catch (err) {
+        console.error('[affordability patch]', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
 // ── Vercel Cron endpoints (replaces setInterval for serverless) ───
 // Called by Vercel Cron every 6 hours instead of setInterval
 app.get('/api/cron/notifications', async (req, res) => {
@@ -5606,6 +5777,155 @@ app.get('/api/cron/flag-defaults', async (req, res) => {
         await sched.flagDefaultedLoans?.();
         res.json({ ok: true });
     } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/cron/section129
+// Auto-triggers Section 129 notices (NCA s129) for accounts in arrears where
+// notice has not yet been sent. Runs daily. Sends via Resend email + SMS.
+app.get('/api/cron/section129', async (req, res) => {
+    if (!process.env.CRON_SECRET || req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+    try {
+        const { data: arrears } = await supabaseService
+            .from('loan_applications')
+            .select(`
+                id, loan_number, offer_principal, offer_monthly_repayment,
+                offer_total_repayment, repayment_start_date, section129_sent_at,
+                profiles:user_id (full_name, identity_number, email, cell_tel_no, contact_number, address, postal_code, suburb_area)
+            `)
+            .in('status', ['IN_ARREARS', 'IN_DEFAULT'])
+            .is('section129_sent_at', null);
+
+        if (!arrears?.length) return res.json({ ok: true, sent: 0 });
+
+        const settings     = await getSystemTheme();
+        const company      = settings?.company_name      || process.env.COMPANY_NAME || 'Zwane Financial Services';
+        const companyAddr  = settings?.company_physical_address || '';
+        const companyPhone = settings?.company_phone     || '';
+        const companyEmail = process.env.CREDIT_PROVIDER_EMAIL || '';
+        const ncrNumber    = settings?.ncr_number        || process.env.COMPANY_NCR  || 'NCRCP13510';
+        const fromEmail    = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+
+        let sent = 0;
+        const now = new Date().toISOString();
+
+        for (const app of arrears) {
+            const profile   = app.profiles || {};
+            const email     = profile.email;
+            const phone     = profile.cell_tel_no || profile.contact_number;
+            const today     = new Date().toLocaleDateString('en-ZA', { year: 'numeric', month: 'long', day: 'numeric' });
+            const clientNum = 'C' + String(app.id).slice(-4).toUpperCase();
+            const loanRef   = app.loan_number ? `L${String(app.loan_number).padStart(4,'0')}` : app.id.slice(0,8).toUpperCase();
+            const reference = `${clientNum}-${loanRef}`;
+            const balance   = Number(app.offer_principal || 0);
+            const fmtR      = v => `R ${Number(v || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
+
+            const noticeHtml = `
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<style>
+  body { font-family: Arial, sans-serif; font-size: 10pt; color: #1a1a1a; max-width: 680px; margin: 0 auto; padding: 32px; }
+  .header { border-bottom: 2px solid #E7762E; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; }
+  .logo { font-size: 18pt; font-weight: bold; color: #E7762E; }
+  .ncr  { font-size: 8pt; color: #888; }
+  h2    { font-size: 11pt; font-weight: bold; margin: 16px 0 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+  td,th { padding: 5px 8px; border: 1px solid #ddd; font-size: 9.5pt; }
+  th    { background: #f5f5f5; font-weight: bold; width: 45%; }
+  .notice-box { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 12px 16px; margin: 16px 0; }
+  .footer { margin-top: 24px; font-size: 8pt; color: #666; border-top: 1px solid #eee; padding-top: 8px; }
+</style></head><body>
+<div class="header">
+  <div><div class="logo">${company}</div><div class="ncr">NCR Registration: ${ncrNumber}</div></div>
+  <div style="text-align:right;font-size:9pt"><strong>SECTION 129 NOTICE</strong><br>${today}<br>Ref: ${reference}</div>
+</div>
+<p><strong>${profile.full_name || 'Consumer'}</strong><br>
+${[profile.address, profile.suburb_area, profile.postal_code].filter(Boolean).join(', ')}</p>
+
+<div class="notice-box">
+  <strong>⚠ NOTICE IN TERMS OF SECTION 129 OF THE NATIONAL CREDIT ACT 34 OF 2005</strong><br>
+  <p style="margin:8px 0 0">Dear ${(profile.full_name || 'Consumer').split(' ')[0]}, you are in default of your credit agreement (reference <strong>${reference}</strong>). This notice is issued in terms of Section 129(1)(a) of the National Credit Act.</p>
+</div>
+
+<h2>Account Details</h2>
+<table>
+  <tr><th>Agreement Reference</th><td>${reference}</td></tr>
+  <tr><th>ID Number</th><td>${profile.identity_number || ''}</td></tr>
+  <tr><th>Outstanding Balance</th><td>${fmtR(balance)}</td></tr>
+  <tr><th>Monthly Instalment</th><td>${fmtR(app.offer_monthly_repayment)}</td></tr>
+  <tr><th>Notice Date</th><td>${today}</td></tr>
+</table>
+
+<h2>Your Rights Under the NCA</h2>
+<p>You have the right to:</p>
+<ul>
+  <li>Contact us to <strong>resolve the default</strong> by paying all amounts outstanding;</li>
+  <li>Refer the matter to a <strong>debt counsellor</strong> to apply for debt review under Section 86;</li>
+  <li>Contact a <strong>consumer court</strong> or the <strong>National Credit Regulator</strong>;</li>
+  <li>Lodge a dispute with an <strong>alternative dispute resolution agent</strong>.</li>
+</ul>
+
+<p>If you do not respond to this notice or bring your account up to date within <strong>10 business days</strong>, we may proceed with enforcement action including legal proceedings.</p>
+
+<h2>Contact Us to Resolve</h2>
+<table>
+  <tr><th>Phone</th><td>${companyPhone}</td></tr>
+  <tr><th>Email</th><td>${companyEmail}</td></tr>
+  <tr><th>Address</th><td>${companyAddr}</td></tr>
+</table>
+
+<div class="footer">
+  ${company} — NCR Registration: ${ncrNumber}<br>
+  This notice is issued in compliance with Section 129(1)(a) of the National Credit Act No. 34 of 2005.
+</div>
+</body></html>`;
+
+            let notified = false;
+
+            // Email
+            if (email && process.env.RESEND_API_KEY) {
+                try {
+                    const { Resend } = require('resend');
+                    const resend = new Resend(process.env.RESEND_API_KEY);
+                    await resend.emails.send({
+                        from: fromEmail,
+                        to: email,
+                        subject: `Section 129 Notice — ${reference} — ${company}`,
+                        html: noticeHtml,
+                    });
+                    notified = true;
+                } catch (emailErr) {
+                    console.warn(`[section129] email failed for app ${app.id}:`, emailErr.message);
+                }
+            }
+
+            // SMS fallback / supplement
+            if (phone) {
+                try {
+                    const smsText = `${company}: SECTION 129 NOTICE — Your loan account (${reference}) is in arrears. Contact us immediately on ${companyPhone} to avoid legal action. This is a formal NCA s129 notice.`;
+                    await messaging.sendSMS(phone, smsText);
+                    notified = true;
+                } catch (smsErr) {
+                    console.warn(`[section129] SMS failed for app ${app.id}:`, smsErr.message);
+                }
+            }
+
+            if (notified) {
+                await supabaseService.from('loan_applications').update({
+                    section129_sent_at:    now,
+                    section129_reference:  reference,
+                    updated_at:            now,
+                }).eq('id', app.id);
+                sent++;
+            }
+        }
+
+        console.log(`[section129 cron] sent ${sent} / ${arrears.length} notices`);
+        return res.json({ ok: true, sent, total_in_arrears: arrears.length });
+    } catch (err) {
+        console.error('[section129 cron]', err.message);
+        return res.status(500).json({ error: err.message });
+    }
 });
 
 // POST /api/admin/ledger/sync — backfill cash_journal from existing disbursements + confirmed payments
@@ -6260,11 +6580,12 @@ app.post('/api/contracts/sign', async (req, res) => {
         const { data: app, error: appErr } = await supabaseService
             .from('loan_applications')
             .select(`
-                id, status, user_id, contract_signed_at, loan_number, agreement_number,
+                id, status, user_id, source, contract_signed_at, loan_number, agreement_number,
                 amount, offer_principal, offer_total_repayment, offer_monthly_repayment,
                 offer_total_interest, offer_total_initiation_fees, offer_total_admin_fees,
                 offer_credit_life_monthly, offer_vat_amount, offer_total_cost_of_credit,
                 term_months, repayment_start_date, is_first_loan,
+                affordability_passed, under_debt_review,
                 profiles:user_id (
                     full_name, identity_number, email, cell_tel_no, contact_number,
                     address, postal_code, suburb_area, employer_name,
@@ -6281,6 +6602,61 @@ app.post('/api/contracts/sign', async (req, res) => {
         if (!signable.includes(app.status)) {
             return res.status(400).json({ error: `Application status "${app.status}" is not signable` });
         }
+
+        // ── NCA compliance gates ─────────────────────────────────────────────
+
+        // Debt review block (NCA s86) — no new credit for consumers under debt review
+        if (app.under_debt_review) {
+            return res.status(422).json({
+                error: 'Cannot conclude agreement — consumer is under debt review (NCA s86). Credit agreement blocked.',
+                code: 'DEBT_REVIEW'
+            });
+        }
+
+        // Reckless lending block (NCA s80–83) — affordability must have been assessed and passed
+        // PARTNER_API applications are pre-screened by the marketplace; organic apps must pass DTI.
+        if (app.source !== 'PARTNER_API') {
+            if (app.affordability_passed === false) {
+                return res.status(422).json({
+                    error: 'Cannot conclude agreement — affordability assessment recorded a fail. Concluding this agreement would constitute reckless lending under NCA s80.',
+                    code: 'RECKLESS_LENDING'
+                });
+            }
+            if (app.affordability_passed === null || app.affordability_passed === undefined) {
+                return res.status(422).json({
+                    error: 'Cannot conclude agreement — no affordability assessment on record. Complete and confirm the affordability check first (NCA s81).',
+                    code: 'AFFORDABILITY_MISSING'
+                });
+            }
+        }
+
+        // Fee cap validation (NCA Regulations)
+        const principal      = Number(app.offer_principal || app.amount || 0);
+        const initiationFees = Number(app.offer_total_initiation_fees || 0);
+        const termMonths     = Number(app.term_months || 1);
+        const monthlyAdminFee = termMonths > 0
+            ? Number(app.offer_total_admin_fees || 0) / termMonths
+            : 0;
+
+        if (principal > 0 && initiationFees > principal * 0.15 + 0.01) {
+            return res.status(422).json({
+                error: `Initiation fees (R${initiationFees.toFixed(2)}) exceed the NCA cap of 15% of principal (R${(principal * 0.15).toFixed(2)}). Recalculate the offer before signing.`,
+                code: 'FEE_CAP_INITIATION'
+            });
+        }
+        if (monthlyAdminFee > 69 + 0.01) {
+            return res.status(422).json({
+                error: `Monthly service fee (R${monthlyAdminFee.toFixed(2)}) exceeds the NCA maximum of R69/month. Recalculate the offer before signing.`,
+                code: 'FEE_CAP_SERVICE'
+            });
+        }
+
+        // Record that fee caps were validated
+        await supabaseService.from('loan_applications')
+            .update({ fee_cap_validated_at: new Date().toISOString() })
+            .eq('id', applicationId);
+
+        // ────────────────────────────────────────────────────────────────────
 
         const now = new Date().toISOString();
         const profile = app.profiles || {};
