@@ -5813,6 +5813,179 @@ app.put('/api/admin/ncr/statutory-registers/:year', async (req, res) => {
     return res.json(data);
 });
 
+// ─── Compliance Checkpoint Tracker (Phase 4) ─────────────────────────────────
+
+const COMPLIANCE_CHECKPOINTS = [
+    { key: 'form39',           label: 'NCR Form 39 — Statistical Return',             category: 'NCR Submissions',  due: 'Per submission schedule' },
+    { key: 'form40',           label: 'NCR Form 40 — Annual Financial & Ops Return',  category: 'NCR Submissions',  due: '30 June annually' },
+    { key: 'agent_register',   label: 'Agent / Representative Register (Reg 39)',      category: 'NCR Submissions',  due: 'Keep current at all times' },
+    { key: 'sacrra_reporting', label: 'SACRRA Credit Bureau Reporting',                category: 'NCR Submissions',  due: 'Monthly' },
+    { key: 'section129_proc',  label: 'Section 129 Default Notice Procedures',         category: 'NCA Procedures',   due: 'Reviewed annually' },
+    { key: 'affordability_pol',label: 'Affordability Assessment Policy (NCA s81)',     category: 'NCA Procedures',   due: 'Reviewed annually' },
+    { key: 'reckless_lending', label: 'Reckless Lending Controls (NCA s80–83)',        category: 'NCA Procedures',   due: 'Reviewed annually' },
+    { key: 'fica_cdd',         label: 'FICA Customer Due Diligence (CDD) Procedures', category: 'FICA',             due: 'Reviewed annually' },
+    { key: 'fica_risk_rating', label: 'FICA Client Risk Rating Review',               category: 'FICA',             due: 'Annually per client' },
+    { key: 'fica_goaml',       label: 'FIC goAML Reporting (STR / CTR / TPR)',        category: 'FICA',             due: 'As required' },
+    { key: 'pep_sanctions',    label: 'PEP & Sanctions Screening',                    category: 'FICA',             due: 'Ongoing / at onboarding' },
+    { key: 'ncr_registration', label: 'NCR Certificate of Registration Current',      category: 'Licensing',        due: 'Annual renewal' },
+    { key: 'pi_insurance',     label: 'Professional Indemnity Insurance Current',     category: 'Licensing',        due: 'Annual renewal' },
+    { key: 'board_minutes',    label: 'Board / Directors Compliance Minutes',         category: 'Governance',       due: 'Quarterly' },
+    { key: 'staff_training',   label: 'FICA / NCA Staff Training Records',            category: 'Governance',       due: 'Annually' },
+];
+
+// GET /api/admin/compliance/checkpoints?year=2025
+app.get('/api/admin/compliance/checkpoints', async (req, res) => {
+    const { data: { user }, error: authErr } = await supabaseService.auth.getUser(
+        (req.headers.authorization || '').replace('Bearer ', '')
+    );
+    if (authErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const role = user.app_metadata?.role || user.user_metadata?.role || '';
+    if (!['admin','super_admin','owner','base_admin'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const year = parseInt(req.query.year || new Date().getFullYear(), 10);
+    const { data: saved } = await supabaseService
+        .from('ncr_compliance_checkpoints')
+        .select('*')
+        .eq('financial_year', year);
+
+    // Merge static checkpoint definitions with saved DB state
+    const merged = COMPLIANCE_CHECKPOINTS.map(def => {
+        const saved_row = (saved || []).find(r => r.checkpoint_key === def.key) || {};
+        return { ...def, ...saved_row, checkpoint_key: def.key, financial_year: year };
+    });
+    return res.json({ year, checkpoints: merged });
+});
+
+// PATCH /api/admin/compliance/checkpoints/:year/:key
+app.patch('/api/admin/compliance/checkpoints/:year/:key', async (req, res) => {
+    const { data: { user }, error: authErr } = await supabaseService.auth.getUser(
+        (req.headers.authorization || '').replace('Bearer ', '')
+    );
+    if (authErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const role = user.app_metadata?.role || user.user_metadata?.role || '';
+    if (!['admin','super_admin','owner'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const year = parseInt(req.params.year, 10);
+    const key  = req.params.key;
+    const def  = COMPLIANCE_CHECKPOINTS.find(c => c.key === key);
+    if (!def) return res.status(404).json({ error: 'Unknown checkpoint key' });
+
+    const { status, evidence_ref, notes } = req.body;
+    const now = new Date().toISOString();
+    const payload = {
+        financial_year:  year,
+        checkpoint_key:  key,
+        status:          status || 'pending',
+        evidence_ref:    evidence_ref ?? null,
+        notes:           notes ?? null,
+        updated_at:      now,
+        completed_at:    status === 'complete' ? now : null,
+        completed_by:    status === 'complete' ? user.id : null,
+    };
+
+    const { data, error } = await supabaseService
+        .from('ncr_compliance_checkpoints')
+        .upsert(payload, { onConflict: 'financial_year,checkpoint_key' })
+        .select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data);
+});
+
+// GET /api/admin/compliance/report/:year  — summary for audit / NCR submission pack
+app.get('/api/admin/compliance/report/:year', async (req, res) => {
+    const { data: { user }, error: authErr } = await supabaseService.auth.getUser(
+        (req.headers.authorization || '').replace('Bearer ', '')
+    );
+    if (authErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+    const role = user.app_metadata?.role || user.user_metadata?.role || '';
+    if (!['admin','super_admin','owner','base_admin'].includes(role)) return res.status(403).json({ error: 'Forbidden' });
+
+    const year = parseInt(req.params.year, 10);
+    const { data: saved } = await supabaseService
+        .from('ncr_compliance_checkpoints')
+        .select('*, profiles:completed_by (full_name)')
+        .eq('financial_year', year);
+
+    const settings  = await getSystemTheme();
+    const company   = settings?.company_name || process.env.COMPANY_NAME || 'Zwane Financial Services';
+    const ncrNumber = settings?.ncr_number   || process.env.COMPANY_NCR  || 'NCRCP13510';
+    const today     = new Date().toLocaleDateString('en-ZA', { year:'numeric', month:'long', day:'numeric' });
+
+    const merged = COMPLIANCE_CHECKPOINTS.map(def => {
+        const row = (saved || []).find(r => r.checkpoint_key === def.key) || {};
+        return { ...def, ...row };
+    });
+
+    const total    = merged.length;
+    const complete = merged.filter(c => c.status === 'complete').length;
+    const naCount  = merged.filter(c => c.status === 'na').length;
+    const pct      = Math.round((complete / (total - naCount)) * 100) || 0;
+
+    const categories = [...new Set(COMPLIANCE_CHECKPOINTS.map(c => c.category))];
+
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<title>Compliance Report ${year} — ${company}</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 780px; margin: 0 auto; padding: 32px; color: #1a1a1a; font-size: 10pt; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #E7762E; padding-bottom: 14px; margin-bottom: 20px; }
+  .logo  { font-size: 16pt; font-weight: bold; color: #E7762E; }
+  .meta  { text-align: right; font-size: 9pt; color: #666; }
+  .score { background: ${pct >= 80 ? '#dcfce7' : pct >= 50 ? '#fef9c3' : '#fee2e2'}; border-radius: 12px; padding: 14px 20px; margin: 0 0 20px; display: flex; justify-content: space-between; align-items: center; }
+  .score-pct { font-size: 32pt; font-weight: 800; color: ${pct >= 80 ? '#16a34a' : pct >= 50 ? '#ca8a04' : '#dc2626'}; }
+  h2 { font-size: 11pt; color: #555; border-bottom: 1px solid #eee; padding-bottom: 5px; margin: 18px 0 8px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+  th { background: #f3f4f6; font-size: 8.5pt; color: #555; padding: 6px 10px; text-align: left; font-weight: 600; }
+  td { padding: 7px 10px; font-size: 9.5pt; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 8pt; font-weight: 700; }
+  .complete   { background: #dcfce7; color: #15803d; }
+  .pending    { background: #fee2e2; color: #b91c1c; }
+  .in_progress{ background: #fef9c3; color: #854d0e; }
+  .na         { background: #f3f4f6; color: #6b7280; }
+  .footer { margin-top: 24px; font-size: 8pt; color: #888; border-top: 1px solid #eee; padding-top: 8px; }
+  @media print { body { padding: 16px; } }
+</style></head><body>
+<div class="header">
+  <div><div class="logo">${company}</div><div style="font-size:9pt;color:#888">NCR: ${ncrNumber}</div></div>
+  <div class="meta"><strong>Annual Compliance Report</strong><br>Financial Year: ${year}<br>Generated: ${today}</div>
+</div>
+
+<div class="score">
+  <div>
+    <div style="font-size:11pt;font-weight:700">Overall Compliance Score</div>
+    <div style="font-size:9pt;color:#666">${complete} of ${total - naCount} applicable items complete${naCount ? ` (${naCount} marked N/A)` : ''}</div>
+  </div>
+  <div class="score-pct">${pct}%</div>
+</div>
+
+${categories.map(cat => {
+    const items = merged.filter(c => c.category === cat);
+    return `<h2>${cat}</h2>
+<table>
+  <thead><tr><th>Requirement</th><th>Due</th><th>Status</th><th>Evidence / Reference</th><th>Completed By</th><th>Date</th></tr></thead>
+  <tbody>${items.map(c => `
+    <tr>
+      <td>${c.label}</td>
+      <td style="white-space:nowrap;color:#666">${c.due}</td>
+      <td><span class="badge ${c.status || 'pending'}">${(c.status || 'pending').replace('_',' ')}</span></td>
+      <td>${c.evidence_ref || '—'}</td>
+      <td>${c.profiles?.full_name || '—'}</td>
+      <td style="white-space:nowrap">${c.completed_at ? new Date(c.completed_at).toLocaleDateString('en-ZA') : '—'}</td>
+    </tr>`).join('')}
+  </tbody>
+</table>`;
+}).join('')}
+
+${merged.filter(c => c.notes).length ? `<h2>Notes</h2><table><tbody>${merged.filter(c => c.notes).map(c => `<tr><td style="width:40%"><strong>${c.label}</strong></td><td>${c.notes}</td></tr>`).join('')}</tbody></table>` : ''}
+
+<div class="footer">${company} — NCR: ${ncrNumber} — This report was generated on ${today} for Financial Year ${year}.<br>
+Retain this document as part of your NCR compliance record-keeping obligations.</div>
+</body></html>`;
+
+    res.setHeader('Content-Type', 'text/html');
+    res.setHeader('Content-Disposition', `inline; filename="compliance-report-${year}.html"`);
+    return res.send(html);
+});
+
 // ─── NCA Compliance Endpoints ────────────────────────────────────────────────
 
 // PATCH /api/admin/applications/:id/affordability

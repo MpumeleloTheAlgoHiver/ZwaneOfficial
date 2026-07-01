@@ -279,6 +279,7 @@ function renderSidebarNav(role) {
         ${navLink('/admin/sacrra-validator', 'rule_folder', 'Migration Validator')}
         ${navLink('/admin/ncr-reporting', 'assignment', 'NCR Reporting')}
         ${navLink('/admin/ncr-registers', 'manage_accounts', 'NCR Registers')}
+        ${navLink('/admin/compliance-tracker', 'checklist', 'Compliance Tracker')}
       ` : ''}
 
       ${isSuperAdmin ? `
