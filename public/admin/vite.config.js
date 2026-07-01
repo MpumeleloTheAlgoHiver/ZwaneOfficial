@@ -35,9 +35,14 @@ export default {
         financials: resolve(__dirname, 'financials.html'),
 
         // Compliance
-        sacrra:          resolve(__dirname, 'sacrra.html'),
-        sacrraValidator: resolve(__dirname, 'sacrra-validator.html'),
-        mandates:        resolve(__dirname, 'mandates.html'),
+        sacrra:            resolve(__dirname, 'sacrra.html'),
+        sacrraValidator:   resolve(__dirname, 'sacrra-validator.html'),
+        mandates:          resolve(__dirname, 'mandates.html'),
+        ncrReporting:      resolve(__dirname, 'ncr-reporting.html'),
+        ncrRegisters:      resolve(__dirname, 'ncr-registers.html'),
+        complianceTracker: resolve(__dirname, 'compliance-tracker.html'),
+        goaml:             resolve(__dirname, 'goaml.html'),
+        portfolio:         resolve(__dirname, 'portfolio.html'),
 
         // Configuration
         creditRules: resolve(__dirname, 'credit-rules.html'),

@@ -1,6 +1,7 @@
 import { initLayout } from '../shared/layout.js';
-import { supabase } from '../shared/supabaseClient.js';
-import { showToast } from '../shared/toast.js';
+import { supabase } from '../services/supabaseClient.js';
+
+const showToast = (msg, type) => window.showToast?.(msg, type);
 
 const fmtR  = v => `R ${Number(v || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtN  = v => Number(v || 0).toLocaleString('en-ZA');
