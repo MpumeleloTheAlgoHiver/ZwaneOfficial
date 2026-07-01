@@ -7268,7 +7268,6 @@ app.post('/api/contracts/sign', async (req, res) => {
         const settings  = await getSystemTheme();
         const company   = settings?.company_name || process.env.COMPANY_NAME || 'Zwane Financial Services';
         const ncrNumber = settings?.ncr_number || process.env.COMPANY_NCR || 'NCRCP13510';
-        const principal = Number(app.offer_principal || app.amount || 0);
         const term      = Number(app.term_months || 1);
         const monthly   = Number(app.offer_monthly_repayment || 0);
         const totalRepay= Number(app.offer_total_repayment || 0);
