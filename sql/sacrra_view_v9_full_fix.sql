@@ -44,14 +44,14 @@ WITH month_end AS (
     SELECT (date_trunc('month', NOW()) - interval '1 day')::date AS dt
 ),
 
--- Last confirmed payment from either SureSystems debit orders or manual EFTs
+-- Last confirmed payment from either SureSystems debit orders (by user_id) or manual EFTs
 last_payments AS (
     SELECT
         a.id AS application_id,
         GREATEST(
             (SELECT MAX(py.payment_date::date)
              FROM payments py
-             WHERE py.application_id = a.id),
+             WHERE py.user_id = a.user_id),
             (SELECT MAX(mp.confirmed_at::date)
              FROM manual_payments mp
              WHERE mp.application_id = a.id
