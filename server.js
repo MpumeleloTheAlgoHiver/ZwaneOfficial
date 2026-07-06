@@ -6886,7 +6886,7 @@ app.post('/api/integrations/loans', sensitiveLimiter, requireIntegrationAuth, as
         const {
             idNumber, fullName, phone, email, amount, termMonths, purpose,
             bankName, accountHolder, accountNumber, branchCode, accountType,
-            source
+            bureau   // optional: bureau result from the partner's own credit pull (nice-to-have display)
         } = req.body || {};
 
         if (!idNumber || !fullName) {
@@ -6993,13 +6993,48 @@ app.post('/api/integrations/loans', sensitiveLimiter, requireIntegrationAuth, as
                 term_months: loanTermMonths,
                 purpose: purpose || null,
                 status: 'STARTED',
-                source: source || 'PARTNER_API',
+                // This endpoint IS the partner API, so every application through
+                // it is a marketplace/partner app. Force PARTNER_API so the
+                // partner-app bypasses (affordability gate, portal invite, the
+                // s741 lookup, marketplace analytics) all fire. Do NOT trust the
+                // caller's `source` (MINT sends 'mint_marketplace', which matched
+                // none of those checks and left apps stuck).
+                source: 'PARTNER_API',
                 bank_account_id: bankAccountId,
                 ...offer
             }])
             .select('id')
             .single();
         if (appError) throw appError;
+
+        // Nice-to-have: if the partner sent their own bureau result, store it as a
+        // completed credit_checks row so the reviewer can see the score in the admin.
+        // Affordability for PARTNER_API apps is bypassed either way — this is display
+        // context only, never a gate. Best-effort: a failure here must not fail the push.
+        if (bureau && Number.isFinite(Number(bureau.creditScore))) {
+            const [firstName, ...restName] = String(fullName).trim().split(/\s+/);
+            const nowIso = new Date().toISOString();
+            const { error: ccError } = await supabaseService
+                .from('credit_checks')
+                .insert([{
+                    user_id:                  profile.id,
+                    application_id:           application.id,
+                    bureau_name:              'MINT Marketplace',
+                    first_name:               firstName || fullName,
+                    last_name:                restName.join(' ') || null,
+                    id_number:                idNumber,
+                    credit_score:             Number(bureau.creditScore),
+                    score_band:               bureau.scoreBand || null,
+                    risk_category:            bureau.riskCategory || null,
+                    enquiries_last_12_months: Number.isFinite(Number(bureau.enquiriesLast12Months))
+                                                ? Number(bureau.enquiriesLast12Months) : null,
+                    raw_xml_data:             bureau.raw ? String(bureau.raw) : null,
+                    status:                   'completed',
+                    checked_at:               bureau.pulledAt || nowIso,
+                    report_date:              bureau.pulledAt || nowIso,
+                }]);
+            if (ccError) console.warn('[integrations/loans] bureau store skipped:', ccError.message);
+        }
 
         return res.status(201).json({ success: true, applicationId: application.id, userId: profile.id });
     } catch (err) {
