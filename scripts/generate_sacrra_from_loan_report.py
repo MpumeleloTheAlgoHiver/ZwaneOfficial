@@ -37,9 +37,9 @@ except ImportError:
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 SRN           = "TT0109"
-TRADING_NAME  = "DEEDS AND LLOYDS FINANCE"
+TRADING_NAME  = "ZWANE FINANCIAL SERVICES"
 VERSION       = "06"
-REPORT_DATE   = date(2026, 6, 3)   # Date of the source Excel report
+REPORT_DATE   = date(2026, 6, 3)   # Date of the source report
 
 STATUS_MAP = {
     "Active":        "",
@@ -51,6 +51,25 @@ STATUS_MAP = {
 }
 
 INCLUDE_STATUSES = {"Active", "Non-Performing", "Paid", "Cancelled"}
+
+# Secondary business-loan detector. The source system's "Client Juristic
+# Person" flag is unreliable — confirmed on the 2026-06-03 export where
+# several accounts (e.g. client 1550 "MOROU / CONSTRUCTION AND PROJECTS",
+# 1614 "ACUTE CATERING", 1548 "LAMOKS / TRADING", 1580 "SBHILIBI EVENTS",
+# 2517 "4KAY HOLDINGS (PTY) LTD") are flagged Juristic Person = False despite
+# an obvious company name in Client Name / Client Surname. Catch these by
+# content as well as by the flag, so a business loan is never submitted as
+# an individual consumer record (which was causing D0016 rejections).
+BUSINESS_NAME_KEYWORDS = [
+    "TRADING", "SERVICES", "ENTERPRISE", "PROJECTS", "HOLDINGS", "GROUP",
+    "CONSULTING", "INVESTMENT", "SUPPLIES", "LOGISTICS", "CONSTRUCTION",
+    "DISTRIBUTORS", "SOLUTIONS", "PROPERTIES", "FARMING", "CATERING",
+    "EVENTS", "PTY", "CC", "(PTY)", "LTD",
+]
+
+def looks_like_business_name(name, surname):
+    text = f"{name or ''} {surname or ''}".upper()
+    return any(kw in text for kw in BUSINESS_NAME_KEYWORDS)
 
 FREQ_MAP = {
     "Monthly":    "03",
@@ -85,8 +104,16 @@ def to_date_str(val):
     return d.strftime("%Y%m%d") if d else "00000000"
 
 def to_rands(val):
+    # SA locale: space (or non-breaking space) is the thousands separator,
+    # comma is the decimal separator — e.g. "1 550,00". Strip spaces first,
+    # THEN swap comma for a decimal point. The previous version only
+    # stripped commas, which turned "1 550,00" into the unparseable
+    # "1 55000" and silently returned 0 for every currency field.
+    s = str(val or "0").strip()
+    s = s.replace(" ", " ").replace(" ", "")
+    s = s.replace(",", ".")
     try:
-        return max(0, round(float(str(val or "0").replace(",", ""))))
+        return max(0, round(float(s)))
     except (ValueError, TypeError):
         return 0
 
@@ -163,12 +190,44 @@ def main():
     print(f"  Company     : {TRADING_NAME}")
     print()
 
-    print("Reading Excel...")
-    df = pd.read_excel(excel_path, sheet_name="Data", header=3, dtype=str)
+    ext = os.path.splitext(excel_path)[1].lower()
+    if ext == ".csv":
+        print("Reading CSV...")
+        df = pd.read_csv(excel_path, sep=";", header=0, dtype=str, encoding="utf-8-sig")
+    else:
+        print("Reading Excel...")
+        df = pd.read_excel(excel_path, sheet_name="Data", header=3, dtype=str)
     print(f"  Loaded {len(df):,} rows")
 
     df = df[df["Status"].isin(INCLUDE_STATUSES)].copy()
     print(f"  After status filter: {len(df):,} rows")
+
+    # Exclude juristic-person (business/company) loans. These are the wrong
+    # record type for this consumer bureau file — the "surname" field is
+    # actually a fragment of a company name (e.g. "TRADING", "LOGISTICS"),
+    # not a person's surname, and a small number slip past the ID-length
+    # filter below when a director's personal ID was captured on the account.
+    is_juristic = (
+        df["Client Juristic Person"].astype(str).str.strip().str.lower() == "true"
+        if "Client Juristic Person" in df.columns
+        else False
+    )
+    # Second, independent check: the Juristic Person flag is confirmed
+    # unreliable on this data (see BUSINESS_NAME_KEYWORDS comment above), so
+    # also catch obvious company names by content regardless of the flag.
+    looks_business = df.apply(
+        lambda r: looks_like_business_name(r.get("Client Name"), r.get("Client Surname")), axis=1
+    )
+    is_business = is_juristic | looks_business
+    if is_business.any():
+        excl_juristic = df[is_business][["Client No.", "Client Name", "Client Surname", "Client ID No.", "Status"]].copy()
+        df = df[~is_business].copy()
+        print(f"  Excluded {len(excl_juristic):,} business-loan records "
+              f"({int(is_juristic.sum()) if not isinstance(is_juristic, bool) else 0} by Juristic flag, "
+              f"{int((looks_business & ~is_juristic).sum())} by name pattern only)")
+    else:
+        excl_juristic = None
+        print("  No business-loan records found (by flag or name pattern)")
 
     # Exclude non-13-digit IDs
     df["_id_clean"] = df["Client ID No."].str.strip().str.replace(r"[^0-9]", "", regex=True)
@@ -223,7 +282,11 @@ def main():
             mths_arr    = 0
             amt_overdue = 0
 
-        bal_indicator = "P" if is_closed else "D"
+        # Balance Indicator: D=debit balance, C=credit balance (borrower owed money).
+        # This book has no credit-balance accounts, so always D — matches the fix
+        # applied to the live sacrra.js generator after 'P' (not a valid bureau
+        # value) / 'C' on closed accounts caused rejections in the prior submission.
+        bal_indicator = "D"
 
         # ── Dates
         date_opened_d  = to_date(row.get("Agreement/Application Date"))
@@ -380,6 +443,13 @@ def main():
     else:
         bad_id_file = "none"
 
+    if excl_juristic is not None and len(excl_juristic) > 0:
+        pj = os.path.join(out_dir, f"SACRRA_excluded_juristic_{period_str}.csv")
+        excl_juristic.to_csv(pj, index=False)
+        juristic_file = os.path.basename(pj)
+    else:
+        juristic_file = "none"
+
     if excl_stale_36m:
         p36 = os.path.join(out_dir, f"SACRRA_excluded_stale_36m_{period_str}.csv")
         pd.DataFrame(excl_stale_36m).to_csv(p36, index=False)
@@ -400,6 +470,7 @@ def main():
     print(f"    Non-Performing    : {np_count:>7,}  (arrears derived from Outstanding)")
     print(f"    Paid / Status T   : {paid_count:>7,}")
     print(f"    Cancelled / Stus V: {canc_count:>7,}")
+    print(f"  Excluded juristic   : {(len(excl_juristic) if excl_juristic is not None else 0):>7,}  → {juristic_file}")
     print(f"  Excluded bad IDs    : {len(excl_bad_id):>7,}  → {bad_id_file}")
     print(f"  Excluded stale >36m : {len(excl_stale_36m):>7,}  → {stale_file}")
     print(f"    (Submit stale file to SACRRA as separate historical bulk load)")
