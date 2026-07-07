@@ -422,7 +422,11 @@ def main():
         lines.append(r)
 
     # ── Assemble file
-    srn_padded   = SRN.ljust(10)[:10]
+    # SRN is RIGHT-justified (leading spaces) in the header, per SACRRA's own
+    # dummy sample file (header reads "H    TT0109...", not "H TT0109    ...").
+    # This was almost certainly the cause of the bureau's "header SRN in file
+    # is still being populated incorrectly" feedback.
+    srn_padded   = SRN.rjust(10)[:10]
     trading_name = TRADING_NAME.upper()[:60].ljust(60)
     header       = ("H" + srn_padded + month_end_str + VERSION + creation_str + trading_name).ljust(700)[:700]
     trailer      = ("T" + str(len(lines) + 2).zfill(9)).ljust(700)[:700]

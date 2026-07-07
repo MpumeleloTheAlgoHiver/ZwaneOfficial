@@ -1017,9 +1017,17 @@ async function buildSacrraFileContent(settings) {
     const monthEnd     = dt(lastDay.toISOString().slice(0,10).replace(/-/g,''));
     const creationDate = dt(new Date().toISOString().slice(0,10).replace(/-/g,''));
 
-    // Supplier Reference Number — 10 chars, LEFT-aligned (alpha field per SACRRA Layout 700v2)
+    // Supplier Reference Number — 10 chars, RIGHT-aligned (leading spaces).
+    // Confirmed against SACRRA's own dummy sample file
+    // (TT0109_ALL_T702_M_20230302_1_01 1 - Dummy Data Examples_Monthly file):
+    // the header record reads "H    TT0109..." — 4 leading spaces then TT0109,
+    // not "TT0109    " as this previously assumed. This was almost certainly
+    // the cause of "header SRN in file is still being populated incorrectly"
+    // in the bureau's rejection feedback — every field after the SRN (month-end,
+    // version, creation date, trading name) was 10 bytes further left than the
+    // bureau's parser expected relative to a right-justified SRN.
     const srnRaw = (sacrraState.members[0]?.f02_supplier_ref || '').trim();
-    const srn    = srnRaw.padEnd(10, ' ').slice(0, 10);
+    const srn    = srnRaw.padStart(10, ' ').slice(-10);
 
     // Trading name — pulled from theme (same source as sidebar/navbar branding)
     const _theme = await ensureThemeLoaded().catch(() => null);
@@ -1030,13 +1038,13 @@ async function buildSacrraFileContent(settings) {
 
     // ── HEADER (700 chars) ────────────────────────────────────────────────
     // Pos 1:     H
-    // Pos 2-11:  SRN (A10, LEFT-aligned, e.g. "TT0109    ")
+    // Pos 2-11:  SRN (A10, RIGHT-aligned, e.g. "    TT0109")
     // Pos 12-19: MONTH END DATE (N8, CCYYMMDD)
     // Pos 20-21: VERSION NUMBER (N2) = "06" for Layout 700v2
     // Pos 22-29: FILE CREATION DATE (N8, CCYYMMDD)
     // Pos 30-89: TRADING NAME/BRAND NAME (A60)
     // Pos 90-700: FILLER spaces
-    // Expected (after H): TT0109    202606030620260603ZWANE FINANCIAL SERVICES
+    // Expected (after H):     TT0109202606030620260603ZWANE FINANCIAL SERVICES
     let content = ('H' + srn + monthEnd + '06' + creationDate + tradingName).padEnd(700, ' ').slice(0,700) + '\r\n';
 
     // Branch code (pos 40-47, 8 chars): SACRRA explicitly flagged that SRN must NOT appear here.
