@@ -1165,7 +1165,15 @@ async function buildSacrraFileContent(settings) {
         r += nR(lastPayStr || '0', 8);         // 386-393:  DATE LAST PAYMENT (capped to monthEnd, validated vs opened)
         r += openBal;                          // 394-402:  OPENING BALANCE (N9 whole rands)
         r += currBal;                          // 403-411:  CURRENT BALANCE (N9 whole rands)
-        r += aL(isPositive ? 'C' : 'D', 1);   // 412:      BALANCE INDICATOR — only D or C allowed (C=paid/credit)
+        // BALANCE INDICATOR — D=debit balance (money owed by borrower), C=credit balance
+        // (borrower is owed money, e.g. overpayment). This book has no credit-balance
+        // accounts, so it's always D. Using isPositive here was wrong: the bureau requires
+        // that whenever indicator=C the Status Code must be C/P/T (not V) AND the balance
+        // must be > 0 — but this code forces balance to 0 for every isPositive record and
+        // also applies 'C' to V (cancelled/declined), which fails both bureau rules at once
+        // (V07830, V07831 rejections) and triggers the balance=0-with-indicator=C warning
+        // (V08427) on nearly every closed/settled record in the file.
+        r += aL('D', 1);                      // 412:      BALANCE INDICATOR — always D for this book
         r += amtOverdue;                       // 413-421:  AMOUNT OVERDUE (N9)
         r += instalment;                       // 422-430:  INSTALMENT (N9)
         r += mthsArr;                          // 431-432:  MONTHS IN ARREARS (capped to account age)
