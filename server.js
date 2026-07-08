@@ -391,6 +391,25 @@ async function loadSystemSettings(forceRefresh = false) {
 // Alias used throughout this file
 const getSystemTheme = loadSystemSettings;
 
+// The company's real NCR registration number must come from configured
+// settings (system_settings.ncr_number or COMPANY_NCR env var) — never from
+// a hardcoded fallback. This number appears on legally binding documents
+// (credit provider contracts, Section 129 notices, signed loan agreements,
+// NCR compliance filings), so a silent wrong/placeholder value here is a
+// real compliance and legal risk, not a cosmetic bug. Throws instead of
+// falling back, so misconfiguration fails loudly at the point of use.
+function requireNcrNumber(settings) {
+    const ncrNumber = settings?.ncr_number || process.env.COMPANY_NCR || '';
+    if (!ncrNumber.trim()) {
+        throw new Error(
+            'NCR registration number is not configured (system_settings.ncr_number ' +
+            'and COMPANY_NCR are both empty). Set the real NCR number in Settings ' +
+            'before generating any document, notice, or report that carries it.'
+        );
+    }
+    return ncrNumber.trim();
+}
+
 async function docuSealRequest(method, endpoint, data) {
     if (!isDocuSealReady()) {
         throw new Error('DocuSeal configuration missing');               
@@ -448,7 +467,7 @@ function buildDocuSealSubmission(applicationData = {}, profileData = {}, branchD
                 email: creditProviderEmail,
                 values: {
                     provider_name: settings.company_name || process.env.COMPANY_NAME || "AlgoLend",
-                    provider_ncr: settings.ncr_number || process.env.COMPANY_NCR || "NCRCP13510",
+                    provider_ncr: requireNcrNumber(settings),
                     provider_branch_code: settings.provider_branch_code || process.env.COMPANY_BRANCH_CODE || "ZFS",
                     provider_reg_no: settings.company_reg_number || process.env.COMPANY_REG_NUMBER || "",
                     provider_vat_no: settings.company_vat_number || process.env.COMPANY_VAT_NUMBER || "",
@@ -4759,7 +4778,7 @@ app.get('/api/contracts/:applicationId/preview', async (req, res) => {
 
         const settings  = await getSystemTheme();
         const company   = settings?.company_name   || process.env.COMPANY_NAME   || 'Zwane Financial Services';
-        const ncrNumber = settings?.ncr_number      || process.env.COMPANY_NCR    || 'NCRCP13510';
+        const ncrNumber = requireNcrNumber(settings);
         const companyReg= settings?.company_reg_number || '';
         const companyTel= settings?.company_phone   || '';
         const companyAddr= settings?.company_physical_address || '';
@@ -5295,7 +5314,7 @@ app.get('/api/cron/monthly-statements', async (req, res) => {
 
         const settings  = await getSystemTheme();
         const company   = settings?.company_name || process.env.COMPANY_NAME || 'Zwane Financial Services';
-        const ncrNumber = settings?.ncr_number   || process.env.COMPANY_NCR  || 'NCRCP13510';
+        const ncrNumber = requireNcrNumber(settings);
         const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
         const fmtR      = v => `R ${Number(v || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`;
         const period    = new Date().toLocaleDateString('en-ZA', { year: 'numeric', month: 'long' });
@@ -6228,7 +6247,14 @@ app.get('/api/admin/compliance/report/:year', async (req, res) => {
 
     const settings  = await getSystemTheme();
     const company   = settings?.company_name || process.env.COMPANY_NAME || 'Zwane Financial Services';
-    const ncrNumber = settings?.ncr_number   || process.env.COMPANY_NCR  || 'NCRCP13510';
+    // No try/catch wraps this handler, so check-and-return here instead of
+    // throwing (requireNcrNumber would otherwise crash the request unhandled).
+    let ncrNumber;
+    try {
+        ncrNumber = requireNcrNumber(settings);
+    } catch (e) {
+        return res.status(500).json({ error: e.message });
+    }
     const today     = new Date().toLocaleDateString('en-ZA', { year:'numeric', month:'long', day:'numeric' });
 
     const merged = COMPLIANCE_CHECKPOINTS.map(def => {
@@ -6403,7 +6429,7 @@ app.get('/api/cron/section129', async (req, res) => {
         const companyAddr  = settings?.company_physical_address || '';
         const companyPhone = settings?.company_phone     || '';
         const companyEmail = process.env.CREDIT_PROVIDER_EMAIL || '';
-        const ncrNumber    = settings?.ncr_number        || process.env.COMPANY_NCR  || 'NCRCP13510';
+        const ncrNumber    = requireNcrNumber(settings);
         const fromEmail    = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
 
         let sent = 0;
@@ -7322,7 +7348,7 @@ app.post('/api/contracts/sign', async (req, res) => {
         // 2. Build signed contract HTML (reuse preview HTML, append signature block)
         const settings  = await getSystemTheme();
         const company   = settings?.company_name || process.env.COMPANY_NAME || 'Zwane Financial Services';
-        const ncrNumber = settings?.ncr_number || process.env.COMPANY_NCR || 'NCRCP13510';
+        const ncrNumber = requireNcrNumber(settings);
         const term      = Number(app.term_months || 1);
         const monthly   = Number(app.offer_monthly_repayment || 0);
         const totalRepay= Number(app.offer_total_repayment || 0);
