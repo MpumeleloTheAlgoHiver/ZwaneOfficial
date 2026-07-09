@@ -28,7 +28,7 @@ import sys
 import re
 import os
 import calendar
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 try:
     import pandas as pd
@@ -245,10 +245,36 @@ def main():
     skipped        = 0
     excl_stale_36m = []   # rows excluded by 36-month rule
 
+    excl_opened_after_period = []  # rows opened after month-end — belong in a later period's file
+
     for _, row in df.iterrows():
         status_raw  = str(row.get("Status", "")).strip()
         status_code = STATUS_MAP.get(status_raw, "")
         is_closed   = status_code in ("T", "V", "P")
+
+        # ── Dates (moved up: date_opened_d is needed before the financial /
+        # arrears section now, for the account-age cap and the exclusion check)
+        date_opened_d  = to_date(row.get("Agreement/Application Date"))
+        last_receipt_d = to_date(row.get("Last Receipt Date"))
+        final_due_d    = to_date(row.get("Final Payment Due Date"))
+        first_inst_d   = to_date(row.get("First Instalment Date"))
+
+        # Bureau rejection: "Date account opened is after the Header record's
+        # Month-end Date." An account opened after the reporting period ends
+        # doesn't belong in this period's file at all — it belongs in a later
+        # month's submission. Written to its own exclusion CSV for review
+        # rather than silently dropped.
+        if date_opened_d and date_opened_d > month_end:
+            excl_opened_after_period.append({
+                "Client No.":    row.get("Client No.", ""),
+                "Agreement No.": row.get("Agreement No.", ""),
+                "Client Name":   row.get("Client Name", ""),
+                "Status":        status_raw,
+                "Date Opened":   to_date_str(date_opened_d),
+            })
+            continue
+
+        date_opened = to_date_str(date_opened_d)
 
         # ── Financial values
         loan_amount     = to_rands(row.get("Loan amount"))
@@ -273,14 +299,25 @@ def main():
             mths_arr    = 1
             amt_overdue = max(1, total_overdue)
         elif status_raw == "Non-Performing":
-            last_pmt_d  = to_date(row.get("Last Receipt Date"))
-            first_inst_d = to_date(row.get("First Instalment Date"))
-            ref_d       = last_pmt_d or first_inst_d
+            ref_d       = last_receipt_d or first_inst_d
             mths_arr    = max(1, months_between(ref_d, REPORT_DATE))
+            # Bureau warning: "Months in Arrears is greater than the age of
+            # the account." Cap arrears months to how long the account has
+            # actually existed as of month-end.
+            age_months  = months_between(date_opened_d, month_end) if date_opened_d else mths_arr
+            mths_arr    = min(mths_arr, max(1, age_months))
             amt_overdue = max(1, outstanding) if outstanding > 0 else max(1, cap_outstanding)
         else:
             mths_arr    = 0
             amt_overdue = 0
+
+        # Bureau warning: "Current Balance may not exceed the Opening Balance
+        # / Credit Limit by more than 30% where Amount Overdue = 0." Only
+        # applies when there's no overdue amount — an account genuinely in
+        # arrears legitimately carries a balance above the original principal.
+        if amt_overdue == 0 and open_bal > 0:
+            curr_bal   = min(curr_bal, round(open_bal * 1.3))
+            instalment = min(instalment, curr_bal) if instalment else instalment
 
         # Balance Indicator: D=debit balance, C=credit balance (borrower owed money).
         # This book has no credit-balance accounts, so always D — matches the fix
@@ -288,25 +325,42 @@ def main():
         # value) / 'C' on closed accounts caused rejections in the prior submission.
         bal_indicator = "D"
 
-        # ── Dates
-        date_opened_d  = to_date(row.get("Agreement/Application Date"))
-        last_receipt_d = to_date(row.get("Last Receipt Date"))
-        final_due_d    = to_date(row.get("Final Payment Due Date"))
-        first_inst_d   = to_date(row.get("First Instalment Date"))
-
-        date_opened = to_date_str(date_opened_d)
-
-        # Best last-payment date: prefer Last Receipt, fallback Final Payment Due
+        # Best last-payment date: prefer Last Receipt, fallback Final Payment Due.
+        # Two bureau rules applied:
+        #   - REJECTION: "Date of Last Payment is after the Header Record's
+        #     Month End Date" — cap to month_end.
+        #   - WARNING: "Date of Last Payment may not be before the Date
+        #     Account Opened" — zero out rather than report an impossible date.
         best_last_pmt_d = last_receipt_d or final_due_d
-        date_last_pmt   = best_last_pmt_d.strftime("%Y%m%d") if best_last_pmt_d else "00000000"
+        if best_last_pmt_d and best_last_pmt_d > month_end:
+            best_last_pmt_d = month_end
+        if best_last_pmt_d and date_opened_d and best_last_pmt_d < date_opened_d:
+            best_last_pmt_d = None
+        date_last_pmt = best_last_pmt_d.strftime("%Y%m%d") if best_last_pmt_d else "00000000"
 
-        # Status date: for paid accounts use Final Payment Due or Last Receipt; otherwise Last Receipt or opened
+        # Status date: for paid accounts use Final Payment Due or Last Receipt;
+        # for cancelled accounts use Last Receipt or opened, clamped so it's
+        # never within 5 days of the opening date (bureau warning); for
+        # active/non-performing accounts, always use month_end directly —
+        # matches the equivalent live-system fix in sacrra_view_v9/sacrra.js
+        # ("active accounts use month-end date — always current, never stale"),
+        # which resolves the "Status Date should not be 3+ months before
+        # Month End Date" warning for accounts with no recent payment activity.
         if status_code == "T":
             status_date_d = final_due_d or last_receipt_d or date_opened_d
         elif status_code == "V":
             status_date_d = last_receipt_d or date_opened_d
+            if date_opened_d:
+                min_status_d = date_opened_d + timedelta(days=6)
+                if not status_date_d or status_date_d < min_status_d:
+                    status_date_d = min_status_d
         else:
-            status_date_d = last_receipt_d or first_inst_d or date_opened_d
+            status_date_d = month_end
+        # REJECTION: "Status Date may not be after the Header Record's Month
+        # End Date" — cap regardless of status (takes priority over the V-clamp
+        # above in the rare case they conflict, since this one is a rejection).
+        if status_date_d and status_date_d > month_end:
+            status_date_d = month_end
         status_date = status_date_d.strftime("%Y%m%d") if status_date_d else "00000000"
 
         # ── 36-month rule check
@@ -432,8 +486,12 @@ def main():
     trailer      = ("T" + str(len(lines) + 2).zfill(9)).ljust(700)[:700]
     content      = "\r\n".join([header] + lines + [trailer]) + "\r\n"
 
+    # Filename date = the reporting PERIOD (month-end), not today's date —
+    # confirmed by the bureau's own feedback ("header date and file date is
+    # not the same") on a submission where this used creation_str instead.
+    # Matches real filenames like TT0109_ALL_T702_M_20260531_1_3.txt.
     out_dir  = os.path.dirname(excel_path)
-    txt_name = f"{SRN}_ALL_T702_M_{creation_str}_1_1.txt"
+    txt_name = f"{SRN}_ALL_T702_M_{month_end_str}_1_1.txt"
     txt_path = os.path.join(out_dir, txt_name)
 
     with open(txt_path, "w", encoding="utf-8") as f:
@@ -461,6 +519,13 @@ def main():
     else:
         stale_file = "none"
 
+    if excl_opened_after_period:
+        pop = os.path.join(out_dir, f"SACRRA_excluded_opened_after_period_{period_str}.csv")
+        pd.DataFrame(excl_opened_after_period).to_csv(pop, index=False)
+        opened_after_file = os.path.basename(pop)
+    else:
+        opened_after_file = "none"
+
     # ── Summary
     active_count = sum(1 for r in lines if r[411] == "D" and r[432:434].strip() == "")
     np_count     = sum(1 for r in lines if int(r[430:432]) > 0)
@@ -478,6 +543,8 @@ def main():
     print(f"  Excluded bad IDs    : {len(excl_bad_id):>7,}  → {bad_id_file}")
     print(f"  Excluded stale >36m : {len(excl_stale_36m):>7,}  → {stale_file}")
     print(f"    (Submit stale file to SACRRA as separate historical bulk load)")
+    print(f"  Excluded opened>period: {len(excl_opened_after_period):>5,}  → {opened_after_file}")
+    print(f"    (Belongs in a later period's file, not this one)")
     print(f"  Skipped (bad len)   : {skipped:>7,}")
     print(f"  Luhn warnings       : {luhn_fail:>7,}")
     print(f"  Header month-end    : {month_end_str}")
