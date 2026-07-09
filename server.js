@@ -855,52 +855,68 @@ app.get('/api/compliance/form39', async (req, res) => {
         const toIso   = new Date(to + 'T23:59:59.999Z').toISOString();
 
         // 1. New agreements concluded in period (contract signed within range)
-        const { data: newAgreements } = await supabaseService
+        const { data: newAgreements, error: newAgreementsErr } = await supabaseService
             .from('loan_applications')
             .select('id, offer_principal, offer_total_repayment, offer_total_interest, offer_total_initiation_fees, offer_total_admin_fees, offer_credit_life_total, source')
             .gte('contract_signed_at', fromIso)
             .lte('contract_signed_at', toIso)
             .not('contract_signed_at', 'is', null);
+        if (newAgreementsErr) throw newAgreementsErr;
 
-        // 2. All active accounts (snapshot at query time — end of period)
-        const { data: activeAccounts } = await supabaseService
+        // 2. All active accounts. NOTE: this is a LIVE snapshot (current
+        // status), not the book as it stood at the period end — the app
+        // doesn't reliably log status-change history for every transition
+        // (only a handful of code paths call writeAudit on a status change),
+        // so a true point-in-time reconstruction isn't possible yet. Correct
+        // when `to` is today/very recent; an approximation for older periods.
+        const { data: activeAccounts, error: activeErr } = await supabaseService
             .from('loan_applications')
             .select('id, offer_principal')
             .in('status', ['DISBURSED', 'OFFER_ACCEPTED', 'DEBICHECK_AUTH', 'IN_ARREARS', 'IN_DEFAULT']);
+        if (activeErr) throw activeErr;
 
         // 3. Accounts in arrears
-        const { data: arrearsAccounts } = await supabaseService
+        const { data: arrearsAccounts, error: arrearsErr } = await supabaseService
             .from('loan_applications')
             .select('id, offer_principal')
             .in('status', ['IN_ARREARS', 'IN_DEFAULT']);
+        if (arrearsErr) throw arrearsErr;
 
         // 4. Written off (IN_DEFAULT) — loans the system has flagged as defaulted
-        const { data: defaultedAccounts } = await supabaseService
+        const { data: defaultedAccounts, error: defaultedErr } = await supabaseService
             .from('loan_applications')
             .select('id, offer_principal')
             .eq('status', 'IN_DEFAULT')
             .gte('updated_at', fromIso)
             .lte('updated_at', toIso);
+        if (defaultedErr) throw defaultedErr;
 
         // 5. Settled / cancelled in period
-        const { data: settledAccounts } = await supabaseService
+        const { data: settledAccounts, error: settledErr } = await supabaseService
             .from('loan_applications')
             .select('id, offer_principal')
             .eq('status', 'SETTLED')
             .gte('updated_at', fromIso)
             .lte('updated_at', toIso);
+        if (settledErr) throw settledErr;
 
-        const { data: cancelledAccounts } = await supabaseService
+        const { data: cancelledAccounts, error: cancelledErr } = await supabaseService
             .from('loan_applications')
             .select('id, offer_principal')
             .eq('status', 'CANCELLED')
             .gte('updated_at', fromIso)
             .lte('updated_at', toIso);
+        if (cancelledErr) throw cancelledErr;
 
         const sum = (arr, field) => (arr || []).reduce((acc, r) => acc + Number(r[field] || 0), 0);
+        // "Recent" = period end is today or within the last 3 days, matched
+        // to how the frontend defaults `to` — anything older is flagged as
+        // a live-snapshot approximation rather than a true period-end figure.
+        const isRecentPeriod = (Date.now() - new Date(toIso).getTime()) < 3 * 24 * 60 * 60 * 1000;
 
         return res.json({
             period: { from, to },
+            is_live_snapshot: !isRecentPeriod,
             new_agreements: {
                 count:               (newAgreements || []).length,
                 total_principal:     sum(newAgreements, 'offer_principal'),
@@ -952,41 +968,66 @@ app.get('/api/compliance/form40', async (req, res) => {
         const toIso   = new Date(`${year}-12-31T23:59:59.999Z`).toISOString();
 
         // All agreements concluded in the financial year
-        const { data: yearAgreements } = await supabaseService
+        const { data: yearAgreements, error: yearAgreementsErr } = await supabaseService
             .from('loan_applications')
             .select('id, offer_principal, offer_total_interest, offer_total_initiation_fees, offer_total_admin_fees, offer_credit_life_total, offer_total_repayment')
             .gte('contract_signed_at', fromIso)
             .lte('contract_signed_at', toIso)
             .not('contract_signed_at', 'is', null);
+        if (yearAgreementsErr) throw yearAgreementsErr;
 
-        // Book at year-end snapshot
-        const { data: activeAtYearEnd } = await supabaseService
+        // Book at year-end snapshot. NOTE: this is a LIVE snapshot (current
+        // status), not the book as it actually stood at year-end — the app
+        // doesn't reliably log status-change history for every transition,
+        // so a true point-in-time reconstruction isn't possible yet. For the
+        // current/most recent year this is correct; for a past year it is
+        // an approximation. Flagged to the frontend via `is_live_snapshot`
+        // so it can warn accordingly.
+        const { data: activeAtYearEnd, error: activeErr } = await supabaseService
             .from('loan_applications')
             .select('id, offer_principal')
             .in('status', ['DISBURSED', 'OFFER_ACCEPTED', 'DEBICHECK_AUTH', 'IN_ARREARS', 'IN_DEFAULT']);
+        if (activeErr) throw activeErr;
 
-        const { data: nplAccounts } = await supabaseService
+        const { data: nplAccounts, error: nplErr } = await supabaseService
             .from('loan_applications')
             .select('id, offer_principal')
             .in('status', ['IN_ARREARS', 'IN_DEFAULT']);
+        if (nplErr) throw nplErr;
 
-        const { data: writtenOff } = await supabaseService
+        const { data: writtenOff, error: writtenOffErr } = await supabaseService
             .from('loan_applications')
             .select('id, offer_principal')
             .eq('status', 'IN_DEFAULT')
             .gte('updated_at', fromIso)
             .lte('updated_at', toIso);
+        if (writtenOffErr) throw writtenOffErr;
 
         // Branches
-        const { data: branches } = await supabaseService.from('branches').select('id');
+        const { data: branches, error: branchesErr } = await supabaseService.from('branches').select('id');
+        if (branchesErr) throw branchesErr;
+
+        // Manually-tracked figures (staff count, complaints, debt review
+        // referrals, submission tracking) already live in
+        // ncr_statutory_registers via PUT /api/admin/ncr/statutory-registers/:year
+        // — previously never surfaced here, so staff_count in particular
+        // was typed into this screen and lost on every reload.
+        const { data: register, error: registerErr } = await supabaseService
+            .from('ncr_statutory_registers')
+            .select('staff_count, complaints_received, complaints_resolved, debt_review_referrals, submitted_to_ncr, submitted_at, submission_reference, notes')
+            .eq('financial_year', Number(year))
+            .maybeSingle();
+        if (registerErr) throw registerErr;
 
         const sum = (arr, field) => (arr || []).reduce((acc, r) => acc + Number(r[field] || 0), 0);
         const totalBook    = sum(activeAtYearEnd, 'offer_principal');
         const totalNpl     = sum(nplAccounts, 'offer_principal');
         const nplRatio     = totalBook > 0 ? ((totalNpl / totalBook) * 100).toFixed(2) : '0.00';
+        const isCurrentYear = Number(year) === new Date().getFullYear();
 
         return res.json({
             year,
+            is_live_snapshot: !isCurrentYear, // true = credit_book figures are today's state, not a true year-end snapshot
             credit_book: {
                 total_principal_outstanding: totalBook,
                 npl_amount:  totalNpl,
@@ -1007,12 +1048,80 @@ app.get('/api/compliance/form40', async (req, res) => {
                 total_principal: sum(writtenOff, 'offer_principal'),
             },
             operational: {
-                branches: (branches || []).length,
-                // staff_count is entered manually on the reporting screen
+                branches:    (branches || []).length,
+                staff_count: register?.staff_count ?? null,
+            },
+            compliance: {
+                complaints_received:   register?.complaints_received ?? null,
+                complaints_resolved:   register?.complaints_resolved ?? null,
+                debt_review_referrals: register?.debt_review_referrals ?? null,
+                submitted_to_ncr:      register?.submitted_to_ncr ?? false,
+                submitted_at:          register?.submitted_at ?? null,
+                submission_reference:  register?.submission_reference ?? null,
+                notes:                 register?.notes ?? null,
             },
         });
     } catch (err) {
         console.error('[form40]', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/compliance/form39/log-export — audit trail for Form 39.
+// The report itself is generate-and-CSV-download client-side with no
+// server round-trip, so there was previously no record anywhere of who
+// exported what period, when, or what figures were shown. The frontend
+// calls this right before triggering the download.
+// Body: { from, to, figures } — figures is the computed report JSON shown
+// to the user, so the audit entry captures exactly what left the building.
+app.post('/api/compliance/form39/log-export', async (req, res) => {
+    try {
+        const { data: { user }, error: authErr } = await supabaseService.auth.getUser(
+            (req.headers.authorization || '').replace('Bearer ', '')
+        );
+        if (authErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+
+        const { from, to, figures } = req.body || {};
+        if (!from || !to) return res.status(400).json({ error: 'from and to are required' });
+
+        await writeAudit({
+            entityType:  'ncr_form39_export',
+            entityId:    `${from}_${to}`,
+            action:      'exported',
+            newValue:    figures ?? null,
+            description: `Form 39 exported for period ${from} to ${to}`,
+            req,
+        });
+        return res.json({ ok: true });
+    } catch (err) {
+        console.error('[form39/log-export]', err.message);
+        return res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/compliance/form40/log-export — same pattern as Form 39, keyed
+// by financial year instead of a date range.
+app.post('/api/compliance/form40/log-export', async (req, res) => {
+    try {
+        const { data: { user }, error: authErr } = await supabaseService.auth.getUser(
+            (req.headers.authorization || '').replace('Bearer ', '')
+        );
+        if (authErr || !user) return res.status(401).json({ error: 'Unauthorized' });
+
+        const { year, figures } = req.body || {};
+        if (!year) return res.status(400).json({ error: 'year is required' });
+
+        await writeAudit({
+            entityType:  'ncr_form40_export',
+            entityId:    String(year),
+            action:      'exported',
+            newValue:    figures ?? null,
+            description: `Form 40 exported for financial year ${year}`,
+            req,
+        });
+        return res.json({ ok: true });
+    } catch (err) {
+        console.error('[form40/log-export]', err.message);
         return res.status(500).json({ error: err.message });
     }
 });
@@ -6009,7 +6118,7 @@ app.put('/api/admin/ncr/statutory-registers/:year', async (req, res) => {
 
     const fields = ['total_agreements','total_book_value','npl_count','npl_value','write_offs',
         'recoveries','total_revenue','impairment_provision','complaints_received','complaints_resolved',
-        'debt_review_referrals','submitted_to_ncr','submitted_at','submission_reference','notes'];
+        'debt_review_referrals','staff_count','submitted_to_ncr','submitted_at','submission_reference','notes'];
     const payload = { financial_year: year, updated_at: new Date().toISOString(), created_by: user.id };
     for (const k of fields) { if (req.body[k] !== undefined) payload[k] = req.body[k]; }
 
