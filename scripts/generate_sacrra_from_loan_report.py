@@ -161,7 +161,7 @@ def most_recent_date(*dates):
 
 def main():
     if len(sys.argv) < 2:
-        sys.exit("Usage: python3 generate_sacrra_from_loan_report.py <excel_path> [YYYYMM]")
+        sys.exit("Usage: python3 generate_sacrra_from_loan_report.py <excel_path> [YYYYMM] [sequence]")
     excel_path = sys.argv[1]
     if not os.path.exists(excel_path):
         sys.exit(f"File not found: {excel_path}")
@@ -171,6 +171,16 @@ def main():
 
     if len(period_str) != 6 or not period_str.isdigit():
         sys.exit("Period must be YYYYMM (e.g. 202605)")
+
+    # Resubmission sequence number — SACRRA's own filename convention is
+    # {SRN}_ALL_T702_{M|D}_{period}_1_{seq}.txt, incrementing seq each time
+    # the SAME period is resubmitted (their last rejection response referenced
+    # ..._1_3.txt for this exact period). Defaults to 1 for a first submission;
+    # pass the next number explicitly when resubmitting.
+    seq_arg = sys.argv[3] if len(sys.argv) >= 4 else "1"
+    if not seq_arg.isdigit() or int(seq_arg) < 1:
+        sys.exit("Sequence must be a positive integer (e.g. 1, 2, 3...)")
+    seq = int(seq_arg)
 
     rep_year  = int(period_str[:4])
     rep_month = int(period_str[4:])
@@ -185,6 +195,7 @@ def main():
     print(f"\nSACRRA file generator")
     print(f"  Source      : {os.path.basename(excel_path)}")
     print(f"  Period      : {period_str}  (month-end: {month_end_str})")
+    print(f"  Sequence    : {seq}  (resubmission number for this period — bump if SACRRA already has a lower one on file)")
     print(f"  36m cutoff  : {cutoff_36m}  (status/last-payment must be >= this)")
     print(f"  SRN         : {SRN}")
     print(f"  Company     : {TRADING_NAME}")
@@ -491,7 +502,7 @@ def main():
     # not the same") on a submission where this used creation_str instead.
     # Matches real filenames like TT0109_ALL_T702_M_20260531_1_3.txt.
     out_dir  = os.path.dirname(excel_path)
-    txt_name = f"{SRN}_ALL_T702_M_{month_end_str}_1_1.txt"
+    txt_name = f"{SRN}_ALL_T702_M_{month_end_str}_1_{seq}.txt"
     txt_path = os.path.join(out_dir, txt_name)
 
     with open(txt_path, "w", encoding="utf-8") as f:
